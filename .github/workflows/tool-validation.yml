@@ -1,0 +1,195 @@
+# Tool Validation Workflow
+# This workflow validates new tools and pull requests to ensure they meet our standards
+name: Tool Validation
+
+on:
+  # Trigger on pull requests to main branch
+  pull_request:
+    branches: [ main, develop ]
+    paths: 
+      - 'tools/**'
+      - 'scripts/**'
+  # Trigger on pushes to main branch
+  push:
+    branches: [ main ]
+    paths:
+      - 'tools/**'
+      - 'scripts/**'
+  # Allow manual triggering
+  workflow_dispatch:
+
+jobs:
+  validate-structure:
+    runs-on: ubuntu-latest
+    name: Validate Tool Structure
+    
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+      
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyyaml requests bandit safety
+        
+    - name: Validate Tool Structure
+      run: |
+        echo "Validating tool directory structure..."
+        python scripts/validate-tool.py
+        
+    - name: Check for Required Files
+      run: |
+        echo "Checking for required files in each tool..."
+        # Check that each tool has README.md, requirements.txt, and proper structure
+        find tools/ -type d -mindepth 2 -maxdepth 2 | while read tool_dir; do
+          echo "Checking $tool_dir"
+          if [ ! -f "$tool_dir/README.md" ]; then
+            echo "ERROR: Missing README.md in $tool_dir"
+            exit 1
+          fi
+          if [ ! -f "$tool_dir/requirements.txt" ] && [ ! -f "$tool_dir/setup.py" ]; then
+            echo "WARNING: No requirements.txt or setup.py found in $tool_dir"
+          fi
+        done
+        
+    - name: Validate Documentation
+      run: |
+        echo "Validating documentation completeness..."
+        # Check that all tools have proper documentation
+        python scripts/validate-documentation.py
+        
+  code-quality:
+    runs-on: ubuntu-latest
+    name: Code Quality Check
+    
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+      
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: Install Code Quality Tools
+      run: |
+        pip install flake8 black isort bandit safety pylint
+        
+    - name: Run Linting
+      run: |
+        echo "Running code style checks..."
+        find tools/ -name "*.py" -exec flake8 {} \; || echo "Linting issues found"
+        
+    - name: Check Code Formatting
+      run: |
+        echo "Checking code formatting..."
+        find tools/ -name "*.py" -exec black --check {} \; || echo "Formatting issues found"
+        
+    - name: Security Scan with Bandit
+      run: |
+        echo "Running security analysis..."
+        find tools/ -name "*.py" -exec bandit -r {} \; || echo "Security issues found"
+        
+    - name: Dependency Security Check
+      run: |
+        echo "Checking for known vulnerabilities in dependencies..."
+        find tools/ -name "requirements.txt" -exec safety check -r {} \; || echo "Vulnerable dependencies found"
+        
+  functional-testing:
+    runs-on: ubuntu-latest
+    name: Functional Testing
+    
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+      
+    - name: Setup Testing Environment
+      run: |
+        chmod +x scripts/setup-environment.sh
+        ./scripts/setup-environment.sh
+        
+    - name: Run Tool Tests
+      run: |
+        echo "Running functional tests for tools..."
+        find tools/ -name "test_*.py" -o -name "*_test.py" | while read test_file; do
+          echo "Running tests in $test_file"
+          python -m pytest "$test_file" -v
+        done
+        
+    - name: Integration Tests
+      run: |
+        echo "Running integration tests..."
+        if [ -f "scripts/integration-tests.sh" ]; then
+          chmod +x scripts/integration-tests.sh
+          ./scripts/integration-tests.sh
+        fi
+        
+  vulnerability-check:
+    runs-on: ubuntu-latest
+    name: Vulnerability Assessment
+    
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+      
+    - name: Run Vulnerability Scan
+      run: |
+        echo "Scanning for potential vulnerabilities..."
+        # Use semgrep for static analysis
+        pip install semgrep
+        semgrep --config=auto tools/ || echo "Potential vulnerabilities detected"
+        
+    - name: Check for Secrets
+      uses: trufflesecurity/trufflehog@main
+      with:
+        path: ./
+        base: main
+        head: HEAD
+        
+  documentation-check:
+    runs-on: ubuntu-latest
+    name: Documentation Validation
+    
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+      
+    - name: Validate README Files
+      run: |
+        echo "Validating README files..."
+        find . -name "README.md" | while read readme; do
+          echo "Checking $readme"
+          # Check for required sections
+          if ! grep -q "## Installation" "$readme"; then
+            echo "WARNING: Missing Installation section in $readme"
+          fi
+          if ! grep -q "## Usage" "$readme"; then
+            echo "WARNING: Missing Usage section in $readme"
+          fi
+        done
+        
+    - name: Check Links
+      run: |
+        echo "Checking for broken links in documentation..."
+        pip install markdown-link-check || echo "Link checker not available"
+        
+  notify-results:
+    runs-on: ubuntu-latest
+    name: Notify Results
+    needs: [validate-structure, code-quality, functional-testing, vulnerability-check, documentation-check]
+    if: always()
+    
+    steps:
+    - name: Notification
+      run: |
+        echo "Tool validation workflow completed"
+        echo "Structure validation: ${{ needs.validate-structure.result }}"
+        echo "Code quality: ${{ needs.code-quality.result }}"
+        echo "Functional testing: ${{ needs.functional-testing.result }}"
+        echo "Vulnerability check: ${{ needs.vulnerability-check.result }}"
+        echo "Documentation check: ${{ needs.documentation-check.result }}"
