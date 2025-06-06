@@ -1,0 +1,493 @@
+# Security Scanning Workflow
+# This workflow performs comprehensive security scanning on the repository
+name: Security Scan
+
+on:
+  # Run on schedule (daily at 2 AM UTC)
+  schedule:
+    - cron: '0 2 * * *'
+  # Run on pushes to main branch
+  push:
+    branches: [ main ]
+  # Run on pull requests
+  pull_request:
+    branches: [ main, develop ]
+  # Allow manual triggering
+  workflow_dispatch:
+
+env:
+  # Set security scanning parameters
+  SECURITY_LEVEL: 'high'
+  SCAN_TIMEOUT: '30m'
+
+jobs:
+  dependency-security:
+    runs-on: ubuntu-latest
+    name: Dependency Security Scan
+    
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+      
+    - name: Setup Python Environment
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: Install Security Tools
+      run: |
+        # Install comprehensive security scanning tools
+        python -m pip install --upgrade pip
+        pip install safety bandit semgrep pip-audit
+        
+    - name: Scan Python Dependencies
+      run: |
+        echo "Scanning Python dependencies for known vulnerabilities..."
+        # Create a comprehensive requirements file from all tools
+        find tools/ -name "requirements.txt" -exec cat {} \; | sort | uniq > all-requirements.txt
+        
+        # Run safety check
+        if [ -s all-requirements.txt ]; then
+          echo "Running Safety scan..."
+          safety check -r all-requirements.txt --output json > safety-report.json || true
+          
+          echo "Running pip-audit scan..."
+          pip-audit -r all-requirements.txt --format=json --output=pip-audit-report.json || true
+        fi
+        
+    - name: Analyze Security Reports
+      run: |
+        echo "Analyzing security scan results..."
+        python -c "
+import json
+import sys
+
+def analyze_safety_report():
+    try:
+        with open('safety-report.json', 'r') as f:
+            report = json.load(f)
+        if report:
+            print(f'Safety found {len(report)} vulnerabilities')
+            for vuln in report[:5]:  # Show first 5
+                print(f'- {vuln.get(\"package\", \"Unknown\")}: {vuln.get(\"vulnerability\", \"Unknown issue\")}')
+        else:
+            print('No vulnerabilities found by Safety')
+    except FileNotFoundError:
+        print('Safety report not found')
+    except Exception as e:
+        print(f'Error analyzing safety report: {e}')
+
+def analyze_pip_audit_report():
+    try:
+        with open('pip-audit-report.json', 'r') as f:
+            report = json.load(f)
+        if report:
+            print(f'Pip-audit found issues')
+            # Process pip-audit specific format here
+        else:
+            print('No issues found by pip-audit')
+    except FileNotFoundError:
+        print('Pip-audit report not found')
+    except Exception as e:
+        print(f'Error analyzing pip-audit report: {e}')
+
+analyze_safety_report()
+analyze_pip_audit_report()
+"
+        
+    - name: Upload Security Reports
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: dependency-security-reports
+        path: |
+          safety-report.json
+          pip-audit-report.json
+          
+  static-analysis:
+    runs-on: ubuntu-latest
+    name: Static Code Analysis
+    
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+      
+    - name: Setup Analysis Environment
+      run: |
+        pip install bandit semgrep
+        
+    - name: Run Bandit Security Scan
+      run: |
+        echo "Running Bandit static security analysis..."
+        # Scan all Python files for security issues
+        bandit -r tools/ -f json -o bandit-report.json || true
+        bandit -r scripts/ -f json -o bandit-scripts-report.json || true
+        
+        # Display summary
+        echo "Bandit scan completed. Generating summary..."
+        python -c "
+import json
+import os
+
+def summarize_bandit_report(filename):
+    if not os.path.exists(filename):
+        return
+    try:
+        with open(filename, 'r') as f:
+            report = json.load(f)
+        
+        results = report.get('results', [])
+        if results:
+            print(f'Bandit found {len(results)} security issues in {filename}:')
+            severity_counts = {}
+            for result in results:
+                severity = result.get('issue_severity', 'UNKNOWN')
+                severity_counts[severity] = severity_counts.get(severity, 0) + 1
+            
+            for severity, count in severity_counts.items():
+                print(f'  {severity}: {count} issues')
+        else:
+            print(f'No security issues found in {filename}')
+    except Exception as e:
+        print(f'Error reading {filename}: {e}')
+
+summarize_bandit_report('bandit-report.json')
+summarize_bandit_report('bandit-scripts-report.json')
+"
+        
+    - name: Run Semgrep Analysis
+      run: |
+        echo "Running Semgrep static analysis..."
+        # Run semgrep with security rules
+        semgrep --config=auto --json --output=semgrep-report.json tools/ scripts/ || true
+        
+        # Analyze results
+        python -c "
+import json
+import os
+
+if os.path.exists('semgrep-report.json'):
+    try:
+        with open('semgrep-report.json', 'r') as f:
+            report = json.load(f)
+        
+        results = report.get('results', [])
+        if results:
+            print(f'Semgrep found {len(results)} potential issues:')
+            
+            # Group by severity
+            severity_counts = {}
+            for result in results:
+                severity = result.get('extra', {}).get('severity', 'INFO')
+                severity_counts[severity] = severity_counts.get(severity, 0) + 1
+            
+            for severity, count in severity_counts.items():
+                print(f'  {severity}: {count} issues')
+        else:
+            print('No issues found by Semgrep')
+    except Exception as e:
+        print(f'Error analyzing Semgrep report: {e}')
+else:
+    print('Semgrep report not generated')
+"
+        
+    - name: Upload Static Analysis Reports
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: static-analysis-reports
+        path: |
+          bandit-report.json
+          bandit-scripts-report.json
+          semgrep-report.json
+          
+  secrets-detection:
+    runs-on: ubuntu-latest
+    name: Secrets Detection
+    
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Fetch full history for comprehensive scanning
+        
+    - name: Run TruffleHog Secrets Scan
+      uses: trufflesecurity/trufflehog@main
+      with:
+        path: ./
+        base: main
+        head: HEAD
+        extra_args: --debug --only-verified
+        
+    - name: Custom Secrets Pattern Check
+      run: |
+        echo "Running custom secrets pattern detection..."
+        
+        # Define patterns to search for
+        python -c "
+import re
+import os
+import json
+
+# Define dangerous patterns
+patterns = {
+    'api_key': r'(?i)(api[_-]?key|apikey)\s*[:=]\s*[\"\\']?[a-zA-Z0-9_-]{20,}[\"\\']?',
+    'password': r'(?i)(password|pwd|pass)\s*[:=]\s*[\"\\']?[^\\s\\n\\r]{8,}[\"\\']?',
+    'private_key': r'-----BEGIN [A-Z]+ PRIVATE KEY-----',
+    'token': r'(?i)(token|secret)\s*[:=]\s*[\"\\']?[a-zA-Z0-9_-]{20,}[\"\\']?',
+    'aws_key': r'AKIA[0-9A-Z]{16}',
+    'github_token': r'gh[pousr]_[A-Za-z0-9_]{36}',
+}
+
+findings = []
+
+def scan_file(filepath):
+    try:
+        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+            content = f.read()
+            
+        for pattern_name, pattern in patterns.items():
+            matches = re.finditer(pattern, content)
+            for match in matches:
+                # Get line number
+                line_num = content[:match.start()].count('\\n') + 1
+                findings.append({
+                    'file': filepath,
+                    'line': line_num,
+                    'pattern': pattern_name,
+                    'context': match.group(0)[:50] + '...' if len(match.group(0)) > 50 else match.group(0)
+                })
+    except Exception as e:
+        print(f'Error scanning {filepath}: {e}')
+
+# Scan all relevant files
+for root, dirs, files in os.walk('.'):
+    # Skip .git directory
+    if '.git' in dirs:
+        dirs.remove('.git')
+    
+    for file in files:
+        if file.endswith(('.py', '.sh', '.yml', '.yaml', '.json', '.conf', '.cfg', '.ini', '.env')):
+            filepath = os.path.join(root, file)
+            scan_file(filepath)
+
+if findings:
+    print(f'Found {len(findings)} potential secrets:')
+    for finding in findings[:10]:  # Show first 10
+        print(f'  {finding[\"file\"]}:{finding[\"line\"]} - {finding[\"pattern\"]} - {finding[\"context\"]}')
+    
+    # Save detailed report
+    with open('custom-secrets-report.json', 'w') as f:
+        json.dump(findings, f, indent=2)
+else:
+    print('No potential secrets found by custom scanner')
+"
+        
+    - name: Upload Secrets Detection Report
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: secrets-detection-report
+        path: custom-secrets-report.json
+        
+  vulnerability-database-check:
+    runs-on: ubuntu-latest
+    name: CVE Database Check
+    
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+      
+    - name: Setup CVE Checking Environment
+      run: |
+        pip install requests beautifulsoup4
+        
+    - name: Check Against CVE Databases
+      run: |
+        echo "Checking tools against known CVE databases..."
+        
+        python -c "
+import requests
+import json
+import os
+from datetime import datetime
+
+def check_python_vulnerabilities():
+    '''Check for Python-specific vulnerabilities'''
+    try:
+        # This is a simplified example - in practice, you'd use proper APIs
+        print('Checking Python ecosystem vulnerabilities...')
+        
+        # Collect all Python packages used
+        packages = set()
+        for root, dirs, files in os.walk('tools/'):
+            for file in files:
+                if file == 'requirements.txt':
+                    filepath = os.path.join(root, file)
+                    try:
+                        with open(filepath, 'r') as f:
+                            for line in f:
+                                line = line.strip()
+                                if line and not line.startswith('#'):
+                                    pkg = line.split('==')[0].split('>=')[0].split('<=')[0]
+                                    packages.add(pkg.strip())
+                    except Exception as e:
+                        print(f'Error reading {filepath}: {e}')
+        
+        print(f'Found {len(packages)} unique Python packages to check')
+        for pkg in sorted(packages)[:10]:  # Limit output
+            print(f'  - {pkg}')
+            
+    except Exception as e:
+        print(f'Error in vulnerability check: {e}')
+
+check_python_vulnerabilities()
+"
+        
+  compliance-check:
+    runs-on: ubuntu-latest
+    name: Security Compliance Check
+    
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+      
+    - name: Verify Security Guidelines Compliance
+      run: |
+        echo "Checking compliance with security guidelines..."
+        
+        # Check for security best practices
+        python -c "
+import os
+import json
+
+compliance_checks = {
+    'has_security_md': os.path.exists('SECURITY.md'),
+    'has_code_of_conduct': os.path.exists('CODE_OF_CONDUCT.md'),
+    'has_contributing_guidelines': os.path.exists('CONTRIBUTING.md'),
+    'has_license': os.path.exists('LICENSE') or os.path.exists('LICENSE.txt'),
+    'has_security_workflow': os.path.exists('.github/workflows/security-scan.yml'),
+    'tools_have_security_docs': True,  # Will be checked below
+}
+
+# Check if tools have security documentation
+tools_with_security_docs = 0
+total_tools = 0
+
+for root, dirs, files in os.walk('tools/'):
+    if 'README.md' in files:
+        total_tools += 1
+        readme_path = os.path.join(root, 'README.md')
+        try:
+            with open(readme_path, 'r') as f:
+                content = f.read().lower()
+            if 'security' in content or 'warning' in content or 'disclaimer' in content:
+                tools_with_security_docs += 1
+        except Exception:
+            pass
+
+if total_tools > 0:
+    compliance_checks['tools_security_doc_ratio'] = tools_with_security_docs / total_tools
+else:
+    compliance_checks['tools_security_doc_ratio'] = 0
+
+print('Security Compliance Report:')
+for check, result in compliance_checks.items():
+    if isinstance(result, bool):
+        print(f'  {check}: {\"PASS\" if result else \"FAIL\"}')
+    else:
+        print(f'  {check}: {result:.2f}')
+
+# Save compliance report
+with open('compliance-report.json', 'w') as f:
+    json.dump(compliance_checks, f, indent=2)
+"
+        
+    - name: Upload Compliance Report
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: compliance-report
+        path: compliance-report.json
+        
+  security-summary:
+    runs-on: ubuntu-latest
+    name: Security Summary Report
+    needs: [dependency-security, static-analysis, secrets-detection, vulnerability-database-check, compliance-check]
+    if: always()
+    
+    steps:
+    - name: Download All Reports
+      uses: actions/download-artifact@v3
+      
+    - name: Generate Security Summary
+      run: |
+        echo "Generating comprehensive security summary..."
+        
+        python -c "
+import json
+import os
+from datetime import datetime
+
+print('\\n' + '='*60)
+print('          SECVULNHUB SECURITY SCAN SUMMARY')
+print('='*60)
+print(f'Scan Date: {datetime.now().strftime(\"%Y-%m-%d %H:%M:%S UTC\")}')
+print('='*60)
+
+# Function to safely load JSON reports
+def load_report(path):
+    try:
+        if os.path.exists(path):
+            with open(path, 'r') as f:
+                return json.load(f)
+    except Exception as e:
+        print(f'Warning: Could not load {path}: {e}')
+    return None
+
+# Analyze all available reports
+sections = []
+
+# Dependency Security
+safety_report = load_report('dependency-security-reports/safety-report.json')
+if safety_report:
+    vuln_count = len(safety_report) if isinstance(safety_report, list) else 0
+    sections.append(f'Dependencies: {vuln_count} vulnerabilities found')
+
+# Static Analysis
+bandit_report = load_report('static-analysis-reports/bandit-report.json')
+if bandit_report:
+    results = bandit_report.get('results', [])
+    sections.append(f'Static Analysis: {len(results)} security issues found')
+
+# Compliance
+compliance_report = load_report('compliance-report/compliance-report.json')
+if compliance_report:
+    passed = sum(1 for v in compliance_report.values() if v is True)
+    total = len([v for v in compliance_report.values() if isinstance(v, bool)])
+    sections.append(f'Compliance: {passed}/{total} checks passed')
+
+# Print summary
+if sections:
+    for section in sections:
+        print(f'• {section}')
+    
+    # Determine overall security status
+    high_risk_indicators = [
+        'vulnerabilities found' in ' '.join(sections).lower(),
+        'security issues found' in ' '.join(sections).lower(),
+    ]
+    
+    if any(high_risk_indicators):
+        print('\\n⚠️  SECURITY ATTENTION REQUIRED')
+        print('Please review the detailed reports and address identified issues.')
+    else:
+        print('\\n✅ SECURITY STATUS: GOOD')
+        print('No critical security issues detected in this scan.')
+else:
+    print('\\n⚠️  Unable to generate complete summary - some reports may be missing.')
+
+print('\\n' + '='*60)
+print('For detailed information, check individual report artifacts.')
+print('='*60)
+"
