@@ -1,0 +1,644 @@
+# GitHub Actions Workflow to Generate SecV Project Structure
+# This workflow creates the complete directory structure and files for the SecV security tools repository
+# It can be triggered manually or automatically when specific conditions are met
+
+name: Generate SecV Project Structure
+
+# Trigger conditions - this workflow can be run manually or automatically
+on:
+  # Allow manual triggering from GitHub's Actions tab
+  workflow_dispatch:
+    inputs:
+      force_regenerate:
+        description: 'Force regenerate even if structure exists'
+        required: false
+        default: 'false'
+        type: boolean
+      
+  # Automatically run when the repository is first created (if this file exists)
+  push:
+    branches: [ main, master ]
+    paths:
+      - '.github/workflows/generate-structure.yml'
+
+# Define the job that will run
+jobs:
+  generate-structure:
+    # Use the latest Ubuntu runner (GitHub's virtual machine)
+    runs-on: ubuntu-latest
+    
+    # Define the steps this job will execute
+    steps:
+    # Step 1: Check out the repository code
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+      with:
+        # Get the full history and allow the action to make commits
+        fetch-depth: 0
+        token: ${{ secrets.GITHUB_TOKEN }}
+    
+    # Step 2: Set up Python environment (needed for our generation scripts)
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    # Step 3: Check if structure already exists (unless force regenerate is true)
+    - name: Check Existing Structure
+      id: check_structure
+      run: |
+        # Check if main directories exist
+        if [[ -d "tools" && -d "docs" && -d "scripts" ]] && [[ "${{ github.event.inputs.force_regenerate }}" != "true" ]]; then
+          echo "structure_exists=true" >> $GITHUB_OUTPUT
+          echo "Project structure already exists. Use force_regenerate to override."
+        else
+          echo "structure_exists=false" >> $GITHUB_OUTPUT
+          echo "Project structure will be generated."
+        fi
+    
+    # Step 4: Generate the project structure (only if needed)
+    - name: Generate Project Structure
+      if: steps.check_structure.outputs.structure_exists == 'false'
+      run: |
+        echo "Creating SecV project structure..."
+        
+        # Create the main directory structure
+        # Tools directory with security categories
+        mkdir -p tools/reconnaissance/{port-scanner-plus,subdomain-hunter,network-mapper,dns-enumerator,service-detector}
+        mkdir -p tools/vulnerability-assessment/{web-fuzzer-pro,config-auditor,ssl-checker,dependency-scanner,api-tester}
+        mkdir -p tools/forensics/{disk-analyzer,memory-dump-parser,log-analyzer,artifact-extractor,timeline-generator}
+        mkdir -p tools/incident-response/{threat-hunter,ioc-scanner,timeline-builder,containment-tools,evidence-collector}
+        mkdir -p tools/automation/{workflow-engine,report-generator,notification-system,scheduler,task-orchestrator}
+        mkdir -p tools/misc-utilities/{encoder-decoder,hash-calculator,password-generator,network-tools,crypto-utils}
+        
+        # Documentation structure
+        mkdir -p docs/tool-template/{tests,examples,configs}
+        mkdir -p docs/guides
+        mkdir -p docs/api-reference
+        
+        # Scripts and automation
+        mkdir -p scripts/setup
+        mkdir -p scripts/testing
+        mkdir -p scripts/deployment
+        
+        # GitHub specific directories
+        mkdir -p .github/workflows
+        mkdir -p .github/ISSUE_TEMPLATE
+        mkdir -p .github/PULL_REQUEST_TEMPLATE
+        
+        # VS Code configuration
+        mkdir -p .vscode
+        
+        # Create additional project directories
+        mkdir -p tests/integration
+        mkdir -p tests/unit
+        mkdir -p configs/templates
+        mkdir -p data/samples
+        mkdir -p logs
+        
+        echo "Directory structure created successfully!"
+    
+    # Step 5: Generate VS Code configuration files
+    - name: Create VS Code Configuration
+      if: steps.check_structure.outputs.structure_exists == 'false'
+      run: |
+        echo "Creating VS Code workspace configuration..."
+        
+        # Create VS Code settings optimized for security tool development
+        cat > .vscode/settings.json << 'EOF'
+        {
+            "python.defaultInterpreterPath": "./venv/bin/python",
+            "python.terminal.activateEnvironment": true,
+            "python.linting.enabled": true,
+            "python.linting.flake8Enabled": true,
+            "python.linting.banditEnabled": true,
+            "python.linting.pylintEnabled": false,
+            "python.formatting.provider": "black",
+            "python.testing.pytestEnabled": true,
+            "python.testing.unittestEnabled": false,
+            "python.testing.pytestArgs": ["tests"],
+            "files.associations": {
+                "*.yaml": "yaml",
+                "*.yml": "yaml",
+                "*.conf": "ini"
+            },
+            "editor.formatOnSave": true,
+            "editor.codeActionsOnSave": {
+                "source.organizeImports": true
+            },
+            "git.autofetch": true,
+            "git.enableSmartCommit": true,
+            "security.workspace.trust.untrustedFiles": "prompt",
+            "extensions.recommendations": [
+                "ms-python.python",
+                "ms-python.flake8",
+                "ms-python.black-formatter",
+                "ms-python.bandit",
+                "redhat.vscode-yaml",
+                "ms-vscode.vscode-json",
+                "eamodio.gitlens",
+                "github.vscode-pull-request-github",
+                "ms-vscode.hexeditor"
+            ]
+        }
+        EOF
+        
+        # Create debug configurations for security tools
+        cat > .vscode/launch.json << 'EOF'
+        {
+            "version": "0.2.0",
+            "configurations": [
+                {
+                    "name": "Debug Current Tool",
+                    "type": "python",
+                    "request": "launch",
+                    "program": "${file}",
+                    "console": "integratedTerminal",
+                    "args": ["--verbose", "--debug"],
+                    "justMyCode": false,
+                    "env": {
+                        "PYTHONPATH": "${workspaceFolder}"
+                    }
+                },
+                {
+                    "name": "Debug Reconnaissance Tool",
+                    "type": "python",
+                    "request": "launch",
+                    "program": "${workspaceFolder}/tools/reconnaissance/${input:reconTool}/main.py",
+                    "console": "integratedTerminal",
+                    "args": ["--target", "${input:target}"],
+                    "justMyCode": false
+                },
+                {
+                    "name": "Debug Vulnerability Scanner",
+                    "type": "python",
+                    "request": "launch",
+                    "program": "${workspaceFolder}/tools/vulnerability-assessment/${input:vulnTool}/main.py",
+                    "console": "integratedTerminal",
+                    "args": ["--scan", "${input:target}"],
+                    "justMyCode": false
+                }
+            ],
+            "inputs": [
+                {
+                    "id": "reconTool",
+                    "description": "Reconnaissance tool name",
+                    "default": "port-scanner-plus",
+                    "type": "promptString"
+                },
+                {
+                    "id": "vulnTool",
+                    "description": "Vulnerability assessment tool name",
+                    "default": "web-fuzzer-pro",
+                    "type": "promptString"
+                },
+                {
+                    "id": "target",
+                    "description": "Target for testing (use test environments only)",
+                    "default": "127.0.0.1",
+                    "type": "promptString"
+                }
+            ]
+        }
+        EOF
+        
+        # Create task configurations for common operations
+        cat > .vscode/tasks.json << 'EOF'
+        {
+            "version": "2.0.0",
+            "tasks": [
+                {
+                    "label": "Install All Dependencies",
+                    "type": "shell",
+                    "command": "./scripts/setup/install-dependencies.sh",
+                    "group": "build",
+                    "presentation": {
+                        "echo": true,
+                        "reveal": "always",
+                        "panel": "shared"
+                    }
+                },
+                {
+                    "label": "Validate Tool Structure",
+                    "type": "shell",
+                    "command": "./scripts/testing/validate-tool.sh",
+                    "args": ["${input:toolPath}"],
+                    "group": "test",
+                    "presentation": {
+                        "echo": true,
+                        "reveal": "always",
+                        "panel": "shared"
+                    }
+                },
+                {
+                    "label": "Security Scan",
+                    "type": "shell",
+                    "command": "bandit",
+                    "args": ["-r", "tools/", "-f", "json", "-o", "security-report.json"],
+                    "group": "test",
+                    "presentation": {
+                        "echo": true,
+                        "reveal": "always",
+                        "panel": "shared"
+                    }
+                },
+                {
+                    "label": "Generate Documentation",
+                    "type": "shell",
+                    "command": "python",
+                    "args": ["scripts/generate-docs.py"],
+                    "group": "build"
+                }
+            ],
+            "inputs": [
+                {
+                    "id": "toolPath",
+                    "description": "Path to tool directory",
+                    "default": "tools/reconnaissance/port-scanner-plus",
+                    "type": "promptString"
+                }
+            ]
+        }
+        EOF
+    
+    # Step 6: Create comprehensive project documentation
+    - name: Generate Documentation
+      if: steps.check_structure.outputs.structure_exists == 'false'
+      run: |
+        echo "Creating project documentation..."
+        
+        # Create an enhanced README for the SecV project
+        cat > README.md << 'EOF'
+        # SecV - Security Verification & Vulnerability Assessment Tools
+        
+        A comprehensive, professionally-structured collection of security tools for penetration testing, vulnerability assessment, digital forensics, and incident response.
+        
+        ## 🎯 Project Overview
+        
+        SecV (Security Verification) is designed as a modular, extensible platform for security professionals. Each tool follows consistent standards for configuration, documentation, testing, and deployment, making the entire collection reliable and maintainable.
+        
+        ## 🏗️ Architecture
+        
+        ```
+        SecV/
+        ├── tools/                    # Core security tools organized by function
+        │   ├── reconnaissance/       # Network discovery and enumeration
+        │   ├── vulnerability-assessment/ # Vulnerability scanning and analysis
+        │   ├── forensics/           # Digital forensics and analysis
+        │   ├── incident-response/   # Threat hunting and incident handling
+        │   ├── automation/          # Workflow automation and orchestration
+        │   └── misc-utilities/      # General security utilities
+        ├── docs/                    # Comprehensive documentation
+        ├── scripts/                 # Setup, testing, and deployment scripts
+        ├── tests/                   # Integration and unit tests
+        ├── configs/                 # Configuration templates
+        └── .github/                 # GitHub workflows and templates
+        ```
+        
+        ## 🚀 Quick Start
+        
+        ### Prerequisites
+        - Python 3.8+
+        - Git
+        - VS Code (recommended for optimal development experience)
+        
+        ### Setup
+        ```bash
+        # Clone the repository
+        git clone https://github.com/your-username/SecV.git
+        cd SecV
+        
+        # Run automated setup
+        ./scripts/setup/install-dependencies.sh
+        
+        # Verify installation
+        ./scripts/testing/validate-environment.sh
+        ```
+        
+        ### Development in VS Code
+        1. Open the repository in VS Code
+        2. Install recommended extensions when prompted
+        3. Use the integrated terminal for development
+        4. Debug tools using configured launch settings
+        
+        ## 🛠️ Tool Development
+        
+        Each tool in SecV follows a standardized structure:
+        - Consistent configuration management
+        - Comprehensive error handling
+        - Automated testing integration
+        - Professional documentation
+        - Security-first design principles
+        
+        See `docs/tool-template/` for the complete development template.
+        
+        ## 🧪 Testing & Quality Assurance
+        
+        - **Unit Tests**: Individual component testing
+        - **Integration Tests**: Full workflow validation
+        - **Security Tests**: Vulnerability and safety checks
+        - **Performance Tests**: Resource usage and scalability
+        
+        ## 📋 Contributing
+        
+        1. Review `docs/guides/contribution-guide.md`
+        2. Follow the coding standards and security guidelines
+        3. Ensure all tests pass before submitting
+        4. Include comprehensive documentation
+        
+        ## ⚖️ Legal & Ethics
+        
+        These tools are intended for:
+        - Authorized penetration testing
+        - Educational purposes
+        - Security research
+        - Defensive security operations
+        
+        **Users are responsible for compliance with applicable laws and regulations.**
+        
+        ## 📄 License
+        
+        This project is licensed under the MIT License - see LICENSE for details.
+        EOF
+        
+        # Create comprehensive contribution guide
+        cat > docs/guides/contribution-guide.md << 'EOF'
+        # Contribution Guide for SecV
+        
+        ## Development Philosophy
+        
+        SecV emphasizes professional software development practices applied to security tooling. We prioritize code quality, security, maintainability, and user experience.
+        
+        ## Tool Development Standards
+        
+        ### Security-First Design
+        - Input validation for all user-provided data
+        - Secure handling of credentials and sensitive information
+        - Protection against common vulnerabilities (injection, XSS, etc.)
+        - Principle of least privilege in tool execution
+        
+        ### Code Quality Requirements
+        - Python 3.8+ compatibility
+        - Type hints for all functions
+        - Comprehensive docstrings
+        - Error handling for all failure modes
+        - Logging integration for debugging and audit trails
+        
+        ### Testing Standards
+        - Unit tests for all functions (>80% coverage)
+        - Integration tests for complete workflows
+        - Security testing for input validation
+        - Performance testing for resource-intensive operations
+        
+        ### Documentation Requirements
+        - Clear README with usage examples
+        - API documentation for all public interfaces
+        - Configuration file documentation
+        - Security considerations and limitations
+        
+        ## Development Workflow
+        
+        1. **Planning**: Create GitHub issue describing the tool or enhancement
+        2. **Development**: Use feature branch following naming convention
+        3. **Testing**: Ensure all tests pass and security scans are clean
+        4. **Documentation**: Update relevant documentation
+        5. **Review**: Submit pull request for team review
+        6. **Integration**: Merge after approval and CI/CD validation
+        
+        ## Security Tool Categories
+        
+        ### Reconnaissance Tools
+        - Network discovery and enumeration
+        - Service detection and analysis
+        - DNS enumeration and subdomain discovery
+        - Port scanning and service fingerprinting
+        
+        ### Vulnerability Assessment
+        - Web application security testing
+        - Configuration analysis and hardening
+        - Dependency vulnerability scanning
+        - SSL/TLS security assessment
+        
+        ### Digital Forensics
+        - Disk image analysis
+        - Memory dump examination
+        - Log file analysis and correlation
+        - Digital evidence collection
+        
+        ### Incident Response
+        - Threat hunting and detection
+        - Indicator of Compromise (IoC) analysis
+        - Timeline reconstruction
+        - Containment and remediation tools
+        
+        ## Quality Gates
+        
+        All contributions must pass:
+        - Automated testing (pytest, security scans)
+        - Code quality checks (flake8, black formatting)
+        - Security vulnerability scans (bandit)
+        - Documentation completeness review
+        - Peer code review process
+        EOF
+    
+    # Step 7: Create utility scripts
+    - name: Generate Utility Scripts
+      if: steps.check_structure.outputs.structure_exists == 'false'
+      run: |
+        echo "Creating utility scripts..."
+        
+        # Create dependency installation script
+        cat > scripts/setup/install-dependencies.sh << 'EOF'
+        #!/bin/bash
+        # Automated dependency installation for SecV tools
+        
+        set -e
+        
+        echo "🚀 Setting up SecV development environment..."
+        
+        # Install system dependencies
+        if command -v apt-get >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y python3-venv python3-pip git
+        elif command -v brew >/dev/null 2>&1; then
+            brew install python3 git
+        fi
+        
+        # Create and activate virtual environment
+        python3 -m venv venv
+        source venv/bin/activate
+        
+        # Install base development dependencies
+        pip install --upgrade pip
+        pip install black flake8 pytest pytest-cov bandit mypy
+        
+        # Install dependencies for each tool
+        find tools/ -name "requirements.txt" | while read req_file; do
+            echo "📦 Installing dependencies for $(dirname "$req_file")"
+            pip install -r "$req_file"
+        done
+        
+        echo "✅ SecV environment setup complete!"
+        EOF
+        
+        chmod +x scripts/setup/install-dependencies.sh
+        
+        # Create tool validation script
+        cat > scripts/testing/validate-tool.sh << 'EOF'
+        #!/bin/bash
+        # Comprehensive tool validation for SecV
+        
+        TOOL_PATH="$1"
+        
+        if [[ -z "$TOOL_PATH" ]]; then
+            echo "Usage: $0 <tool-path>"
+            echo "Example: $0 tools/reconnaissance/port-scanner-plus"
+            exit 1
+        fi
+        
+        echo "🔍 Validating tool: $TOOL_PATH"
+        
+        # Check required files
+        for file in README.md main.py requirements.txt config.yaml; do
+            if [[ ! -f "$TOOL_PATH/$file" ]]; then
+                echo "❌ Missing: $file"
+                exit 1
+            fi
+        done
+        
+        # Security scan
+        bandit -r "$TOOL_PATH" -f json -o security-report.json
+        
+        # Syntax check
+        python -m py_compile "$TOOL_PATH/main.py"
+        
+        # Run tests if available
+        if [[ -d "$TOOL_PATH/tests" ]]; then
+            pytest "$TOOL_PATH/tests/" -v
+        fi
+        
+        echo "✅ Tool validation complete!"
+        EOF
+        
+        chmod +x scripts/testing/validate-tool.sh
+    
+    # Step 8: Create GitHub templates and workflows
+    - name: Create GitHub Templates
+      if: steps.check_structure.outputs.structure_exists == 'false'
+      run: |
+        echo "Creating GitHub issue and PR templates..."
+        
+        # Bug report template
+        cat > .github/ISSUE_TEMPLATE/bug_report.md << 'EOF'
+        ---
+        name: Bug Report
+        about: Create a report to help us improve SecV
+        title: '[BUG] '
+        labels: bug
+        assignees: ''
+        ---
+        
+        **Describe the bug**
+        A clear description of what the bug is.
+        
+        **Tool Information**
+        - Tool name: 
+        - Version: 
+        - Category: 
+        
+        **To Reproduce**
+        Steps to reproduce the behavior:
+        1. Run command '...'
+        2. With parameters '...'
+        3. See error
+        
+        **Expected behavior**
+        What you expected to happen.
+        
+        **Environment**
+        - OS: [e.g. Ubuntu 20.04]
+        - Python version: [e.g. 3.9.2]
+        - SecV version: [e.g. 1.2.0]
+        
+        **Security Considerations**
+        Please ensure no sensitive information is included in this report.
+        EOF
+        
+        # Feature request template
+        cat > .github/ISSUE_TEMPLATE/feature_request.md << 'EOF'
+        ---
+        name: Feature Request
+        about: Suggest a new tool or enhancement for SecV
+        title: '[FEATURE] '
+        labels: enhancement
+        assignees: ''
+        ---
+        
+        **Feature Category**
+        - [ ] Reconnaissance
+        - [ ] Vulnerability Assessment
+        - [ ] Forensics
+        - [ ] Incident Response
+        - [ ] Automation
+        - [ ] Utilities
+        
+        **Description**
+        Clear description of the proposed feature or tool.
+        
+        **Use Case**
+        Describe the security scenario this addresses.
+        
+        **Proposed Implementation**
+        Technical approach or requirements.
+        
+        **Additional Context**
+        Any other relevant information or examples.
+        EOF
+    
+    # Step 9: Commit all generated files
+    - name: Commit Generated Structure
+      if: steps.check_structure.outputs.structure_exists == 'false'
+      run: |
+        # Configure git for the action
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        
+        # Add all generated files
+        git add .
+        
+        # Create commit with detailed message
+        git commit -m "Generate SecV project structure via GitHub Actions
+        
+        - Created organized directory structure for security tools
+        - Added VS Code workspace configuration for optimal development
+        - Generated comprehensive documentation and contribution guides
+        - Created utility scripts for setup and validation
+        - Added GitHub templates for issues and pull requests
+        - Established professional development workflow
+        
+        This structure provides a solid foundation for collaborative
+        security tool development with modern DevOps practices."
+        
+        # Push the changes
+        git push
+        
+        echo "✅ SecV project structure has been generated and committed!"
+    
+    # Step 10: Create summary comment (if this was triggered by a manual dispatch)
+    - name: Create Summary
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        echo "## 🎉 SecV Structure Generation Complete!" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Your SecV repository now includes:" >> $GITHUB_STEP_SUMMARY
+        echo "- 📁 Organized tool directory structure" >> $GITHUB_STEP_SUMMARY
+        echo "- ⚙️ VS Code workspace configuration" >> $GITHUB_STEP_SUMMARY
+        echo "- 📚 Comprehensive documentation" >> $GITHUB_STEP_SUMMARY
+        echo "- 🔧 Utility scripts for development" >> $GITHUB_STEP_SUMMARY
+        echo "- 🤖 GitHub templates and workflows" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Next Steps:" >> $GITHUB_STEP_SUMMARY
+        echo "1. Clone the repository locally" >> $GITHUB_STEP_SUMMARY
+        echo "2. Open in VS Code for optimal development experience" >> $GITHUB_STEP_SUMMARY
+        echo "3. Run \`./scripts/setup/install-dependencies.sh\` to set up the environment" >> $GITHUB_STEP_SUMMARY
+        echo "4. Start developing tools using the template in \`docs/tool-template/\`" >> $GITHUB_STEP_SUMMARY
