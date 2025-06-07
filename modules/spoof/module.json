@@ -1,18 +1,48 @@
 {
-  "name": "macspoof-go",
-  "version": "0.0.1",
-  "category": "Spoofing",
-  "description": "Changes the MAC address using a compiled Go program.",
-  "author": "0xbv1 | 0xb0rn3",
-  "executable": "./macspoof",
-  "timeout": 120,
+  "name": "macspoof",
+  "version": "1.0.0",
+  "category": "network",
+  "description": "MAC address spoofing utility for network interface manipulation",
+  "author": "Your Name",
+  "executable": "./macspoof-wrapper.sh",
+  "dependencies": ["ifconfig", "ip"],
+  "timeout": 30,
   "concurrent": false,
   "inputs": {
-    "interface": "string",
-    "new_mac": "string"
+    "interface": {
+      "type": "string",
+      "required": true,
+      "description": "Network interface to modify (e.g., eth0, wlan0)"
+    },
+    "mac_address": {
+      "type": "string",
+      "required": true,
+      "description": "New MAC address in format XX:XX:XX:XX:XX:XX",
+      "pattern": "^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$"
+    },
+    "platform": {
+      "type": "string",
+      "required": false,
+      "description": "Target platform (auto-detected if not specified)",
+      "enum": ["linux", "windows", "macos"]
+    }
   },
   "outputs": {
-    "original_mac": "string",
-    "new_mac": "string"
+    "success": {
+      "type": "boolean",
+      "description": "Whether the MAC address was successfully changed"
+    },
+    "old_mac": {
+      "type": "string",
+      "description": "Previous MAC address before change"
+    },
+    "new_mac": {
+      "type": "string",
+      "description": "New MAC address after change"
+    },
+    "interface": {
+      "type": "string",
+      "description": "Interface that was modified"
+    }
   }
 }
