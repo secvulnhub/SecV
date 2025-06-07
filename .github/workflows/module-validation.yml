@@ -1,0 +1,1003 @@
+# .github/workflows/module-validation.yml
+# This workflow validates new tool contributions and tests module integration
+name: Module Validation and Integration
+
+on:
+  pull_request:
+    paths:
+      - 'tools/**'
+  push:
+    branches: [main, develop]
+    paths:
+      - 'tools/**'
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.changes.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      
+      - name: Detect changed tools
+        id: changes
+        run: |
+          # Find all tool directories that have changes
+          changed_tools=$(git diff --name-only HEAD~1 HEAD | grep '^tools/' | cut -d'/' -f1-3 | sort -u)
+          
+          # Convert to JSON matrix format
+          matrix_json="["
+          first=true
+          for tool in $changed_tools; do
+            if [ "$first" = true ]; then
+              first=false
+            else
+              matrix_json+=","
+            fi
+            matrix_json+="\"$tool\""
+          done
+          matrix_json+="]"
+          
+          echo "matrix={\"tool\": $matrix_json}" >> $GITHUB_OUTPUT
+
+  validate-tool-structure:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.matrix != '{"tool": []}'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: ${{fromJson(needs.detect-changes.outputs.matrix)}}
+      fail-fast: false
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+      
+      - name: Install validation dependencies
+        run: |
+          pip install jsonschema pyyaml requests
+          sudo apt-get update
+          sudo apt-get install -y jq shellcheck
+      
+      - name: Validate tool structure
+        run: |
+          TOOL_DIR="${{ matrix.tool }}"
+          echo "Validating tool structure for: $TOOL_DIR"
+          
+          # Check required files exist
+          required_files=("README.md" "install.sh" "test.sh" "module.json" "src/")
+          for file in "${required_files[@]}"; do
+            if [ ! -e "$TOOL_DIR/$file" ]; then
+              echo "❌ Missing required file: $file"
+              exit 1
+            fi
+          done
+          echo "✅ All required files present"
+          
+          # Validate module.json schema
+          python3 scripts/validate-module-json.py "$TOOL_DIR/module.json"
+          echo "✅ Module metadata validation passed"
+          
+          # Check README.md has required sections
+          readme_sections=("Purpose Statement" "Key Features" "Installation Requirements" "Usage Examples" "Testing Instructions" "Security Considerations")
+          for section in "${readme_sections[@]}"; do
+            if ! grep -q "## $section" "$TOOL_DIR/README.md"; then
+              echo "❌ Missing README section: $section"
+              exit 1
+            fi
+          done
+          echo "✅ README.md structure validation passed"
+          
+          # Validate shell scripts with shellcheck
+          shellcheck "$TOOL_DIR/install.sh" "$TOOL_DIR/test.sh"
+          echo "✅ Shell script validation passed"
+
+  test-tool-installation:
+    needs: [detect-changes, validate-tool-structure]
+    if: needs.detect-changes.outputs.matrix != '{"tool": []}'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: ${{fromJson(needs.detect-changes.outputs.matrix)}}
+      fail-fast: false
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Test tool installation
+        run: |
+          TOOL_DIR="${{ matrix.tool }}"
+          cd "$TOOL_DIR"
+          
+          echo "Testing installation for: $TOOL_DIR"
+          
+          # Make scripts executable
+          chmod +x install.sh test.sh
+          
+          # Run installation with timeout
+          timeout 300 ./install.sh || {
+            echo "❌ Installation failed or timed out"
+            exit 1
+          }
+          echo "✅ Installation completed successfully"
+          
+          # Run tool tests with timeout
+          timeout 300 ./test.sh || {
+            echo "❌ Tool tests failed or timed out"
+            exit 1
+          }
+          echo "✅ Tool tests passed"
+
+  test-module-integration:
+    needs: [detect-changes, validate-tool-structure, test-tool-installation]
+    if: needs.detect-changes.outputs.matrix != '{"tool": []}'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: ${{fromJson(needs.detect-changes.outputs.matrix)}}
+      fail-fast: false
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+      
+      - name: Install SecV core platform
+        run: |
+          pip install -r core/requirements.txt
+          python3 core/setup.py develop
+      
+      - name: Test module integration
+        run: |
+          TOOL_DIR="${{ matrix.tool }}"
+          TOOL_NAME=$(basename "$TOOL_DIR")
+          
+          echo "Testing module integration for: $TOOL_NAME"
+          
+          # Test module loading
+          python3 -c "
+          import sys
+          sys.path.append('core')
+          from module_loader import ModuleLoader
+          loader = ModuleLoader()
+          module = loader.load_module('$TOOL_DIR')
+          print('✅ Module loaded successfully')
+          
+          # Test module interface
+          if hasattr(module, 'execute') and hasattr(module, 'validate_inputs'):
+              print('✅ Module interface validation passed')
+          else:
+              print('❌ Module missing required interface methods')
+              sys.exit(1)
+          "
+          
+          # Test module in SecV main utility
+          python3 core/secv-main.py --test-module "$TOOL_NAME" --dry-run
+          echo "✅ Module integration test passed"
+
+  security-scan:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.matrix != '{"tool": []}'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: ${{fromJson(needs.detect-changes.outputs.matrix)}}
+      fail-fast: false
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Security scan
+        run: |
+          TOOL_DIR="${{ matrix.tool }}"
+          
+          echo "Running security scan for: $TOOL_DIR"
+          
+          # Check for common security issues in scripts
+          grep -r "eval\|exec\|system\|shell=True" "$TOOL_DIR/src/" && {
+            echo "⚠️  Warning: Potentially dangerous functions found - manual review required"
+          }
+          
+          # Check for hardcoded credentials
+          grep -r -i "password\|secret\|token\|key" "$TOOL_DIR/src/" | grep -v "placeholder\|example\|template" && {
+            echo "⚠️  Warning: Potential hardcoded credentials found - manual review required"
+          }
+          
+          # Scan for common vulnerability patterns
+          python3 scripts/security-scanner.py "$TOOL_DIR"
+          
+          echo "✅ Security scan completed"
+
+  update-documentation:
+    needs: [validate-tool-structure, test-tool-installation, test-module-integration]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Generate updated documentation
+        run: |
+          echo "Generating updated documentation..."
+          
+          # Update tool catalog
+          python3 scripts/generate-tool-catalog.py > docs/tool-catalog.md
+          
+          # Update workflow templates
+          python3 scripts/generate-workflow-templates.py
+          
+          # Update API documentation
+          python3 scripts/generate-api-docs.py
+          
+          # Commit and push if there are changes
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          
+          if git diff --quiet; then
+            echo "No documentation changes to commit"
+          else
+            git add docs/
+            git commit -m "Auto-update documentation after tool integration"
+            git push
+          fi
+
+---
+
+# .github/workflows/release-management.yml
+# Manages releases and version updates for the SecV platform
+name: Release Management
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: 'Release type (major, minor, patch)'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - major
+          - minor
+          - patch
+
+jobs:
+  prepare-release:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      changelog: ${{ steps.changelog.outputs.changelog }}
+    
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      
+      - name: Calculate version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            # Extract version from tag
+            VERSION=${GITHUB_REF#refs/tags/v}
+          else
+            # Calculate next version
+            CURRENT_VERSION=$(git tag --sort=-version:refname | head -n1 | sed 's/v//')
+            if [ -z "$CURRENT_VERSION" ]; then
+              CURRENT_VERSION="0.0.0"
+            fi
+            
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_VERSION"
+            
+            case "${{ github.event.inputs.release_type }}" in
+              major)
+                VERSION="$((MAJOR + 1)).0.0"
+                ;;
+              minor)
+                VERSION="${MAJOR}.$((MINOR + 1)).0"
+                ;;
+              patch)
+                VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))"
+                ;;
+            esac
+          fi
+          
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+      
+      - name: Generate changelog
+        id: changelog
+        run: |
+          echo "Generating changelog for version ${{ steps.version.outputs.version }}"
+          
+          # Get commits since last tag
+          LAST_TAG=$(git tag --sort=-version:refname | head -n1)
+          if [ -n "$LAST_TAG" ]; then
+            COMMITS=$(git log --pretty=format:"- %s" $LAST_TAG..HEAD)
+          else
+            COMMITS=$(git log --pretty=format:"- %s")
+          fi
+          
+          # Create changelog
+          cat > RELEASE_CHANGELOG.md << EOF
+          ## What's Changed
+          
+          ### New Tools and Modules
+          $(echo "$COMMITS" | grep -i "add\|new" || echo "- No new tools in this release")
+          
+          ### Improvements and Bug Fixes  
+          $(echo "$COMMITS" | grep -v -i "add\|new" || echo "- Maintenance and stability improvements")
+          
+          ### Full Changelog
+          $COMMITS
+          EOF
+          
+          echo "changelog=RELEASE_CHANGELOG.md" >> $GITHUB_OUTPUT
+
+  build-platform:
+    needs: prepare-release
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+      
+      - name: Build SecV platform
+        run: |
+          echo "Building SecV platform v${{ needs.prepare-release.outputs.version }} for ${{ matrix.os }}"
+          
+          # Install build dependencies
+          pip install build wheel setuptools
+          
+          # Update version in setup files
+          sed -i "s/version='.*'/version='${{ needs.prepare-release.outputs.version }}'/" core/setup.py
+          
+          # Build the platform
+          cd core
+          python3 -m build
+          
+          # Create portable distribution
+          mkdir -p ../dist/secv-${{ needs.prepare-release.outputs.version }}-${{ matrix.os }}
+          cp -r . ../dist/secv-${{ needs.prepare-release.outputs.version }}-${{ matrix.os }}/
+          
+          # Create installation script
+          cat > ../dist/secv-${{ needs.prepare-release.outputs.version }}-${{ matrix.os }}/quick-install.sh << 'EOF'
+          #!/bin/bash
+          echo "Installing SecV Platform v${{ needs.prepare-release.outputs.version }}"
+          pip install -r requirements.txt
+          python3 setup.py install
+          echo "SecV Platform installed successfully!"
+          echo "Run 'secv --help' to get started"
+          EOF
+          
+          chmod +x ../dist/secv-${{ needs.prepare-release.outputs.version }}-${{ matrix.os }}/quick-install.sh
+      
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: secv-${{ needs.prepare-release.outputs.version }}-${{ matrix.os }}
+          path: dist/secv-${{ needs.prepare-release.outputs.version }}-${{ matrix.os }}/
+
+  create-release:
+    needs: [prepare-release, build-platform]
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: dist/
+      
+      - name: Create release archives
+        run: |
+          cd dist/
+          for dir in secv-*; do
+            tar -czf "${dir}.tar.gz" "$dir"
+            zip -r "${dir}.zip" "$dir"
+          done
+      
+      - name: Create GitHub Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ needs.prepare-release.outputs.version }}
+          release_name: SecV Platform v${{ needs.prepare-release.outputs.version }}
+          body_path: ${{ needs.prepare-release.outputs.changelog }}
+          draft: false
+          prerelease: ${{ contains(needs.prepare-release.outputs.version, 'alpha') || contains(needs.prepare-release.outputs.version, 'beta') }}
+      
+      - name: Upload release assets
+        run: |
+          # Upload all distribution files to the release
+          for file in dist/*.tar.gz dist/*.zip; do
+            if [ -f "$file" ]; then
+              echo "Uploading $file to release"
+              # This would use the GitHub CLI or API to upload files
+              # gh release upload v${{ needs.prepare-release.outputs.version }} "$file"
+            fi
+          done
+
+---
+
+# .github/workflows/community-management.yml
+# Automates community management tasks and contributor recognition
+name: Community Management
+
+on:
+  pull_request:
+    types: [opened, closed]
+  issues:
+    types: [opened, closed]
+  schedule:
+    - cron: '0 0 * * 0'  # Weekly on Sundays
+
+jobs:
+  welcome-new-contributors:
+    if: github.event.action == 'opened' && github.event.pull_request
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Check if first-time contributor
+        id: check-contributor
+        run: |
+          # Check if this is the user's first contribution
+          CONTRIBUTOR="${{ github.event.pull_request.user.login }}"
+          
+          # Use GitHub API to check previous contributions
+          PREVIOUS_PRS=$(curl -s "https://api.github.com/repos/${{ github.repository }}/pulls?creator=$CONTRIBUTOR&state=all" | jq length)
+          
+          if [ "$PREVIOUS_PRS" -eq 1 ]; then
+            echo "first_time=true" >> $GITHUB_OUTPUT
+          else
+            echo "first_time=false" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Welcome new contributor
+        if: steps.check-contributor.outputs.first_time == 'true'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const message = `
+            ## Welcome to SecV! 🎉
+            
+            Thank you for your first contribution to the SecV cybersecurity platform! We're excited to have you join our community of security practitioners.
+            
+            ### What happens next?
+            1. Our automated validation system will test your contribution
+            2. Community reviewers will provide feedback within 48 hours
+            3. Once approved, your tool will be integrated into the SecV platform
+            4. You'll be added to our contributors list and documentation
+            
+            ### Getting the most from SecV
+            - Join our [community discussions](https://github.com/${{ github.repository }}/discussions)
+            - Check out other tools for inspiration: [Tool Catalog](docs/tool-catalog.md)
+            - Consider creating workflow templates that use your tool
+            
+            ### Questions or need help?
+            - Tag @secv-maintainers in comments
+            - Create an issue with the "help-wanted" label
+            - Check our [contribution guide](docs/contribution-guide.md)
+            
+            Thanks for helping make cybersecurity more accessible and collaborative! 🛡️
+            `;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: message
+            });
+
+  update-contributor-stats:
+    if: github.event.schedule || (github.event.action == 'closed' && github.event.pull_request.merged)
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Generate contributor statistics
+        run: |
+          echo "Generating contributor statistics..."
+          
+          # Create contributors page
+          cat > docs/contributors.md << 'EOF'
+          # SecV Contributors
+          
+          SecV is built by an amazing community of cybersecurity practitioners, developers, and researchers. Here's recognition for everyone who has contributed to making cybersecurity more accessible and collaborative.
+          
+          ## Core Team
+          
+          EOF
+          
+          # Get contributor statistics from git log
+          git log --format='%an' | sort | uniq -c | sort -nr | head -20 | while read count author; do
+            echo "- **$author** - $count contributions" >> docs/contributors.md
+          done
+          
+          cat >> docs/contributors.md << 'EOF'
+          
+          ## Tool Contributors
+          
+          Special recognition for community members who have contributed security tools to the SecV platform:
+          
+          EOF
+          
+          # Extract tool contributors from git history
+          find tools/ -name "*.md" -exec grep -l "Author:" {} \; | while read readme; do
+            author=$(grep "Author:" "$readme" | head -1 | sed 's/.*Author: //' | sed 's/<.*//')
+            tool_name=$(dirname "$readme" | xargs basename)
+            echo "- **$author** - $tool_name" >> docs/contributors.md
+          done
+          
+          cat >> docs/contributors.md << 'EOF'
+          
+          ## Recognition Levels
+          
+          ### 🥇 Platform Champions (20+ contributions)
+          Champions who have significantly shaped the SecV platform with multiple high-quality tools and major contributions.
+          
+          ### 🥈 Security Specialists (10-19 contributions)  
+          Specialists who have contributed multiple tools and helped enhance the platform's capabilities.
+          
+          ### 🥉 Community Contributors (5-9 contributions)
+          Active community members who have made multiple valuable contributions to SecV.
+          
+          ### 🌟 Rising Stars (1-4 contributions)
+          New contributors who are making their mark on the cybersecurity community.
+          
+          ## How to Get Recognized
+          
+          1. **Contribute Quality Tools**: Submit well-documented, tested security utilities
+          2. **Improve Documentation**: Help make SecV more accessible with better docs
+          3. **Create Workflows**: Design multi-tool workflows that showcase platform capabilities
+          4. **Help Others**: Assist fellow contributors in discussions and reviews
+          5. **Share Knowledge**: Write tutorials, blog posts, or speak about SecV
+          
+          ## Community Stats
+          
+          - **Total Contributors**: $(git log --format='%an' | sort -u | wc -l)
+          - **Total Tools**: $(find tools/ -name "module.json" | wc -l)
+          - **Active Workflows**: $(find workflows/ -name "*.yml" | wc -l)
+          - **Documentation Pages**: $(find docs/ -name "*.md" | wc -l)
+          
+          ---
+          
+          *Want to join this list? Check out our [contribution guide](contribution-guide.md) and start building the future of cybersecurity tools!*
+          EOF
+          
+          # Commit changes if any
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          
+          if git diff --quiet docs/contributors.md; then
+            echo "No contributor changes to commit"
+          else
+            git add docs/contributors.md
+            git commit -m "Update contributor statistics"
+            git push
+          fi
+
+  manage-issue-labels:
+    if: github.event.action == 'opened' && github.event.issue
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Auto-label issues
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const title = issue.title.toLowerCase();
+            const body = issue.body.toLowerCase();
+            
+            let labels = [];
+            
+            // Auto-categorize based on content
+            if (title.includes('tool') || title.includes('module')) {
+              labels.push('tool-related');
+            }
+            
+            if (title.includes('bug') || body.includes('error') || body.includes('fail')) {
+              labels.push('bug');
+            }
+            
+            if (title.includes('feature') || title.includes('enhancement')) {
+              labels.push('enhancement');
+            }
+            
+            if (title.includes('help') || title.includes('question')) {
+              labels.push('question');
+            }
+            
+            if (title.includes('workflow') || body.includes('workflow')) {
+              labels.push('workflow');
+            }
+            
+            if (title.includes('documentation') || title.includes('docs')) {
+              labels.push('documentation');
+            }
+            
+            // Add beginner-friendly label for simple issues
+            const beginnerKeywords = ['typo', 'documentation', 'readme', 'example'];
+            if (beginnerKeywords.some(keyword => title.includes(keyword) || body.includes(keyword))) {
+              labels.push('good first issue');
+            }
+            
+            // Apply labels
+            if (labels.length > 0) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                labels: labels
+              });
+            }
+
+---
+
+# .github/workflows/performance-monitoring.yml
+# Monitors platform performance and tool efficiency
+name: Performance Monitoring
+
+on:
+  schedule:
+    - cron: '0 2 * * *'  # Daily at 2 AM
+  workflow_dispatch:
+
+jobs:
+  benchmark-tools:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+      
+      - name: Install dependencies
+        run: |
+          pip install -r core/requirements.txt
+          sudo apt-get update
+          sudo apt-get install -y time
+      
+      - name: Run tool benchmarks
+        run: |
+          echo "Running performance benchmarks for all tools..."
+          
+          mkdir -p benchmarks/results
+          
+          # Find all tools and run benchmarks
+          find tools/ -name "test.sh" | while read test_script; do
+            tool_dir=$(dirname "$test_script")
+            tool_name=$(basename "$tool_dir")
+            
+            echo "Benchmarking $tool_name..."
+            
+            cd "$tool_dir"
+            
+            # Install tool if needed
+            if [ -f "install.sh" ]; then
+              ./install.sh > /dev/null 2>&1
+            fi
+            
+            # Run timed test
+            start_time=$(date +%s.%N)
+            timeout 300 ./test.sh > /dev/null 2>&1
+            exit_code=$?
+            end_time=$(date +%s.%N)
+            
+            duration=$(echo "$end_time - $start_time" | bc)
+            
+            # Record results
+            echo "$tool_name,$duration,$exit_code,$(date)" >> "../../benchmarks/results/daily-$(date +%Y%m%d).csv"
+            
+            cd - > /dev/null
+          done
+      
+      - name: Generate performance report
+        run: |
+          python3 << 'EOF'
+          import csv
+          import os
+          from datetime import datetime
+          
+          # Read benchmark results
+          results_file = f"benchmarks/results/daily-{datetime.now().strftime('%Y%m%d')}.csv"
+          
+          if os.path.exists(results_file):
+              with open(results_file, 'r') as f:
+                  reader = csv.reader(f)
+                  results = list(reader)
+              
+              # Generate performance report
+              with open('benchmarks/performance-report.md', 'w') as f:
+                  f.write("# SecV Performance Report\n\n")
+                  f.write(f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+                  f.write("## Tool Performance Summary\n\n")
+                  f.write("| Tool | Execution Time (s) | Status |\n")
+                  f.write("|------|-------------------|--------|\n")
+                  
+                  for result in results:
+                      if len(result) >= 3:
+                          tool, duration, exit_code = result[:3]
+                          status = "✅ Pass" if exit_code == '0' else "❌ Fail"
+                          f.write(f"| {tool} | {float(duration):.2f} | {status} |\n")
+                  
+                  f.write("\n## Performance Insights\n\n")
+                  
+                  # Calculate statistics
+                  successful_tests = [float(r[1]) for r in results if len(r) >= 3 and r[2] == '0']
+                  if successful_tests:
+                      avg_time = sum(successful_tests) / len(successful_tests)
+                      f.write(f"- **Average execution time**: {avg_time:.2f} seconds\n")
+                      f.write(f"- **Fastest tool**: {min(successful_tests):.2f} seconds\n")
+                      f.write(f"- **Slowest tool**: {max(successful_tests):.2f} seconds\n")
+                      f.write(f"- **Success rate**: {len(successful_tests)}/{len(results)} ({len(successful_tests)/len(results)*100:.1f}%)\n")
+          EOF
+      
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v3
+        with:
+          name: performance-benchmarks
+          path: benchmarks/
+
+  monitor-platform-health:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Check platform health
+        run: |
+          echo "Monitoring SecV platform health..."
+          
+          # Check for broken links in documentation
+          find docs/ -name "*.md" -exec grep -l "http" {} \; | while read doc; do
+            echo "Checking links in $doc"
+            grep -o 'https\?://[^)]*' "$doc" | while read url; do
+              if ! curl -s --head "$url" | head -n 1 | grep -q "200 OK"; then
+                echo "⚠️  Broken link in $doc: $url"
+              fi
+            done
+          done
+          
+          # Check for missing dependencies
+          find tools/ -name "requirements.txt" -o -name "install.sh" | while read req_file; do
+            echo "Checking dependencies in $req_file"
+            # Add dependency validation logic here
+          done
+          
+          # Check for outdated tool versions
+          find tools/ -name "module.json" | while read module_file; do
+            # Extract version and check against known vulnerabilities
+            version=$(jq -r '.version' "$module_file")
+            tool_name=$(jq -r '.name' "$module_file")
+            echo "Tool: $tool_name, Version: $version"
+          done
+
+---
+
+# .github/workflows/security-scanning.yml  
+# Comprehensive security scanning for all contributions
+name: Security Scanning
+
+on:
+  pull_request:
+    paths:
+      - 'tools/**'
+      - 'core/**'
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 3 * * 1'  # Weekly on Mondays
+
+jobs:
+  dependency-scan:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+      
+      - name: Install security scanning tools
+        run: |
+          pip install safety bandit semgrep
+          npm install -g audit-ci
+      
+      - name: Scan Python dependencies
+        run: |
+          echo "Scanning Python dependencies for known vulnerabilities..."
+          
+          # Find all requirements files
+          find . -name "requirements.txt" -o -name "Pipfile" | while read req_file; do
+            echo "Scanning $req_file"
+            if [[ "$req_file" == *requirements.txt ]]; then
+              safety check -r "$req_file" --json --output safety-report.json || true
+            fi
+          done
+          
+          # Generate dependency report
+          if [ -f safety-report.json ]; then
+            python3 << 'EOF'
+          import json
+          import os
+          
+          if os.path.exists('safety-report.json'):
+              with open('safety-report.json', 'r') as f:
+                  data = json.load(f)
+              
+              if data and len(data) > 0:
+                  print("🔒 Security vulnerabilities found in dependencies:")
+                  for vuln in data:
+                      print(f"- {vuln['package']}: {vuln['vulnerability']}")
+              else:
+                  print("✅ No known vulnerabilities in dependencies")
+          EOF
+          fi
+
+  code-security-scan:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Run Bandit security scan
+        run: |
+          echo "Running Bandit security scan on Python code..."
+          
+          # Scan all Python files
+          find . -name "*.py" -not -path "./venv/*" -not -path "./.git/*" | head -50 | while read py_file; do
+            echo "Scanning $py_file"
+            bandit -f json "$py_file" -o "bandit-$(basename "$py_file").json" || true
+          done
+          
+          # Combine results
+          python3 << 'EOF'
+          import json
+          import glob
+          
+          all_issues = []
+          for report_file in glob.glob('bandit-*.json'):
+              try:
+                  with open(report_file, 'r') as f:
+                      data = json.load(f)
+                      if 'results' in data:
+                          all_issues.extend(data['results'])
+              except:
+                  continue
+          
+          if all_issues:
+              print(f"🔍 Found {len(all_issues)} potential security issues:")
+              for issue in all_issues[:10]:  # Show first 10
+                  print(f"- {issue['test_name']}: {issue['issue_text']}")
+                  print(f"  File: {issue['filename']}:{issue['line_number']}")
+          else:
+              print("✅ No security issues found in code scan")
+          EOF
+      
+      - name: Run Semgrep scan
+        run: |
+          echo "Running Semgrep security scan..."
+          semgrep --config=auto --json --output=semgrep-results.json . || true
+          
+          # Process results
+          if [ -f semgrep-results.json ]; then
+            python3 << 'EOF'
+          import json
+          
+          try:
+              with open('semgrep-results.json', 'r') as f:
+                  data = json.load(f)
+              
+              if 'results' in data and data['results']:
+                  print(f"🔍 Semgrep found {len(data['results'])} potential issues:")
+                  for result in data['results'][:5]:  # Show first 5
+                      print(f"- {result['check_id']}: {result['message']}")
+                      print(f"  File: {result['path']}:{result['start']['line']}")
+              else:
+                  print("✅ No issues found by Semgrep")
+          except Exception as e:
+              print(f"Error processing Semgrep results: {e}")
+          EOF
+          fi
+
+  malware-scan:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Install ClamAV
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clamav clamav-daemon
+          sudo freshclam
+      
+      - name: Scan for malware
+        run: |
+          echo "Scanning repository for malware..."
+          
+          # Scan all files except git directory
+          clamscan -r --exclude-dir=.git --infected --remove=no . > clamscan-results.txt 2>&1 || true
+          
+          # Process results
+          if grep -q "FOUND" clamscan-results.txt; then
+            echo "⚠️  Potential malware detected:"
+            grep "FOUND" clamscan-results.txt
+            exit 1
+          else
+            echo "✅ No malware detected"
+          fi
+
+  secrets-scan:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      
+      - name: Install truffleHog
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh | sudo sh -s -- -b /usr/local/bin
+      
+      - name: Scan for secrets
+        run: |
+          echo "Scanning for exposed secrets and credentials..."
+          
+          # Scan git history for secrets
+          truffleHog git file://. --json --no-update > secrets-scan.json 2>/dev/null || true
+          
+          # Process results
+          if [ -s secrets-scan.json ]; then
+            python3 << 'EOF'
+          import json
+          
+          secrets_found = []
+          try:
+              with open('secrets-scan.json', 'r') as f:
+                  for line in f:
+                      if line.strip():
+                          secrets_found.append(json.loads(line))
+          except:
+              pass
+          
+          if secrets_found:
+              print(f"🔑 Found {len(secrets_found)} potential secrets:")
+              for secret in secrets_found[:5]:  # Show first 5
+                  print(f"- {secret.get('DetectorName', 'Unknown')}: {secret.get('Raw', 'N/A')[:50]}...")
+                  print(f"  File: {secret.get('SourceMetadata', {}).get('Data', {}).get('Filesystem', {}).get('file', 'Unknown')}")
+              
+              if len(secrets_found) > 0:
+                  print("⚠️  Please review and remove any actual secrets before merging")
+          else:
+              print("✅ No secrets detected")
+          EOF
+          else
+            echo "✅ No secrets detected"
+          fi
