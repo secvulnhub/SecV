@@ -48,7 +48,7 @@ Setting up SecV involves creating both the core orchestration engine and the mod
 
 ```bash
 # Clone the SecV repository to your local machine
-git clone https://github.com/your-org/secv.git
+git clone https://github.com/secvulnhub/SecV.git
 cd secv
 
 # Build the SecV orchestration engine
