@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -22,17 +23,19 @@ import (
 // --- Enhanced Data Structures ---
 
 type ModuleMetadata struct {
-	Name         string                 `json:"name"`
-	Version      string                 `json:"version"`
-	Category     string                 `json:"category"`
-	Description  string                 `json:"description"`
-	Author       string                 `json:"author"`
-	Executable   string                 `json:"executable"`
-	Dependencies []string               `json:"dependencies"`
-	Inputs       map[string]interface{} `json:"inputs"`
-	Outputs      map[string]interface{} `json:"outputs"`
-	Timeout      int                    `json:"timeout,omitempty"` // Timeout in seconds
-	Concurrent   bool                   `json:"concurrent"`        // Can run concurrently
+	Name            string                 `json:"name"`
+	Version         string                 `json:"version"`
+	Category        string                 `json:"category"`
+	Description     string                 `json:"description"`
+	Author          string                 `json:"author"`
+	Executable      string                 `json:"executable,omitempty"`
+	ExecutablesByOS map[string]string      `json:"executablesByOS,omitempty"`
+	Dependencies    []string               `json:"dependencies"`
+	Inputs          map[string]interface{} `json:"inputs"`
+	Outputs         map[string]interface{} `json:"outputs"`
+	Timeout         int                    `json:"timeout,omitempty"`
+	Concurrent      bool                   `json:"concurrent"`
+	ModuleDir       string                 `json:"-"` // Internal field for module's directory
 }
 
 type ExecutionContext struct {
@@ -97,23 +100,23 @@ func NewModuleLoader(toolsDir string) (*ModuleLoader, error) {
 		ToolsDir: toolsDir,
 		Logger:   logger,
 	}
-	
+
 	if err := loader.loadModules(); err != nil {
 		return nil, err
 	}
-	
+
 	return loader, nil
 }
 
 func (m *ModuleLoader) loadModules() error {
 	moduleCount := 0
-	
+
 	err := filepath.Walk(m.ToolsDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			m.Logger.Printf("Warning: Error accessing path %s: %v", path, err)
 			return nil // Continue walking despite errors
 		}
-		
+
 		if info.Name() == "module.json" {
 			if err := m.loadSingleModule(path); err != nil {
 				color.Yellow("! Failed to load module at %s: %v", path, err)
@@ -127,7 +130,7 @@ func (m *ModuleLoader) loadModules() error {
 	if err != nil {
 		return fmt.Errorf("error discovering modules: %w", err)
 	}
-	
+
 	color.Green("✓ Successfully loaded %d modules", moduleCount)
 	return nil
 }
@@ -147,8 +150,8 @@ func (m *ModuleLoader) loadSingleModule(configPath string) error {
 	if meta.Name == "" {
 		return fmt.Errorf("module name is required")
 	}
-	if meta.Executable == "" {
-		return fmt.Errorf("executable path is required")
+	if meta.Executable == "" && len(meta.ExecutablesByOS) == 0 {
+		return fmt.Errorf("module '%s' must have an 'executable' or 'executablesByOS' field", meta.Name)
 	}
 
 	// Set default timeout if not specified
@@ -156,16 +159,8 @@ func (m *ModuleLoader) loadSingleModule(configPath string) error {
 		meta.Timeout = 300 // 5 minutes default
 	}
 
-	// Resolve executable path relative to module directory
-	moduleDir := filepath.Dir(configPath)
-	if !filepath.IsAbs(meta.Executable) {
-		meta.Executable = filepath.Join(moduleDir, meta.Executable)
-	}
-
-	// Verify executable exists and is executable
-	if _, err := os.Stat(meta.Executable); os.IsNotExist(err) {
-		return fmt.Errorf("executable not found: %s", meta.Executable)
-	}
+	// Store the module's directory for the execution engine
+	meta.ModuleDir = filepath.Dir(configPath)
 
 	m.Modules[meta.Name] = meta
 	color.Cyan("  ✓ Loaded module: %s v%s", meta.Name, meta.Version)
@@ -211,12 +206,22 @@ func NewExecutionEngine(loader *ModuleLoader) *ExecutionEngine {
 
 func (e *ExecutionEngine) ExecuteModule(module ModuleMetadata, execContext ExecutionContext) (ModuleResult, error) {
 	start := time.Now()
-	
+
+	// Determine the correct executable for the current OS
+	executable := module.Executable
+	if osExecutable, ok := module.ExecutablesByOS[runtime.GOOS]; ok {
+		executable = osExecutable
+	}
+
+	if executable == "" {
+		return ModuleResult{}, fmt.Errorf("no suitable executable found for module '%s' on OS '%s'", module.Name, runtime.GOOS)
+	}
+
 	// Create execution context with timeout
 	timeout := time.Duration(module.Timeout) * time.Second
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	
+
 	// Serialize context to JSON for stdin
 	contextJSON, err := json.Marshal(execContext)
 	if err != nil {
@@ -224,27 +229,27 @@ func (e *ExecutionEngine) ExecuteModule(module ModuleMetadata, execContext Execu
 	}
 
 	// Parse executable command (handle commands with arguments)
-	cmdParts := strings.Fields(module.Executable)
+	cmdParts := strings.Fields(executable)
 	if len(cmdParts) == 0 {
 		return ModuleResult{}, fmt.Errorf("empty executable command")
 	}
 
 	// Create command with context for timeout support
 	cmd := exec.CommandContext(ctx, cmdParts[0], cmdParts[1:]...)
-	cmd.Dir = filepath.Dir(module.Executable)
+	cmd.Dir = module.ModuleDir // Execute the command from the module's directory
 	cmd.Stdin = bytes.NewReader(contextJSON)
-	
+
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	color.Yellow("⚙️  Executing %s against %s (timeout: %ds)...", 
+	color.Yellow("⚙️  Executing %s against %s (timeout: %ds)...",
 		module.Name, execContext.Target, module.Timeout)
-	
+
 	// Execute the command
 	err = cmd.Run()
 	executionTime := time.Since(start).Milliseconds()
-	
+
 	// Handle different types of errors
 	if ctx.Err() == context.DeadlineExceeded {
 		return ModuleResult{
@@ -255,13 +260,13 @@ func (e *ExecutionEngine) ExecuteModule(module ModuleMetadata, execContext Execu
 			Timestamp:       start,
 		}, nil
 	}
-	
+
 	if err != nil {
 		errorMsg := fmt.Sprintf("Module execution failed: %s", err)
 		if stderr.Len() > 0 {
 			errorMsg += fmt.Sprintf("\nStderr: %s", stderr.String())
 		}
-		
+
 		return ModuleResult{
 			Success:         false,
 			Errors:          []string{errorMsg},
@@ -282,12 +287,12 @@ func (e *ExecutionEngine) ExecuteModule(module ModuleMetadata, execContext Execu
 			Timestamp:       start,
 		}, nil
 	}
-	
+
 	// Ensure result metadata is set
 	result.ExecutionTimeMs = executionTime
 	result.ModuleName = module.Name
 	result.Timestamp = start
-	
+
 	return result, nil
 }
 
@@ -295,16 +300,16 @@ func (e *ExecutionEngine) ExecuteModule(module ModuleMetadata, execContext Execu
 
 type WorkflowEngine struct {
 	executionEngine *ExecutionEngine
-	logger         *log.Logger
-	executions     map[string]*WorkflowExecution
-	mu             sync.RWMutex
+	logger          *log.Logger
+	executions      map[string]*WorkflowExecution
+	mu              sync.RWMutex
 }
 
 func NewWorkflowEngine(executionEngine *ExecutionEngine) *WorkflowEngine {
 	return &WorkflowEngine{
 		executionEngine: executionEngine,
-		logger:         log.New(os.Stdout, "[WorkflowEngine] ", log.LstdFlags),
-		executions:     make(map[string]*WorkflowExecution),
+		logger:          log.New(os.Stdout, "[WorkflowEngine] ", log.LstdFlags),
+		executions:      make(map[string]*WorkflowExecution),
 	}
 }
 
@@ -324,7 +329,7 @@ func (w *WorkflowEngine) LoadWorkflow(filePath string) (WorkflowDefinition, erro
 
 func (w *WorkflowEngine) ExecuteWorkflow(workflow WorkflowDefinition, target string, params map[string]interface{}) (*WorkflowExecution, error) {
 	executionID := fmt.Sprintf("wf_%d", time.Now().Unix())
-	
+
 	execution := &WorkflowExecution{
 		ID:           executionID,
 		Definition:   workflow,
@@ -334,13 +339,13 @@ func (w *WorkflowEngine) ExecuteWorkflow(workflow WorkflowDefinition, target str
 		StepResults:  make(map[string]ModuleResult),
 		GlobalParams: params,
 	}
-	
+
 	w.mu.Lock()
 	w.executions[executionID] = execution
 	w.mu.Unlock()
-	
+
 	go w.runWorkflow(execution)
-	
+
 	return execution, nil
 }
 
@@ -355,10 +360,10 @@ func (w *WorkflowEngine) runWorkflow(execution *WorkflowExecution) {
 	}()
 
 	color.Green("🚀 Starting workflow: %s", execution.Definition.Name)
-	
+
 	for i, step := range execution.Definition.Steps {
 		w.logger.Printf("Executing step %d/%d: %s", i+1, len(execution.Definition.Steps), step.Name)
-		
+
 		// Check if step should be executed based on condition
 		if step.Condition != "" {
 			// Simple condition evaluation (can be enhanced with expression parser)
@@ -368,7 +373,7 @@ func (w *WorkflowEngine) runWorkflow(execution *WorkflowExecution) {
 				continue
 			}
 		}
-		
+
 		// Get the module for this step
 		module, found := w.executionEngine.loader.GetModule(step.Module)
 		if !found {
@@ -379,11 +384,11 @@ func (w *WorkflowEngine) runWorkflow(execution *WorkflowExecution) {
 				ModuleName: step.Module,
 				Timestamp:  time.Now(),
 			}
-			
+
 			execution.mu.Lock()
 			execution.StepResults[step.Name] = result
 			execution.mu.Unlock()
-			
+
 			if step.OnError != "continue" {
 				execution.mu.Lock()
 				execution.Status = "failed"
@@ -393,7 +398,7 @@ func (w *WorkflowEngine) runWorkflow(execution *WorkflowExecution) {
 			}
 			continue
 		}
-		
+
 		// Prepare execution context
 		execContext := ExecutionContext{
 			Target:     execution.Target,
@@ -402,7 +407,7 @@ func (w *WorkflowEngine) runWorkflow(execution *WorkflowExecution) {
 			WorkflowID: execution.ID,
 			StepID:     step.Name,
 		}
-		
+
 		// Execute the module
 		result, err := w.executionEngine.ExecuteModule(module, execContext)
 		if err != nil {
@@ -414,12 +419,12 @@ func (w *WorkflowEngine) runWorkflow(execution *WorkflowExecution) {
 				Timestamp:  time.Now(),
 			}
 		}
-		
+
 		// Store the result
 		execution.mu.Lock()
 		execution.StepResults[step.Name] = result
 		execution.mu.Unlock()
-		
+
 		// Handle step failure
 		if !result.Success {
 			color.Red("❌ Step '%s' failed", step.Name)
@@ -437,7 +442,7 @@ func (w *WorkflowEngine) runWorkflow(execution *WorkflowExecution) {
 			color.Green("✅ Step '%s' completed successfully", step.Name)
 		}
 	}
-	
+
 	color.Green("🎉 Workflow completed successfully: %s", execution.Definition.Name)
 }
 
@@ -506,7 +511,7 @@ sophisticated workflows from a unified engine.`,
 			}
 
 			color.Green("📋 Available Modules (%d total):\n", len(modules))
-			
+
 			// Group by category
 			categories := make(map[string][]ModuleMetadata)
 			for _, module := range modules {
@@ -520,9 +525,9 @@ sophisticated workflows from a unified engine.`,
 			for category, categoryModules := range categories {
 				color.Cyan("📂 %s:", strings.Title(category))
 				for _, module := range categoryModules {
-					fmt.Printf("  • %s v%s - %s\n", 
-						color.WhiteString(module.Name), 
-						color.GreenString(module.Version), 
+					fmt.Printf("  • %s v%s - %s\n",
+						color.WhiteString(module.Name),
+						color.GreenString(module.Version),
 						module.Description)
 					if module.Author != "" {
 						fmt.Printf("    👤 %s\n", color.CyanString(module.Author))
@@ -540,7 +545,7 @@ sophisticated workflows from a unified engine.`,
 		Args:  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			moduleName := args[0]
-			
+
 			loader, err := NewModuleLoader("tools")
 			if err != nil {
 				color.Red("Failed to load modules: %v", err)
@@ -607,7 +612,7 @@ sophisticated workflows from a unified engine.`,
 		Args:  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			workflowFile := args[0]
-			
+
 			loader, err := NewModuleLoader("tools")
 			if err != nil {
 				color.Red("Failed to load modules: %v", err)
@@ -644,7 +649,7 @@ sophisticated workflows from a unified engine.`,
 				execution.mu.RLock()
 				status := execution.Status
 				execution.mu.RUnlock()
-				
+
 				if status != "running" {
 					break
 				}
@@ -691,7 +696,7 @@ sophisticated workflows from a unified engine.`,
 			}
 
 			engine := NewExecutionEngine(loader)
-			
+
 			color.Green("🎮 Welcome to SecV Interactive Mode!")
 			color.White("Available modules: %d", len(loader.Modules))
 
@@ -719,14 +724,14 @@ sophisticated workflows from a unified engine.`,
 
 					moduleName := ""
 					target := ""
-					
+
 					if err := survey.AskOne(&survey.Select{
-						Message: "Select module:", 
+						Message: "Select module:",
 						Options: moduleNames,
 					}, &moduleName); err != nil {
 						continue
 					}
-					
+
 					if err := survey.AskOne(&survey.Input{
 						Message: "Enter target:",
 					}, &target); err != nil {
@@ -738,7 +743,7 @@ sophisticated workflows from a unified engine.`,
 						Target:  target,
 						Results: make(map[string]ModuleResult),
 					}
-					
+
 					result, err := engine.ExecuteModule(module, context)
 					if err != nil {
 						color.Red("❌ Execution Error: %v", err)
@@ -759,7 +764,7 @@ sophisticated workflows from a unified engine.`,
 					modules := loader.ListModules()
 					fmt.Printf("\n📋 Available Modules (%d):\n", len(modules))
 					for _, module := range modules {
-						fmt.Printf("  • %s v%s [%s]\n", 
+						fmt.Printf("  • %s v%s [%s]\n",
 							color.WhiteString(module.Name),
 							color.GreenString(module.Version),
 							color.CyanString(module.Category))
@@ -774,7 +779,7 @@ sophisticated workflows from a unified engine.`,
 
 					moduleName := ""
 					if err := survey.AskOne(&survey.Select{
-						Message: "Select module for details:", 
+						Message: "Select module for details:",
 						Options: moduleNames,
 					}, &moduleName); err != nil {
 						continue
@@ -786,7 +791,14 @@ sophisticated workflows from a unified engine.`,
 					fmt.Printf("Category: %s\n", module.Category)
 					fmt.Printf("Description: %s\n", module.Description)
 					fmt.Printf("Author: %s\n", module.Author)
-					fmt.Printf("Executable: %s\n", module.Executable)
+					if len(module.ExecutablesByOS) > 0 {
+						fmt.Println("Executables by OS:")
+						for osName, execPath := range module.ExecutablesByOS {
+							fmt.Printf("  %s: %s\n", osName, execPath)
+						}
+					} else {
+						fmt.Printf("Executable: %s\n", module.Executable)
+					}
 					fmt.Printf("Timeout: %ds\n", module.Timeout)
 					if len(module.Dependencies) > 0 {
 						fmt.Printf("Dependencies: %s\n", strings.Join(module.Dependencies, ", "))
@@ -803,7 +815,7 @@ sophisticated workflows from a unified engine.`,
 
 	// Add all commands to root
 	rootCmd.AddCommand(initCmd, listCmd, executeCmd, workflowCmd, interactiveCmd)
-	
+
 	// Execute the CLI
 	if err := rootCmd.Execute(); err != nil {
 		color.Red("Error: %v", err)
