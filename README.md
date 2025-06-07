@@ -39,54 +39,54 @@ SecV operates in two complementary modes, now with superior performance characte
 secv/
 ├── README.md
 ├── Cargo.toml                     # Rust workspace configuration
-├── core/                          # Main orchestration engine (Rust)
-│   ├── src/
-│   │   ├── main.rs               # Primary CLI interface
-│   │   ├── module_loader.rs      # Dynamic module loading system
-│   │   ├── workflow_engine.rs    # Multi-tool orchestration
-│   │   ├── execution_context.rs  # Shared execution state
-│   │   └── interactive.rs        # Enhanced interactive interface
-│   └── configs/                  # Platform configuration templates
-├── tools/                        # Individual security tools
-│   ├── reconnaissance/
-│   │   ├── port-scanner-plus/
-│   │   │   ├── README.md
-│   │   │   ├── Cargo.toml        # Rust project configuration
-│   │   │   ├── module.json       # Module integration metadata
-│   │   │   ├── src/
-│   │   │   │   ├── main.rs       # Standalone tool interface
-│   │   │   │   └── module.rs     # SecV module implementation
-│   │   │   └── examples/         # Usage examples and benchmarks
-│   │   ├── subdomain-hunter/
-│   │   └── network-mapper/
-│   ├── vulnerability-assessment/
-│   │   ├── web-fuzzer-pro/
-│   │   └── service-analyzer/
-│   ├── exploitation/
-│   ├── forensics/
-│   ├── incident-response/
-│   └── automation/
-├── workflows/                     # Pre-built multi-tool workflows
-│   ├── web-app-assessment.yml
-│   ├── network-reconnaissance.yml
-│   ├── incident-response.yml
-│   └── comprehensive-audit.yml
-├── libs/                          # Shared Rust libraries
-│   ├── secv-common/              # Common types and utilities
-│   ├── secv-networking/          # Network operation abstractions
-│   ├── secv-crypto/              # Cryptographic utilities
-│   └── secv-reporting/           # Unified reporting system
-├── docs/
-│   ├── rust-development.md       # Rust-specific development guide
-│   ├── module-trait-system.md    # Advanced module architecture
-│   ├── async-workflow-patterns.md
-│   └── performance-optimization.md
-├── scripts/
-│   ├── setup-rust-environment.sh # Development environment setup
-│   ├── build-all-tools.sh       # Workspace compilation
-│   ├── benchmark-modules.sh     # Performance testing
-│   └── deploy-binaries.sh       # Distribution preparation
-└── .github/
+                         # Main orchestration engine (Rust)
+   ├── src/
+   │   ├── main.rs               # Primary CLI interface
+   │   ├── module_loader.rs      # Dynamic module loading system
+   │   ├── workflow_engine.rs    # Multi-tool orchestration
+   │   ├── execution_context.rs  # Shared execution state
+   │   └── interactive.rs        # Enhanced interactive interface
+   └── configs/                  # Platform configuration templates
+── tools/                        # Individual security tools
+   ├── reconnaissance/
+   │   ├── port-scanner-plus/
+   │   │   ├── README.md
+   │   │   ├── Cargo.toml        # Rust project configuration
+   │   │   ├── module.json       # Module integration metadata
+   │   │   ├── src/
+   │   │   │   ├── main.rs       # Standalone tool interface
+   │   │   │   └── module.rs     # SecV module implementation
+   │   │   └── examples/         # Usage examples and benchmarks
+   │   ├── subdomain-hunter/
+   │   └── network-mapper/
+   ├── vulnerability-assessment/
+   │   ├── web-fuzzer-pro/
+   │   └── service-analyzer/
+   ├── exploitation/
+   ├── forensics/
+   ├── incident-response/
+   └── automation/
+── workflows/                     # Pre-built multi-tool workflows
+   ├── web-app-assessment.yml
+   ├── network-reconnaissance.yml
+   ├── incident-response.yml
+   └── comprehensive-audit.yml
+── libs/                          # Shared Rust libraries
+   ├── secv-common/              # Common types and utilities
+   ├── secv-networking/          # Network operation abstractions
+   ├── secv-crypto/              # Cryptographic utilities
+   └── secv-reporting/           # Unified reporting system
+── docs/
+   ├── rust-development.md       # Rust-specific development guide
+   ├── module-trait-system.md    # Advanced module architecture
+   ├── async-workflow-patterns.md
+   └── performance-optimization.md
+── scripts/
+   ├── setup-rust-environment.sh # Development environment setup
+   ├── build-all-tools.sh       # Workspace compilation
+   ├── benchmark-modules.sh     # Performance testing
+   └── deploy-binaries.sh       # Distribution preparation
+── .github/
     └── workflows/
         ├── rust-ci.yml          # Rust-specific CI pipeline
         ├── security-audit.yml   # Automated security scanning
