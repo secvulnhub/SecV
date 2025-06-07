@@ -456,7 +456,7 @@ func (w *WorkflowEngine) evaluateCondition(condition string, results map[string]
 // --- Enhanced CLI Commands ---
 
 func main() {
-	var target, params, file string
+	var target, params string
 	var timeout int
 
 	// Initialize color output
