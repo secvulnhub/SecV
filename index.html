@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SecV Module JSON Generator</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #2c3e50 0%, #3498db 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .main-content {
+            display: flex;
+            min-height: 600px;
+        }
+
+        .form-section {
+            flex: 1;
+            padding: 30px;
+            background: white;
+        }
+
+        .preview-section {
+            flex: 1;
+            padding: 30px;
+            background: #1e1e1e;
+            color: #f8f8f2;
+            font-family: 'Courier New', monospace;
+        }
+
+        .form-group {
+            margin-bottom: 25px;
+        }
+
+        .form-group label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #2c3e50;
+            font-size: 1.1em;
+        }
+
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 1em;
+            transition: all 0.3s ease;
+            background: #f8f9fa;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #3498db;
+            background: white;
+            box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
+        }
+
+        .form-group textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+
+        .section-title {
+            font-size: 1.4em;
+            color: #2c3e50;
+            margin: 30px 0 20px 0;
+            padding-bottom: 10px;
+            border-bottom: 3px solid #3498db;
+        }
+
+        .dynamic-inputs {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            margin-top: 15px;
+        }
+
+        .dynamic-input-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+            align-items: center;
+        }
+
+        .dynamic-input-group input {
+            flex: 1;
+            background: white;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1em;
+            transition: all 0.3s ease;
+            font-weight: 600;
+        }
+
+        .btn-primary {
+            background: #3498db;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #2980b9;
+            transform: translateY(-2px);
+        }
+
+        .btn-secondary {
+            background: #95a5a6;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #7f8c8d;
+        }
+
+        .btn-danger {
+            background: #e74c3c;
+            color: white;
+            padding: 8px 12px;
+            font-size: 0.9em;
+        }
+
+        .btn-danger:hover {
+            background: #c0392b;
+        }
+
+        .btn-success {
+            background: #27ae60;
+            color: white;
+            padding: 15px 30px;
+            font-size: 1.1em;
+            margin-top: 20px;
+        }
+
+        .btn-success:hover {
+            background: #229954;
+            transform: translateY(-2px);
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            width: auto;
+            transform: scale(1.2);
+        }
+
+        .os-executable-group {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 10px;
+        }
+
+        .os-executable-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+            align-items: center;
+        }
+
+        .os-executable-row select {
+            flex: 0 0 120px;
+        }
+
+        .os-executable-row input {
+            flex: 1;
+        }
+
+        .preview-json {
+            background: #2d3748;
+            padding: 20px;
+            border-radius: 10px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            font-size: 0.9em;
+            line-height: 1.4;
+            max-height: 500px;
+            overflow-y: auto;
+            border: 1px solid #4a5568;
+        }
+
+        .json-key {
+            color: #9ca3af;
+        }
+
+        .json-string {
+            color: #10b981;
+        }
+
+        .json-number {
+            color: #f59e0b;
+        }
+
+        .json-boolean {
+            color: #ef4444;
+        }
+
+        .help-text {
+            font-size: 0.9em;
+            color: #6c757d;
+            margin-top: 5px;
+            font-style: italic;
+        }
+
+        .actions {
+            padding: 30px;
+            background: #f8f9fa;
+            text-align: center;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 15px 20px;
+            border-radius: 8px;
+            color: white;
+            font-weight: 600;
+            z-index: 1000;
+            transform: translateX(400px);
+            transition: transform 0.3s ease;
+        }
+
+        .notification.show {
+            transform: translateX(0);
+        }
+
+        .notification.success {
+            background: #27ae60;
+        }
+
+        .notification.error {
+            background: #e74c3c;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🛠️ SecV Module JSON Generator</h1>
+            <p>Create properly formatted module.json files for SecV cybersecurity tools</p>
+        </div>
+
+        <div class="main-content">
+            <div class="form-section">
+                <h2 class="section-title">📋 Basic Information</h2>
+                
+                <div class="form-group">
+                    <label for="name">Module Name *</label>
+                    <input type="text" id="name" placeholder="e.g., nmap-scanner" required>
+                    <div class="help-text">Unique identifier for your module (lowercase, hyphen-separated)</div>
+                </div>
+
+                <div class="form-group">
+                    <label for="version">Version *</label>
+                    <input type="text" id="version" placeholder="e.g., 1.0.0" required>
+                    <div class="help-text">Semantic version number (major.minor.patch)</div>
+                </div>
+
+                <div class="form-group">
+                    <label for="category">Category *</label>
+                    <select id="category" required>
+                        <option value="">Select a category...</option>
+                        <option value="scanning">Network Scanning</option>
+                        <option value="vulnerability">Vulnerability Assessment</option>
+                        <option value="exploitation">Exploitation</option>
+                        <option value="forensics">Digital Forensics</option>
+                        <option value="reconnaissance">Reconnaissance</option>
+                        <option value="analysis">Analysis</option>
+                        <option value="reporting">Reporting</option>
+                        <option value="monitoring">Monitoring</option>
+                        <option value="other">Other</option>
+                    </select>
+                    <div class="help-text">Primary category for organizing modules</div>
+                </div>
+
+                <div class="form-group">
+                    <label for="description">Description *</label>
+                    <input type="text" id="description" placeholder="Brief description of what this module does" required>
+                    <div class="help-text">One-line description for the module list</div>
+                </div>
+
+                <div class="form-group">
+                    <label for="author">Author</label>
+                    <input type="text" id="author" placeholder="Your name or organization">
+                    <div class="help-text">Module author/maintainer information</div>
+                </div>
+
+                <h2 class="section-title">⚙️ Execution Configuration</h2>
+
+                <div class="form-group">
+                    <label for="executable">Default Executable</label>
+                    <input type="text" id="executable" placeholder="e.g., python3 main.py">
+                    <div class="help-text">Command to run your module (leave empty if using OS-specific)</div>
+                </div>
+
+                <div class="form-group">
+                    <label>OS-Specific Executables</label>
+                    <div class="help-text">Define different executables for different operating systems</div>
+                    <div class="os-executable-group" id="osExecutables">
+                        <!-- Dynamic OS executable entries will be added here -->
+                    </div>
+                    <button type="button" class="btn btn-secondary" onclick="addOSExecutable()">+ Add OS Executable</button>
+                </div>
+
+                <div class="form-group">
+                    <label for="timeout">Timeout (seconds)</label>
+                    <input type="number" id="timeout" value="300" min="1">
+                    <div class="help-text">Maximum execution time before timeout (default: 300 seconds)</div>
+                </div>
+
+                <div class="checkbox-group">
+                    <input type="checkbox" id="concurrent">
+                    <label for="concurrent">Allow concurrent execution</label>
+                </div>
+
+                <h2 class="section-title">📦 Dependencies & Data</h2>
+
+                <div class="form-group">
+                    <label>Dependencies</label>
+                    <div class="help-text">List of required dependencies or modules</div>
+                    <div class="dynamic-inputs" id="dependencies">
+                        <!-- Dynamic dependency entries will be added here -->
+                    </div>
+                    <button type="button" class="btn btn-secondary" onclick="addDependency()">+ Add Dependency</button>
+                </div>
+
+                <div class="form-group">
+                    <label>Input Parameters</label>
+                    <div class="help-text">Define expected input parameters and their types</div>
+                    <div class="dynamic-inputs" id="inputs">
+                        <!-- Dynamic input entries will be added here -->
+                    </div>
+                    <button type="button" class="btn btn-secondary" onclick="addInput()">+ Add Input Parameter</button>
+                </div>
+
+                <div class="form-group">
+                    <label>Output Parameters</label>
+                    <div class="help-text">Define expected output parameters and their types</div>
+                    <div class="dynamic-inputs" id="outputs">
+                        <!-- Dynamic output entries will be added here -->
+                    </div>
+                    <button type="button" class="btn btn-secondary" onclick="addOutput()">+ Add Output Parameter</button>
+                </div>
+            </div>
+
+            <div class="preview-section">
+                <h2 style="color: #f8f8f2; margin-bottom: 20px;">📄 JSON Preview</h2>
+                <div class="preview-json" id="jsonPreview">
+                    <!-- JSON preview will be displayed here -->
+                </div>
+            </div>
+        </div>
+
+        <div class="actions">
+            <button type="button" class="btn btn-success" onclick="downloadJSON()">
+                💾 Download module.json
+            </button>
+            <button type="button" class="btn btn-primary" onclick="copyToClipboard()">
+                📋 Copy to Clipboard
+            </button>
+        </div>
+    </div>
+
+    <div id="notification" class="notification"></div>
+
+    <script>
+        // State management for dynamic inputs
+        let dependencies = [];
+        let inputs = {};
+        let outputs = {};
+        let osExecutables = {};
+
+        // Initialize the form
+        document.addEventListener('DOMContentLoaded', function() {
+            // Add event listeners to all form inputs
+            document.querySelectorAll('input, select, textarea').forEach(input => {
+                input.addEventListener('input', updatePreview);
+                input.addEventListener('change', updatePreview);
+            });
+
+            // Initial preview update
+            updatePreview();
+        });
+
+        function addDependency() {
+            const container = document.getElementById('dependencies');
+            const index = dependencies.length;
+            
+            const div = document.createElement('div');
+            div.className = 'dynamic-input-group';
+            div.innerHTML = `
+                <input type="text" placeholder="e.g., python3, nmap, curl" onchange="updateDependency(${index}, this.value)">
+                <button type="button" class="btn btn-danger" onclick="removeDependency(${index})">Remove</button>
+            `;
+            
+            container.appendChild(div);
+            dependencies.push('');
+        }
+
+        function removeDependency(index) {
+            dependencies.splice(index, 1);
+            renderDependencies();
+            updatePreview();
+        }
+
+        function updateDependency(index, value) {
+            dependencies[index] = value;
+            updatePreview();
+        }
+
+        function renderDependencies() {
+            const container = document.getElementById('dependencies');
+            container.innerHTML = '';
+            
+            dependencies.forEach((dep, index) => {
+                const div = document.createElement('div');
+                div.className = 'dynamic-input-group';
+                div.innerHTML = `
+                    <input type="text" value="${dep}" placeholder="e.g., python3, nmap, curl" onchange="updateDependency(${index}, this.value)">
+                    <button type="button" class="btn btn-danger" onclick="removeDependency(${index})">Remove</button>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function addInput() {
+            const container = document.getElementById('inputs');
+            const id = Date.now(); // Use timestamp as unique ID
+            
+            const div = document.createElement('div');
+            div.className = 'dynamic-input-group';
+            div.innerHTML = `
+                <input type="text" placeholder="Parameter name" onchange="updateInputKey('${id}', 'key', this.value)">
+                <select onchange="updateInputKey('${id}', 'type', this.value)">
+                    <option value="string">String</option>
+                    <option value="number">Number</option>
+                    <option value="boolean">Boolean</option>
+                    <option value="array">Array</option>
+                    <option value="object">Object</option>
+                </select>
+                <input type="text" placeholder="Description" onchange="updateInputKey('${id}', 'description', this.value)">
+                <button type="button" class="btn btn-danger" onclick="removeInput('${id}')">Remove</button>
+            `;
+            
+            container.appendChild(div);
+            inputs[id] = {key: '', type: 'string', description: ''};
+        }
+
+        function removeInput(id) {
+            delete inputs[id];
+            renderInputs();
+            updatePreview();
+        }
+
+        function updateInputKey(id, field, value) {
+            if (inputs[id]) {
+                inputs[id][field] = value;
+                updatePreview();
+            }
+        }
+
+        function renderInputs() {
+            const container = document.getElementById('inputs');
+            container.innerHTML = '';
+            
+            Object.keys(inputs).forEach(id => {
+                const input = inputs[id];
+                const div = document.createElement('div');
+                div.className = 'dynamic-input-group';
+                div.innerHTML = `
+                    <input type="text" value="${input.key}" placeholder="Parameter name" onchange="updateInputKey('${id}', 'key', this.value)">
+                    <select onchange="updateInputKey('${id}', 'type', this.value)">
+                        <option value="string" ${input.type === 'string' ? 'selected' : ''}>String</option>
+                        <option value="number" ${input.type === 'number' ? 'selected' : ''}>Number</option>
+                        <option value="boolean" ${input.type === 'boolean' ? 'selected' : ''}>Boolean</option>
+                        <option value="array" ${input.type === 'array' ? 'selected' : ''}>Array</option>
+                        <option value="object" ${input.type === 'object' ? 'selected' : ''}>Object</option>
+                    </select>
+                    <input type="text" value="${input.description}" placeholder="Description" onchange="updateInputKey('${id}', 'description', this.value)">
+                    <button type="button" class="btn btn-danger" onclick="removeInput('${id}')">Remove</button>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function addOutput() {
+            const container = document.getElementById('outputs');
+            const id = Date.now();
+            
+            const div = document.createElement('div');
+            div.className = 'dynamic-input-group';
+            div.innerHTML = `
+                <input type="text" placeholder="Parameter name" onchange="updateOutputKey('${id}', 'key', this.value)">
+                <select onchange="updateOutputKey('${id}', 'type', this.value)">
+                    <option value="string">String</option>
+                    <option value="number">Number</option>
+                    <option value="boolean">Boolean</option>
+                    <option value="array">Array</option>
+                    <option value="object">Object</option>
+                </select>
+                <input type="text" placeholder="Description" onchange="updateOutputKey('${id}', 'description', this.value)">
+                <button type="button" class="btn btn-danger" onclick="removeOutput('${id}')">Remove</button>
+            `;
+            
+            container.appendChild(div);
+            outputs[id] = {key: '', type: 'string', description: ''};
+        }
+
+        function removeOutput(id) {
+            delete outputs[id];
+            renderOutputs();
+            updatePreview();
+        }
+
+        function updateOutputKey(id, field, value) {
+            if (outputs[id]) {
+                outputs[id][field] = value;
+                updatePreview();
+            }
+        }
+
+        function renderOutputs() {
+            const container = document.getElementById('outputs');
+            container.innerHTML = '';
+            
+            Object.keys(outputs).forEach(id => {
+                const output = outputs[id];
+                const div = document.createElement('div');
+                div.className = 'dynamic-input-group';
+                div.innerHTML = `
+                    <input type="text" value="${output.key}" placeholder="Parameter name" onchange="updateOutputKey('${id}', 'key', this.value)">
+                    <select onchange="updateOutputKey('${id}', 'type', this.value)">
+                        <option value="string" ${output.type === 'string' ? 'selected' : ''}>String</option>
+                        <option value="number" ${output.type === 'number' ? 'selected' : ''}>Number</option>
+                        <option value="boolean" ${output.type === 'boolean' ? 'selected' : ''}>Boolean</option>
+                        <option value="array" ${output.type === 'array' ? 'selected' : ''}>Array</option>
+                        <option value="object" ${output.type === 'object' ? 'selected' : ''}>Object</option>
+                    </select>
+                    <input type="text" value="${output.description}" placeholder="Description" onchange="updateOutputKey('${id}', 'description', this.value)">
+                    <button type="button" class="btn btn-danger" onclick="removeOutput('${id}')">Remove</button>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function addOSExecutable() {
+            const container = document.getElementById('osExecutables');
+            const id = Date.now();
+            
+            const div = document.createElement('div');
+            div.className = 'os-executable-row';
+            div.innerHTML = `
+                <select onchange="updateOSExecutable('${id}', 'os', this.value)">
+                    <option value="">Select OS...</option>
+                    <option value="windows">Windows</option>
+                    <option value="linux">Linux</option>
+                    <option value="darwin">macOS</option>
+                    <option value="freebsd">FreeBSD</option>
+                </select>
+                <input type="text" placeholder="Executable command" onchange="updateOSExecutable('${id}', 'executable', this.value)">
+                <button type="button" class="btn btn-danger" onclick="removeOSExecutable('${id}')">Remove</button>
+            `;
+            
+            container.appendChild(div);
+            osExecutables[id] = {os: '', executable: ''};
+        }
+
+        function removeOSExecutable(id) {
+            delete osExecutables[id];
+            renderOSExecutables();
+            updatePreview();
+        }
+
+        function updateOSExecutable(id, field, value) {
+            if (osExecutables[id]) {
+                osExecutables[id][field] = value;
+                updatePreview();
+            }
+        }
+
+        function renderOSExecutables() {
+            const container = document.getElementById('osExecutables');
+            container.innerHTML = '';
+            
+            Object.keys(osExecutables).forEach(id => {
+                const osExec = osExecutables[id];
+                const div = document.createElement('div');
+                div.className = 'os-executable-row';
+                div.innerHTML = `
+                    <select onchange="updateOSExecutable('${id}', 'os', this.value)">
+                        <option value="">Select OS...</option>
+                        <option value="windows" ${osExec.os === 'windows' ? 'selected' : ''}>Windows</option>
+                        <option value="linux" ${osExec.os === 'linux' ? 'selected' : ''}>Linux</option>
+                        <option value="darwin" ${osExec.os === 'darwin' ? 'selected' : ''}>macOS</option>
+                        <option value="freebsd" ${osExec.os === 'freebsd' ? 'selected' : ''}>FreeBSD</option>
+                    </select>
+                    <input type="text" value="${osExec.executable}" placeholder="Executable command" onchange="updateOSExecutable('${id}', 'executable', this.value)">
+                    <button type="button" class="btn btn-danger" onclick="removeOSExecutable('${id}')">Remove</button>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function updatePreview() {
+            const moduleData = generateModuleData();
+            const jsonString = JSON.stringify(moduleData, null, 2);
+            const highlightedJson = highlightJSON(jsonString);
+            document.getElementById('jsonPreview').innerHTML = highlightedJson;
+        }
+
+        function generateModuleData() {
+            // Collect form data
+            const name = document.getElementById('name').value;
+            const version = document.getElementById('version').value;
+            const category = document.getElementById('category').value;
+            const description = document.getElementById('description').value;
+            const author = document.getElementById('author').value;
+            const executable = document.getElementById('executable').value;
+            const timeout = parseInt(document.getElementById('timeout').value) || 300;
+            const concurrent = document.getElementById('concurrent').checked;
+
+            // Build the module object
+            const moduleData = {
+                name: name || "module-name",
+                version: version || "1.0.0",
+                category: category || "uncategorized",
+                description: description || "Module description",
+                author: author || "Module Author"
+            };
+
+            // Add executable information
+            if (executable) {
+                moduleData.executable = executable;
+            }
+
+            // Add OS-specific executables if any
+            const validOSExecutables = {};
+            Object.values(osExecutables).forEach(osExec => {
+                if (osExec.os && osExec.executable) {
+                    validOSExecutables[osExec.os] = osExec.executable;
+                }
+            });
+            if (Object.keys(validOSExecutables).length > 0) {
+                moduleData.executablesByOS = validOSExecutables;
+            }
+
+            // Add dependencies
+            const validDependencies = dependencies.filter(dep => dep.trim() !== '');
+            if (validDependencies.length > 0) {
+                moduleData.dependencies = validDependencies;
+            } else {
+                moduleData.dependencies = [];
+            }
+
+            // Add inputs
+            const validInputs = {};
+            Object.values(inputs).forEach(input => {
+                if (input.key && input.key.trim() !== '') {
+                    validInputs[input.key] = {
+                        type: input.type,
+                        description: input.description || ""
+                    };
+                }
+            });
+            moduleData.inputs = validInputs;
+
+            // Add outputs
+            const validOutputs = {};
+            Object.values(outputs).forEach(output => {
+                if (output.key && output.key.trim() !== '') {
+                    validOutputs[output.key] = {
+                        type: output.type,
+                        description: output.description || ""
+                    };
+                }
+            });
+            moduleData.outputs = validOutputs;
+
+            // Add timeout and concurrent settings
+            moduleData.timeout = timeout;
+            moduleData.concurrent = concurrent;
+
+            return moduleData;
+        }
+
+        function highlightJSON(jsonString) {
+            return jsonString
+                .replace(/("([^"\\]|\\.)*")\s*:/g, '<span class="json-key">$1</span>:')
+                .replace(/:\s*("([^"\\]|\\.)*")/g, ': <span class="json-string">$1</span>')
+                .replace(/:\s*(\d+)/g, ': <span class="json-number">$1</span>')
+                .replace(/:\s*(true|false)/g, ': <span class="json-boolean">$1</span>');
+        }
+
+        function downloadJSON() {
+            const moduleData = generateModuleData();
+            const jsonString = JSON.stringify(moduleData, null, 2);
+            
+            const blob = new Blob([jsonString], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'module.json';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            showNotification('JSON file downloaded successfully!', 'success');
+        }
+
+        function copyToClipboard() {
+            const moduleData = generateModuleData();
+            const jsonString = JSON.stringify(moduleData, null, 2);
+            
+            navigator.clipboard.writeText(jsonString).then(() => {
+                showNotification('JSON copied to clipboard!', 'success');
+            }).catch(() => {
+                showNotification('Failed to copy to clipboard', 'error');
+            });
+        }
+
+        function showNotification(message, type) {
+            const notification = document.getElementById('notification');
+            notification.textContent = message;
+            notification.className = `notification ${type}`;
+            notification.classList.add('show');
+            
+            setTimeout(() => {
+                notification.classList.remove('show');
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
