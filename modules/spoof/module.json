@@ -1,5 +1,5 @@
 {
-  "name": "macspoof",
+  "name": "spoof",
   "version": "0.1.0",
   "category": "Network",
   "description": "A cross-platform MAC address spoofer using system-native scripting.",
