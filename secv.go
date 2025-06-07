@@ -457,7 +457,6 @@ func (w *WorkflowEngine) evaluateCondition(condition string, results map[string]
 
 func main() {
 	var target, params, file string
-	var concurrent bool
 	var timeout int
 
 	// Initialize color output
