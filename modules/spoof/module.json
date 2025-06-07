@@ -1,0 +1,18 @@
+{
+  "name": "macspoof-go",
+  "version": "0.0.1",
+  "category": "Spoofing",
+  "description": "Changes the MAC address using a compiled Go program.",
+  "author": "0xbv1 | 0xb0rn3",
+  "executable": "./macspoof",
+  "timeout": 120,
+  "concurrent": false,
+  "inputs": {
+    "interface": "string",
+    "new_mac": "string"
+  },
+  "outputs": {
+    "original_mac": "string",
+    "new_mac": "string"
+  }
+}
