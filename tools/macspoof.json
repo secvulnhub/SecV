@@ -5,7 +5,7 @@
   "description": "Spoof Device MAC-ADDRESS",
   "author": "0xb0rn3",
   "executablesByOS": {
-    "windows": "./macspoof.exe",
+    "windows": "modules",
     "linux": "sudo bash macspoof.sh",
     "darwin": "bash macspoof.sh"
   },
