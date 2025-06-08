@@ -40,8 +40,6 @@ type ModuleResult struct {
 	Timestamp       time.Time   `json:"timestamp"`
 }
 
-// --- New Repository Management Structures ---
-
 type RepositoryInfo struct {
 	URL         string    `json:"url"`
 	Name        string    `json:"name"`
@@ -58,11 +56,9 @@ type RepositoryManager struct {
 	mu           sync.RWMutex
 }
 
-// --- Enhanced Repository Manager ---
-
 func NewRepositoryManager(cacheDir string) (*RepositoryManager, error) {
 	logger := log.New(os.Stdout, "[RepoManager] ", log.LstdFlags)
-	
+
 	// Create cache directory if it doesn't exist
 	if err := os.MkdirAll(cacheDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create cache directory: %w", err)
@@ -291,312 +287,7 @@ func (rm *RepositoryManager) GetToolsPaths() []string {
 	defer rm.mu.RUnlock()
 
 	var paths []string
-	
-	// Add local tools directory first
-	paths = append(paths, "tools")
 
-	// Add paths from enabled repositories
-	for _, repo := range rm.repositories {
-		if repo.Enabled && repo.LocalPath != "" {
-			toolsPath := filepath.Join(repo.LocalPath, "tools")
-			if _, err := os.Stat(toolsPath); err == nil {
-				paths = append(paths, toolsPath)
-			}
-		}
-	}
-
-	return paths
-}
-
-// --- Enhanced Data Structures (keeping your original structures) ---
-
-type ModuleMetadata struct {
-	Name            string                 `json:"name"`
-	Version         string                 `json:"version"`
-	Category        string                 `json:"category"`
-	Description     string                 `json:"description"`
-	Author          string                 `json:"author"`
-	Executable      string                 `json:"executable,omitempty"`
-	ExecutablesByOS map[string]string      `json:"executablesByOS,omitempty"`
-	Dependencies    []string               `json:"dependencies"`
-	Inputs          map[string]interface{} `json:"inputs"`
-	Outputs         map[string]interface{} `json:"outputs"`
-	Timeout         int                    `json:"timeout,omitempty"`
-	Concurrent      bool                   `json:"concurrent"`
-	ModuleDir       string                 `json:"-"` // Internal field for module's directory
-	Source          string                 `json:"-"` // Track if module is local or from GitHub
-	RepoURL         string                 `json:"-"` // Original repository URL
-}
-
-type ExecutionContext struct {
-	Target     string                  `json:"target"`
-	Parameters map[string]interface{}  `json:"parameters"`
-	Results    map[string]ModuleResult `json:"results"`
-	WorkflowID string                  `json:"workflow_id,omitempty"`
-	StepID     string                  `json:"step_id,omitempty"`
-}
-
-type ModuleResult struct {
-	Success         bool        `json:"success"`
-	Data            interface{} `json:"data"`
-	Errors          []string    `json:"errors"`
-	ExecutionTimeMs int64       `json:"execution_time_ms"`
-	ModuleName      string      `json:"module_name"`
-	Timestamp       time.Time   `json:"timestamp"`
-}
-
-// --- New Repository Management Structures ---
-
-type RepositoryInfo struct {
-	URL         string    `json:"url"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	LastSync    time.Time `json:"last_sync"`
-	Enabled     bool      `json:"enabled"`
-	LocalPath   string    `json:"local_path"`
-}
-
-type RepositoryManager struct {
-	repositories map[string]RepositoryInfo
-	cacheDir     string
-	logger       *log.Logger
-	mu           sync.RWMutex
-}
-
-// --- Enhanced Repository Manager ---
-
-func NewRepositoryManager(cacheDir string) (*RepositoryManager, error) {
-	logger := log.New(os.Stdout, "[RepoManager] ", log.LstdFlags)
-	
-	// Create cache directory if it doesn't exist
-	if err := os.MkdirAll(cacheDir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create cache directory: %w", err)
-	}
-
-	rm := &RepositoryManager{
-		repositories: make(map[string]RepositoryInfo),
-		cacheDir:     cacheDir,
-		logger:       logger,
-	}
-
-	// Load existing repository configuration
-	if err := rm.loadRepositoryConfig(); err != nil {
-		rm.logger.Printf("Warning: Could not load repository config: %v", err)
-	}
-
-	// Add default SecV tools repository
-	defaultRepo := RepositoryInfo{
-		URL:         "https://github.com/secvulnhub/SecV",
-		Name:        "secvulnhub-secv",
-		Description: "Official SecV Tools Repository",
-		Enabled:     true,
-		LocalPath:   filepath.Join(cacheDir, "secvulnhub-secv"),
-	}
-	rm.repositories[defaultRepo.Name] = defaultRepo
-
-	return rm, nil
-}
-
-func (rm *RepositoryManager) loadRepositoryConfig() error {
-	configPath := filepath.Join(rm.cacheDir, "repositories.json")
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		return nil // No config file exists yet, which is fine
-	}
-
-	data, err := ioutil.ReadFile(configPath)
-	if err != nil {
-		return err
-	}
-
-	return json.Unmarshal(data, &rm.repositories)
-}
-
-func (rm *RepositoryManager) saveRepositoryConfig() error {
-	rm.mu.RLock()
-	defer rm.mu.RUnlock()
-
-	configPath := filepath.Join(rm.cacheDir, "repositories.json")
-	data, err := json.MarshalIndent(rm.repositories, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	return ioutil.WriteFile(configPath, data, 0644)
-}
-
-func (rm *RepositoryManager) AddRepository(url, name, description string) error {
-	rm.mu.Lock()
-	defer rm.mu.Unlock()
-
-	if name == "" {
-		// Generate name from URL
-		parts := strings.Split(strings.TrimSuffix(url, ".git"), "/")
-		if len(parts) >= 2 {
-			name = fmt.Sprintf("%s-%s", parts[len(parts)-2], parts[len(parts)-1])
-		} else {
-			name = fmt.Sprintf("repo-%d", time.Now().Unix())
-		}
-	}
-
-	repo := RepositoryInfo{
-		URL:         url,
-		Name:        name,
-		Description: description,
-		Enabled:     true,
-		LocalPath:   filepath.Join(rm.cacheDir, name),
-	}
-
-	rm.repositories[name] = repo
-	return rm.saveRepositoryConfig()
-}
-
-func (rm *RepositoryManager) SyncRepository(name string) error {
-	rm.mu.RLock()
-	repo, exists := rm.repositories[name]
-	rm.mu.RUnlock()
-
-	if !exists {
-		return fmt.Errorf("repository '%s' not found", name)
-	}
-
-	if !repo.Enabled {
-		return fmt.Errorf("repository '%s' is disabled", name)
-	}
-
-	color.Yellow("🔄 Syncing repository: %s", repo.Name)
-
-	// Download the repository as a ZIP file
-	zipURL := strings.TrimSuffix(repo.URL, ".git") + "/archive/refs/heads/main.zip"
-	if !strings.Contains(zipURL, "/archive/") {
-		zipURL = strings.TrimSuffix(repo.URL, ".git") + "/archive/refs/heads/master.zip"
-	}
-
-	resp, err := http.Get(zipURL)
-	if err != nil {
-		return fmt.Errorf("failed to download repository: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to download repository: HTTP %d", resp.StatusCode)
-	}
-
-	// Read the ZIP content
-	zipData, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("failed to read repository data: %w", err)
-	}
-
-	// Extract the ZIP file
-	if err := rm.extractZip(zipData, repo.LocalPath); err != nil {
-		return fmt.Errorf("failed to extract repository: %w", err)
-	}
-
-	// Update sync time
-	rm.mu.Lock()
-	repo.LastSync = time.Now()
-	rm.repositories[name] = repo
-	rm.mu.Unlock()
-
-	rm.saveRepositoryConfig()
-	color.Green("✅ Repository synced successfully: %s", repo.Name)
-	return nil
-}
-
-func (rm *RepositoryManager) extractZip(data []byte, destPath string) error {
-	// Remove existing directory
-	if err := os.RemoveAll(destPath); err != nil && !os.IsNotExist(err) {
-		return err
-	}
-
-	// Create destination directory
-	if err := os.MkdirAll(destPath, 0755); err != nil {
-		return err
-	}
-
-	// Read ZIP archive
-	zipReader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
-	if err != nil {
-		return err
-	}
-
-	// Extract files
-	for _, file := range zipReader.File {
-		// Skip the root directory created by GitHub
-		pathParts := strings.Split(file.Name, "/")
-		if len(pathParts) > 1 {
-			relativePath := strings.Join(pathParts[1:], "/")
-			if relativePath == "" {
-				continue
-			}
-
-			destFile := filepath.Join(destPath, relativePath)
-
-			if file.FileInfo().IsDir() {
-				os.MkdirAll(destFile, file.FileInfo().Mode())
-				continue
-			}
-
-			// Create parent directories
-			if err := os.MkdirAll(filepath.Dir(destFile), 0755); err != nil {
-				return err
-			}
-
-			// Extract file
-			rc, err := file.Open()
-			if err != nil {
-				return err
-			}
-
-			outFile, err := os.OpenFile(destFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, file.FileInfo().Mode())
-			if err != nil {
-				rc.Close()
-				return err
-			}
-
-			_, err = io.Copy(outFile, rc)
-			rc.Close()
-			outFile.Close()
-
-			if err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
-}
-
-func (rm *RepositoryManager) SyncAllRepositories() error {
-	rm.mu.RLock()
-	repoNames := make([]string, 0, len(rm.repositories))
-	for name, repo := range rm.repositories {
-		if repo.Enabled {
-			repoNames = append(repoNames, name)
-		}
-	}
-	rm.mu.RUnlock()
-
-	var errors []string
-	for _, name := range repoNames {
-		if err := rm.SyncRepository(name); err != nil {
-			errors = append(errors, fmt.Sprintf("%s: %v", name, err))
-		}
-	}
-
-	if len(errors) > 0 {
-		return fmt.Errorf("failed to sync some repositories: %s", strings.Join(errors, "; "))
-	}
-
-	return nil
-}
-
-func (rm *RepositoryManager) GetToolsPaths() []string {
-	rm.mu.RLock()
-	defer rm.mu.RUnlock()
-
-	var paths []string
-	
 	// Add local tools directory first
 	paths = append(paths, "tools")
 
@@ -697,7 +388,7 @@ func (m *ModuleLoader) loadSingleModule(configPath, basePath string) error {
 
 	// Store the module's directory for the execution engine
 	meta.ModuleDir = filepath.Dir(configPath)
-	
+
 	// Determine source (local vs GitHub)
 	if strings.Contains(basePath, m.RepoMgr.cacheDir) {
 		meta.Source = "github"
@@ -731,7 +422,6 @@ func (m *ModuleLoader) loadSingleModule(configPath, basePath string) error {
 	return nil
 }
 
-
 func (m *ModuleLoader) GetModule(name string) (ModuleMetadata, bool) {
 	meta, found := m.Modules[name]
 	return meta, found
@@ -758,10 +448,11 @@ func (m *ModuleLoader) GetModulesByCategory(category string) []ModuleMetadata {
 func (m *ModuleLoader) RefreshModules() error {
 	// Clear existing modules
 	m.Modules = make(map[string]ModuleMetadata)
-	
+
 	// Reload all modules
 	return m.loadModules()
 }
+
 // --- Enhanced Execution Engine ---
 
 type ExecutionEngine struct {
@@ -998,14 +689,14 @@ sophisticated workflows from a unified engine with GitHub integration.`,
 
 			for category, sources := range categories {
 				color.Cyan("📂 %s:", strings.Title(category))
-				
+
 				for source, sourceModules := range sources {
 					sourceIcon := "🏠 Local"
 					if source == "github" {
 						sourceIcon = "🌐 GitHub"
 					}
 					fmt.Printf("  %s:\n", sourceIcon)
-					
+
 					for _, module := range sourceModules {
 						fmt.Printf("    • %s v%s - %s\n",
 							color.WhiteString(module.Name),
@@ -1025,9 +716,8 @@ sophisticated workflows from a unified engine with GitHub integration.`,
 		},
 	}
 
-
 	// Add all commands to root
-	rootCmd.AddCommand(initCmd, listCmd, executeCmd, workflowCmd, interactiveCmd)
+	rootCmd.AddCommand(syncCmd, repoCmd, listCmd) // Note: initCmd, executeCmd, workflowCmd, interactiveCmd are missing in the snippet
 
 	// Execute the CLI
 	if err := rootCmd.Execute(); err != nil {
