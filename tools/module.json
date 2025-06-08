@@ -6,7 +6,7 @@
   "author": "0xbv1",
   "executablesByOS": {
     "windows": "powershell.exe -ExecutionPolicy Bypass -File .\\macspoof.ps1",
-    "linux": "sudo ./macspoof.sh",
+    "linux": "sudo chmod +x macspoof && sudo ./macspoof.sh",
     "darwin": "bash macspoof.sh"
   },
   "dependencies": [],
