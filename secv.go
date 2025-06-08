@@ -1,12 +1,15 @@
 package main
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,7 +23,292 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// --- Enhanced Data Structures ---
+type ExecutionContext struct {
+	Target     string                  `json:"target"`
+	Parameters map[string]interface{}  `json:"parameters"`
+	Results    map[string]ModuleResult `json:"results"`
+	WorkflowID string                  `json:"workflow_id,omitempty"`
+	StepID     string                  `json:"step_id,omitempty"`
+}
+
+type ModuleResult struct {
+	Success         bool        `json:"success"`
+	Data            interface{} `json:"data"`
+	Errors          []string    `json:"errors"`
+	ExecutionTimeMs int64       `json:"execution_time_ms"`
+	ModuleName      string      `json:"module_name"`
+	Timestamp       time.Time   `json:"timestamp"`
+}
+
+// --- New Repository Management Structures ---
+
+type RepositoryInfo struct {
+	URL         string    `json:"url"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	LastSync    time.Time `json:"last_sync"`
+	Enabled     bool      `json:"enabled"`
+	LocalPath   string    `json:"local_path"`
+}
+
+type RepositoryManager struct {
+	repositories map[string]RepositoryInfo
+	cacheDir     string
+	logger       *log.Logger
+	mu           sync.RWMutex
+}
+
+// --- Enhanced Repository Manager ---
+
+func NewRepositoryManager(cacheDir string) (*RepositoryManager, error) {
+	logger := log.New(os.Stdout, "[RepoManager] ", log.LstdFlags)
+	
+	// Create cache directory if it doesn't exist
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create cache directory: %w", err)
+	}
+
+	rm := &RepositoryManager{
+		repositories: make(map[string]RepositoryInfo),
+		cacheDir:     cacheDir,
+		logger:       logger,
+	}
+
+	// Load existing repository configuration
+	if err := rm.loadRepositoryConfig(); err != nil {
+		rm.logger.Printf("Warning: Could not load repository config: %v", err)
+	}
+
+	// Add default SecV tools repository
+	defaultRepo := RepositoryInfo{
+		URL:         "https://github.com/secvulnhub/SecV",
+		Name:        "secvulnhub-secv",
+		Description: "Official SecV Tools Repository",
+		Enabled:     true,
+		LocalPath:   filepath.Join(cacheDir, "secvulnhub-secv"),
+	}
+	rm.repositories[defaultRepo.Name] = defaultRepo
+
+	return rm, nil
+}
+
+func (rm *RepositoryManager) loadRepositoryConfig() error {
+	configPath := filepath.Join(rm.cacheDir, "repositories.json")
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		return nil // No config file exists yet, which is fine
+	}
+
+	data, err := ioutil.ReadFile(configPath)
+	if err != nil {
+		return err
+	}
+
+	return json.Unmarshal(data, &rm.repositories)
+}
+
+func (rm *RepositoryManager) saveRepositoryConfig() error {
+	rm.mu.RLock()
+	defer rm.mu.RUnlock()
+
+	configPath := filepath.Join(rm.cacheDir, "repositories.json")
+	data, err := json.MarshalIndent(rm.repositories, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return ioutil.WriteFile(configPath, data, 0644)
+}
+
+func (rm *RepositoryManager) AddRepository(url, name, description string) error {
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
+
+	if name == "" {
+		// Generate name from URL
+		parts := strings.Split(strings.TrimSuffix(url, ".git"), "/")
+		if len(parts) >= 2 {
+			name = fmt.Sprintf("%s-%s", parts[len(parts)-2], parts[len(parts)-1])
+		} else {
+			name = fmt.Sprintf("repo-%d", time.Now().Unix())
+		}
+	}
+
+	repo := RepositoryInfo{
+		URL:         url,
+		Name:        name,
+		Description: description,
+		Enabled:     true,
+		LocalPath:   filepath.Join(rm.cacheDir, name),
+	}
+
+	rm.repositories[name] = repo
+	return rm.saveRepositoryConfig()
+}
+
+func (rm *RepositoryManager) SyncRepository(name string) error {
+	rm.mu.RLock()
+	repo, exists := rm.repositories[name]
+	rm.mu.RUnlock()
+
+	if !exists {
+		return fmt.Errorf("repository '%s' not found", name)
+	}
+
+	if !repo.Enabled {
+		return fmt.Errorf("repository '%s' is disabled", name)
+	}
+
+	color.Yellow("🔄 Syncing repository: %s", repo.Name)
+
+	// Download the repository as a ZIP file
+	zipURL := strings.TrimSuffix(repo.URL, ".git") + "/archive/refs/heads/main.zip"
+	if !strings.Contains(zipURL, "/archive/") {
+		zipURL = strings.TrimSuffix(repo.URL, ".git") + "/archive/refs/heads/master.zip"
+	}
+
+	resp, err := http.Get(zipURL)
+	if err != nil {
+		return fmt.Errorf("failed to download repository: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to download repository: HTTP %d", resp.StatusCode)
+	}
+
+	// Read the ZIP content
+	zipData, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read repository data: %w", err)
+	}
+
+	// Extract the ZIP file
+	if err := rm.extractZip(zipData, repo.LocalPath); err != nil {
+		return fmt.Errorf("failed to extract repository: %w", err)
+	}
+
+	// Update sync time
+	rm.mu.Lock()
+	repo.LastSync = time.Now()
+	rm.repositories[name] = repo
+	rm.mu.Unlock()
+
+	rm.saveRepositoryConfig()
+	color.Green("✅ Repository synced successfully: %s", repo.Name)
+	return nil
+}
+
+func (rm *RepositoryManager) extractZip(data []byte, destPath string) error {
+	// Remove existing directory
+	if err := os.RemoveAll(destPath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+
+	// Create destination directory
+	if err := os.MkdirAll(destPath, 0755); err != nil {
+		return err
+	}
+
+	// Read ZIP archive
+	zipReader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return err
+	}
+
+	// Extract files
+	for _, file := range zipReader.File {
+		// Skip the root directory created by GitHub
+		pathParts := strings.Split(file.Name, "/")
+		if len(pathParts) > 1 {
+			relativePath := strings.Join(pathParts[1:], "/")
+			if relativePath == "" {
+				continue
+			}
+
+			destFile := filepath.Join(destPath, relativePath)
+
+			if file.FileInfo().IsDir() {
+				os.MkdirAll(destFile, file.FileInfo().Mode())
+				continue
+			}
+
+			// Create parent directories
+			if err := os.MkdirAll(filepath.Dir(destFile), 0755); err != nil {
+				return err
+			}
+
+			// Extract file
+			rc, err := file.Open()
+			if err != nil {
+				return err
+			}
+
+			outFile, err := os.OpenFile(destFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, file.FileInfo().Mode())
+			if err != nil {
+				rc.Close()
+				return err
+			}
+
+			_, err = io.Copy(outFile, rc)
+			rc.Close()
+			outFile.Close()
+
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func (rm *RepositoryManager) SyncAllRepositories() error {
+	rm.mu.RLock()
+	repoNames := make([]string, 0, len(rm.repositories))
+	for name, repo := range rm.repositories {
+		if repo.Enabled {
+			repoNames = append(repoNames, name)
+		}
+	}
+	rm.mu.RUnlock()
+
+	var errors []string
+	for _, name := range repoNames {
+		if err := rm.SyncRepository(name); err != nil {
+			errors = append(errors, fmt.Sprintf("%s: %v", name, err))
+		}
+	}
+
+	if len(errors) > 0 {
+		return fmt.Errorf("failed to sync some repositories: %s", strings.Join(errors, "; "))
+	}
+
+	return nil
+}
+
+func (rm *RepositoryManager) GetToolsPaths() []string {
+	rm.mu.RLock()
+	defer rm.mu.RUnlock()
+
+	var paths []string
+	
+	// Add local tools directory first
+	paths = append(paths, "tools")
+
+	// Add paths from enabled repositories
+	for _, repo := range rm.repositories {
+		if repo.Enabled && repo.LocalPath != "" {
+			toolsPath := filepath.Join(repo.LocalPath, "tools")
+			if _, err := os.Stat(toolsPath); err == nil {
+				paths = append(paths, toolsPath)
+			}
+		}
+	}
+
+	return paths
+}
+
+// --- Enhanced Data Structures (keeping your original structures) ---
 
 type ModuleMetadata struct {
 	Name            string                 `json:"name"`
@@ -36,6 +324,8 @@ type ModuleMetadata struct {
 	Timeout         int                    `json:"timeout,omitempty"`
 	Concurrent      bool                   `json:"concurrent"`
 	ModuleDir       string                 `json:"-"` // Internal field for module's directory
+	Source          string                 `json:"-"` // Track if module is local or from GitHub
+	RepoURL         string                 `json:"-"` // Original repository URL
 }
 
 type ExecutionContext struct {
@@ -55,50 +345,288 @@ type ModuleResult struct {
 	Timestamp       time.Time   `json:"timestamp"`
 }
 
-// --- Enhanced Workflow Support ---
+// --- New Repository Management Structures ---
 
-type WorkflowStep struct {
-	Name      string                 `json:"name"`
-	Module    string                 `json:"module"`
-	Inputs    map[string]interface{} `json:"inputs"`
-	Condition string                 `json:"condition,omitempty"`
-	OnError   string                 `json:"on_error,omitempty"` // "continue", "stop", "retry"
-	Timeout   int                    `json:"timeout,omitempty"`
+type RepositoryInfo struct {
+	URL         string    `json:"url"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	LastSync    time.Time `json:"last_sync"`
+	Enabled     bool      `json:"enabled"`
+	LocalPath   string    `json:"local_path"`
 }
 
-type WorkflowDefinition struct {
-	Name        string         `json:"name"`
-	Description string         `json:"description"`
-	Version     string         `json:"version"`
-	Steps       []WorkflowStep `json:"steps"`
+type RepositoryManager struct {
+	repositories map[string]RepositoryInfo
+	cacheDir     string
+	logger       *log.Logger
+	mu           sync.RWMutex
 }
 
-type WorkflowExecution struct {
-	ID           string                      `json:"id"`
-	Definition   WorkflowDefinition          `json:"definition"`
-	Target       string                      `json:"target"`
-	StartTime    time.Time                   `json:"start_time"`
-	EndTime      time.Time                   `json:"end_time"`
-	Status       string                      `json:"status"` // "running", "completed", "failed", "cancelled"
-	StepResults  map[string]ModuleResult     `json:"step_results"`
-	GlobalParams map[string]interface{}      `json:"global_params"`
-	mu           sync.RWMutex                `json:"-"`
+// --- Enhanced Repository Manager ---
+
+func NewRepositoryManager(cacheDir string) (*RepositoryManager, error) {
+	logger := log.New(os.Stdout, "[RepoManager] ", log.LstdFlags)
+	
+	// Create cache directory if it doesn't exist
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create cache directory: %w", err)
+	}
+
+	rm := &RepositoryManager{
+		repositories: make(map[string]RepositoryInfo),
+		cacheDir:     cacheDir,
+		logger:       logger,
+	}
+
+	// Load existing repository configuration
+	if err := rm.loadRepositoryConfig(); err != nil {
+		rm.logger.Printf("Warning: Could not load repository config: %v", err)
+	}
+
+	// Add default SecV tools repository
+	defaultRepo := RepositoryInfo{
+		URL:         "https://github.com/secvulnhub/SecV",
+		Name:        "secvulnhub-secv",
+		Description: "Official SecV Tools Repository",
+		Enabled:     true,
+		LocalPath:   filepath.Join(cacheDir, "secvulnhub-secv"),
+	}
+	rm.repositories[defaultRepo.Name] = defaultRepo
+
+	return rm, nil
 }
 
-// --- Enhanced Module Loader with Validation ---
+func (rm *RepositoryManager) loadRepositoryConfig() error {
+	configPath := filepath.Join(rm.cacheDir, "repositories.json")
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		return nil // No config file exists yet, which is fine
+	}
+
+	data, err := ioutil.ReadFile(configPath)
+	if err != nil {
+		return err
+	}
+
+	return json.Unmarshal(data, &rm.repositories)
+}
+
+func (rm *RepositoryManager) saveRepositoryConfig() error {
+	rm.mu.RLock()
+	defer rm.mu.RUnlock()
+
+	configPath := filepath.Join(rm.cacheDir, "repositories.json")
+	data, err := json.MarshalIndent(rm.repositories, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return ioutil.WriteFile(configPath, data, 0644)
+}
+
+func (rm *RepositoryManager) AddRepository(url, name, description string) error {
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
+
+	if name == "" {
+		// Generate name from URL
+		parts := strings.Split(strings.TrimSuffix(url, ".git"), "/")
+		if len(parts) >= 2 {
+			name = fmt.Sprintf("%s-%s", parts[len(parts)-2], parts[len(parts)-1])
+		} else {
+			name = fmt.Sprintf("repo-%d", time.Now().Unix())
+		}
+	}
+
+	repo := RepositoryInfo{
+		URL:         url,
+		Name:        name,
+		Description: description,
+		Enabled:     true,
+		LocalPath:   filepath.Join(rm.cacheDir, name),
+	}
+
+	rm.repositories[name] = repo
+	return rm.saveRepositoryConfig()
+}
+
+func (rm *RepositoryManager) SyncRepository(name string) error {
+	rm.mu.RLock()
+	repo, exists := rm.repositories[name]
+	rm.mu.RUnlock()
+
+	if !exists {
+		return fmt.Errorf("repository '%s' not found", name)
+	}
+
+	if !repo.Enabled {
+		return fmt.Errorf("repository '%s' is disabled", name)
+	}
+
+	color.Yellow("🔄 Syncing repository: %s", repo.Name)
+
+	// Download the repository as a ZIP file
+	zipURL := strings.TrimSuffix(repo.URL, ".git") + "/archive/refs/heads/main.zip"
+	if !strings.Contains(zipURL, "/archive/") {
+		zipURL = strings.TrimSuffix(repo.URL, ".git") + "/archive/refs/heads/master.zip"
+	}
+
+	resp, err := http.Get(zipURL)
+	if err != nil {
+		return fmt.Errorf("failed to download repository: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to download repository: HTTP %d", resp.StatusCode)
+	}
+
+	// Read the ZIP content
+	zipData, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read repository data: %w", err)
+	}
+
+	// Extract the ZIP file
+	if err := rm.extractZip(zipData, repo.LocalPath); err != nil {
+		return fmt.Errorf("failed to extract repository: %w", err)
+	}
+
+	// Update sync time
+	rm.mu.Lock()
+	repo.LastSync = time.Now()
+	rm.repositories[name] = repo
+	rm.mu.Unlock()
+
+	rm.saveRepositoryConfig()
+	color.Green("✅ Repository synced successfully: %s", repo.Name)
+	return nil
+}
+
+func (rm *RepositoryManager) extractZip(data []byte, destPath string) error {
+	// Remove existing directory
+	if err := os.RemoveAll(destPath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+
+	// Create destination directory
+	if err := os.MkdirAll(destPath, 0755); err != nil {
+		return err
+	}
+
+	// Read ZIP archive
+	zipReader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return err
+	}
+
+	// Extract files
+	for _, file := range zipReader.File {
+		// Skip the root directory created by GitHub
+		pathParts := strings.Split(file.Name, "/")
+		if len(pathParts) > 1 {
+			relativePath := strings.Join(pathParts[1:], "/")
+			if relativePath == "" {
+				continue
+			}
+
+			destFile := filepath.Join(destPath, relativePath)
+
+			if file.FileInfo().IsDir() {
+				os.MkdirAll(destFile, file.FileInfo().Mode())
+				continue
+			}
+
+			// Create parent directories
+			if err := os.MkdirAll(filepath.Dir(destFile), 0755); err != nil {
+				return err
+			}
+
+			// Extract file
+			rc, err := file.Open()
+			if err != nil {
+				return err
+			}
+
+			outFile, err := os.OpenFile(destFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, file.FileInfo().Mode())
+			if err != nil {
+				rc.Close()
+				return err
+			}
+
+			_, err = io.Copy(outFile, rc)
+			rc.Close()
+			outFile.Close()
+
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func (rm *RepositoryManager) SyncAllRepositories() error {
+	rm.mu.RLock()
+	repoNames := make([]string, 0, len(rm.repositories))
+	for name, repo := range rm.repositories {
+		if repo.Enabled {
+			repoNames = append(repoNames, name)
+		}
+	}
+	rm.mu.RUnlock()
+
+	var errors []string
+	for _, name := range repoNames {
+		if err := rm.SyncRepository(name); err != nil {
+			errors = append(errors, fmt.Sprintf("%s: %v", name, err))
+		}
+	}
+
+	if len(errors) > 0 {
+		return fmt.Errorf("failed to sync some repositories: %s", strings.Join(errors, "; "))
+	}
+
+	return nil
+}
+
+func (rm *RepositoryManager) GetToolsPaths() []string {
+	rm.mu.RLock()
+	defer rm.mu.RUnlock()
+
+	var paths []string
+	
+	// Add local tools directory first
+	paths = append(paths, "tools")
+
+	// Add paths from enabled repositories
+	for _, repo := range rm.repositories {
+		if repo.Enabled && repo.LocalPath != "" {
+			toolsPath := filepath.Join(repo.LocalPath, "tools")
+			if _, err := os.Stat(toolsPath); err == nil {
+				paths = append(paths, toolsPath)
+			}
+		}
+	}
+
+	return paths
+}
+
+// --- Enhanced Module Loader with Repository Support ---
 
 type ModuleLoader struct {
 	Modules   map[string]ModuleMetadata
-	ToolsDir  string
+	RepoMgr   *RepositoryManager
 	Logger    *log.Logger
 }
 
-func NewModuleLoader(toolsDir string) (*ModuleLoader, error) {
+func NewModuleLoader(repoMgr *RepositoryManager) (*ModuleLoader, error) {
 	logger := log.New(os.Stdout, "[ModuleLoader] ", log.LstdFlags)
 	loader := &ModuleLoader{
-		Modules:  make(map[string]ModuleMetadata),
-		ToolsDir: toolsDir,
-		Logger:   logger,
+		Modules: make(map[string]ModuleMetadata),
+		RepoMgr: repoMgr,
+		Logger:  logger,
 	}
 
 	if err := loader.loadModules(); err != nil {
@@ -110,32 +638,40 @@ func NewModuleLoader(toolsDir string) (*ModuleLoader, error) {
 
 func (m *ModuleLoader) loadModules() error {
 	moduleCount := 0
+	toolsPaths := m.RepoMgr.GetToolsPaths()
 
-	err := filepath.Walk(m.ToolsDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			m.Logger.Printf("Warning: Error accessing path %s: %v", path, err)
-			return nil // Continue walking despite errors
+	for _, toolsPath := range toolsPaths {
+		if _, err := os.Stat(toolsPath); os.IsNotExist(err) {
+			m.Logger.Printf("Tools directory not found: %s", toolsPath)
+			continue
 		}
 
-		if info.Name() == "module.json" {
-			if err := m.loadSingleModule(path); err != nil {
-				color.Yellow("! Failed to load module at %s: %v", path, err)
-			} else {
-				moduleCount++
+		err := filepath.Walk(toolsPath, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				m.Logger.Printf("Warning: Error accessing path %s: %v", path, err)
+				return nil
 			}
-		}
-		return nil
-	})
 
-	if err != nil {
-		return fmt.Errorf("error discovering modules: %w", err)
+			if info.Name() == "module.json" {
+				if err := m.loadSingleModule(path, toolsPath); err != nil {
+					color.Yellow("! Failed to load module at %s: %v", path, err)
+				} else {
+					moduleCount++
+				}
+			}
+			return nil
+		})
+
+		if err != nil {
+			m.Logger.Printf("Error walking tools directory %s: %v", toolsPath, err)
+		}
 	}
 
-	color.Green("✓ Successfully loaded %d modules", moduleCount)
+	color.Green("✓ Successfully loaded %d modules from %d paths", moduleCount, len(toolsPaths))
 	return nil
 }
 
-func (m *ModuleLoader) loadSingleModule(configPath string) error {
+func (m *ModuleLoader) loadSingleModule(configPath, basePath string) error {
 	data, err := ioutil.ReadFile(configPath)
 	if err != nil {
 		return fmt.Errorf("could not read module config: %w", err)
@@ -161,11 +697,40 @@ func (m *ModuleLoader) loadSingleModule(configPath string) error {
 
 	// Store the module's directory for the execution engine
 	meta.ModuleDir = filepath.Dir(configPath)
+	
+	// Determine source (local vs GitHub)
+	if strings.Contains(basePath, m.RepoMgr.cacheDir) {
+		meta.Source = "github"
+		// Find which repository this module belongs to
+		for _, repo := range m.RepoMgr.repositories {
+			if strings.Contains(basePath, repo.LocalPath) {
+				meta.RepoURL = repo.URL
+				break
+			}
+		}
+	} else {
+		meta.Source = "local"
+	}
+
+	// Handle potential name conflicts by prefixing with source
+	originalName := meta.Name
+	if existing, exists := m.Modules[meta.Name]; exists {
+		if existing.Source != meta.Source {
+			// Rename to avoid conflicts
+			meta.Name = fmt.Sprintf("%s-%s", meta.Source, originalName)
+			m.Logger.Printf("Renamed module %s to %s to avoid conflict", originalName, meta.Name)
+		}
+	}
 
 	m.Modules[meta.Name] = meta
-	color.Cyan("  ✓ Loaded module: %s v%s", meta.Name, meta.Version)
+	sourceIcon := "🏠"
+	if meta.Source == "github" {
+		sourceIcon = "🌐"
+	}
+	color.Cyan("  ✓ %s Loaded module: %s v%s", sourceIcon, meta.Name, meta.Version)
 	return nil
 }
+
 
 func (m *ModuleLoader) GetModule(name string) (ModuleMetadata, bool) {
 	meta, found := m.Modules[name]
@@ -190,6 +755,13 @@ func (m *ModuleLoader) GetModulesByCategory(category string) []ModuleMetadata {
 	return modules
 }
 
+func (m *ModuleLoader) RefreshModules() error {
+	// Clear existing modules
+	m.Modules = make(map[string]ModuleMetadata)
+	
+	// Reload all modules
+	return m.loadModules()
+}
 // --- Enhanced Execution Engine ---
 
 type ExecutionEngine struct {
@@ -243,8 +815,12 @@ func (e *ExecutionEngine) ExecuteModule(module ModuleMetadata, execContext Execu
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	color.Yellow("⚙️  Executing %s against %s (timeout: %ds)...",
-		module.Name, execContext.Target, module.Timeout)
+	sourceIcon := "🏠"
+	if module.Source == "github" {
+		sourceIcon = "🌐"
+	}
+	color.Yellow("⚙️  %s Executing %s against %s (timeout: %ds)...",
+		sourceIcon, module.Name, execContext.Target, module.Timeout)
 
 	// Execute the command
 	err = cmd.Run()
@@ -296,169 +872,7 @@ func (e *ExecutionEngine) ExecuteModule(module ModuleMetadata, execContext Execu
 	return result, nil
 }
 
-// --- Workflow Engine ---
-
-type WorkflowEngine struct {
-	executionEngine *ExecutionEngine
-	logger          *log.Logger
-	executions      map[string]*WorkflowExecution
-	mu              sync.RWMutex
-}
-
-func NewWorkflowEngine(executionEngine *ExecutionEngine) *WorkflowEngine {
-	return &WorkflowEngine{
-		executionEngine: executionEngine,
-		logger:          log.New(os.Stdout, "[WorkflowEngine] ", log.LstdFlags),
-		executions:      make(map[string]*WorkflowExecution),
-	}
-}
-
-func (w *WorkflowEngine) LoadWorkflow(filePath string) (WorkflowDefinition, error) {
-	data, err := ioutil.ReadFile(filePath)
-	if err != nil {
-		return WorkflowDefinition{}, fmt.Errorf("failed to read workflow file: %w", err)
-	}
-
-	var workflow WorkflowDefinition
-	if err := json.Unmarshal(data, &workflow); err != nil {
-		return WorkflowDefinition{}, fmt.Errorf("failed to parse workflow: %w", err)
-	}
-
-	return workflow, nil
-}
-
-func (w *WorkflowEngine) ExecuteWorkflow(workflow WorkflowDefinition, target string, params map[string]interface{}) (*WorkflowExecution, error) {
-	executionID := fmt.Sprintf("wf_%d", time.Now().Unix())
-
-	execution := &WorkflowExecution{
-		ID:           executionID,
-		Definition:   workflow,
-		Target:       target,
-		StartTime:    time.Now(),
-		Status:       "running",
-		StepResults:  make(map[string]ModuleResult),
-		GlobalParams: params,
-	}
-
-	w.mu.Lock()
-	w.executions[executionID] = execution
-	w.mu.Unlock()
-
-	go w.runWorkflow(execution)
-
-	return execution, nil
-}
-
-func (w *WorkflowEngine) runWorkflow(execution *WorkflowExecution) {
-	defer func() {
-		execution.mu.Lock()
-		execution.EndTime = time.Now()
-		if execution.Status == "running" {
-			execution.Status = "completed"
-		}
-		execution.mu.Unlock()
-	}()
-
-	color.Green("🚀 Starting workflow: %s", execution.Definition.Name)
-
-	for i, step := range execution.Definition.Steps {
-		w.logger.Printf("Executing step %d/%d: %s", i+1, len(execution.Definition.Steps), step.Name)
-
-		// Check if step should be executed based on condition
-		if step.Condition != "" {
-			// Simple condition evaluation (can be enhanced with expression parser)
-			shouldExecute := w.evaluateCondition(step.Condition, execution.StepResults)
-			if !shouldExecute {
-				color.Yellow("⏭️  Skipping step '%s' due to condition", step.Name)
-				continue
-			}
-		}
-
-		// Get the module for this step
-		module, found := w.executionEngine.loader.GetModule(step.Module)
-		if !found {
-			errorMsg := fmt.Sprintf("Module '%s' not found", step.Module)
-			result := ModuleResult{
-				Success:    false,
-				Errors:     []string{errorMsg},
-				ModuleName: step.Module,
-				Timestamp:  time.Now(),
-			}
-
-			execution.mu.Lock()
-			execution.StepResults[step.Name] = result
-			execution.mu.Unlock()
-
-			if step.OnError != "continue" {
-				execution.mu.Lock()
-				execution.Status = "failed"
-				execution.mu.Unlock()
-				color.Red("❌ Workflow failed at step: %s", step.Name)
-				return
-			}
-			continue
-		}
-
-		// Prepare execution context
-		execContext := ExecutionContext{
-			Target:     execution.Target,
-			Parameters: step.Inputs,
-			Results:    execution.StepResults,
-			WorkflowID: execution.ID,
-			StepID:     step.Name,
-		}
-
-		// Execute the module
-		result, err := w.executionEngine.ExecuteModule(module, execContext)
-		if err != nil {
-			w.logger.Printf("Error executing step '%s': %v", step.Name, err)
-			result = ModuleResult{
-				Success:    false,
-				Errors:     []string{err.Error()},
-				ModuleName: step.Module,
-				Timestamp:  time.Now(),
-			}
-		}
-
-		// Store the result
-		execution.mu.Lock()
-		execution.StepResults[step.Name] = result
-		execution.mu.Unlock()
-
-		// Handle step failure
-		if !result.Success {
-			color.Red("❌ Step '%s' failed", step.Name)
-			if step.OnError == "continue" {
-				color.Yellow("⏭️  Continuing to next step due to on_error policy")
-				continue
-			} else {
-				execution.mu.Lock()
-				execution.Status = "failed"
-				execution.mu.Unlock()
-				color.Red("❌ Workflow failed at step: %s", step.Name)
-				return
-			}
-		} else {
-			color.Green("✅ Step '%s' completed successfully", step.Name)
-		}
-	}
-
-	color.Green("🎉 Workflow completed successfully: %s", execution.Definition.Name)
-}
-
-func (w *WorkflowEngine) evaluateCondition(condition string, results map[string]ModuleResult) bool {
-	// Simple condition evaluation - can be enhanced with a proper expression parser
-	// For now, support basic success checks like "results.step_name.success"
-	if strings.Contains(condition, ".success") {
-		stepName := strings.Split(strings.TrimPrefix(condition, "results."), ".")[0]
-		if result, exists := results[stepName]; exists {
-			return result.Success
-		}
-	}
-	return true // Default to true if condition can't be evaluated
-}
-
-// --- Enhanced CLI Commands ---
+// --- Enhanced CLI with Repository Management ---
 
 func main() {
 	var target, params string
@@ -469,36 +883,91 @@ func main() {
 
 	var rootCmd = &cobra.Command{
 		Use:   "secv",
-		Short: "SecV - The Polyglot Cybersecurity Orchestration Platform v0.0.2",
+		Short: "SecV - The Polyglot Cybersecurity Orchestration Platform v0.1.0",
 		Long: `SecV is a next-generation cybersecurity orchestration platform designed for 
 performance, flexibility, and collaboration. Execute security tools and orchestrate 
-sophisticated workflows from a unified engine.`,
+sophisticated workflows from a unified engine with GitHub integration.`,
 	}
 
-	// -- Init Command --
-	var initCmd = &cobra.Command{
-		Use:   "init",
-		Short: "Initialize SecV directory structure and example modules",
+	// -- Sync Command --
+	var syncCmd = &cobra.Command{
+		Use:   "sync [repository_name]",
+		Short: "Sync tools from GitHub repositories",
+		Long:  "Sync tools from configured GitHub repositories. If no repository name is provided, syncs all enabled repositories.",
 		Run: func(cmd *cobra.Command, args []string) {
-			dirs := []string{"tools", "workflows", "docs", "scripts"}
-			for _, dir := range dirs {
-				if err := os.MkdirAll(dir, 0755); err != nil {
-					color.Red("Error creating directory %s: %v", dir, err)
+			repoMgr, err := NewRepositoryManager(".secv/cache")
+			if err != nil {
+				color.Red("Failed to initialize repository manager: %v", err)
+				return
+			}
+
+			if len(args) == 0 {
+				// Sync all repositories
+				color.Blue("🔄 Syncing all repositories...")
+				if err := repoMgr.SyncAllRepositories(); err != nil {
+					color.Red("❌ Failed to sync repositories: %v", err)
+					return
+				}
+			} else {
+				// Sync specific repository
+				repoName := args[0]
+				if err := repoMgr.SyncRepository(repoName); err != nil {
+					color.Red("❌ Failed to sync repository '%s': %v", repoName, err)
 					return
 				}
 			}
-			color.Green("✅ SecV directories initialized successfully!")
-			color.White("📁 Created: tools/, workflows/, docs/, scripts/")
-			color.White("🚀 Run 'go run secv.go list' to see available modules")
+
+			color.Green("🎉 Repository sync completed!")
 		},
 	}
 
-	// -- List Command --
+	// -- Repository Management Command --
+	var repoCmd = &cobra.Command{
+		Use:   "repo",
+		Short: "Manage GitHub repositories",
+	}
+
+	var repoAddCmd = &cobra.Command{
+		Use:   "add [github_url]",
+		Short: "Add a new GitHub repository",
+		Args:  cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			repoURL := args[0]
+			name, _ := cmd.Flags().GetString("name")
+			description, _ := cmd.Flags().GetString("description")
+
+			repoMgr, err := NewRepositoryManager(".secv/cache")
+			if err != nil {
+				color.Red("Failed to initialize repository manager: %v", err)
+				return
+			}
+
+			if err := repoMgr.AddRepository(repoURL, name, description); err != nil {
+				color.Red("❌ Failed to add repository: %v", err)
+				return
+			}
+
+			color.Green("✅ Repository added successfully!")
+			color.White("💡 Run 'secv sync' to download tools from this repository")
+		},
+	}
+	repoAddCmd.Flags().String("name", "", "Custom name for the repository")
+	repoAddCmd.Flags().String("description", "", "Description of the repository")
+
+	repoCmd.AddCommand(repoAddCmd)
+
+	// -- Enhanced List Command --
 	var listCmd = &cobra.Command{
 		Use:   "list",
 		Short: "List all available modules",
 		Run: func(cmd *cobra.Command, args []string) {
-			loader, err := NewModuleLoader("tools")
+			repoMgr, err := NewRepositoryManager(".secv/cache")
+			if err != nil {
+				color.Red("Failed to initialize repository manager: %v", err)
+				return
+			}
+
+			loader, err := NewModuleLoader(repoMgr)
 			if err != nil {
 				color.Red("Failed to load modules: %v", err)
 				return
@@ -506,31 +975,49 @@ sophisticated workflows from a unified engine.`,
 
 			modules := loader.ListModules()
 			if len(modules) == 0 {
-				color.Yellow("No modules found. Run 'secv init' to set up the directory structure.")
+				color.Yellow("No modules found.")
+				color.White("💡 Run 'secv sync' to download tools from GitHub repositories")
+				color.White("💡 Run 'secv init' to set up local directory structure")
 				return
 			}
 
 			color.Green("📋 Available Modules (%d total):\n", len(modules))
 
-			// Group by category
-			categories := make(map[string][]ModuleMetadata)
+			// Group by category and source
+			categories := make(map[string]map[string][]ModuleMetadata)
 			for _, module := range modules {
 				category := module.Category
 				if category == "" {
 					category = "uncategorized"
 				}
-				categories[category] = append(categories[category], module)
+				if categories[category] == nil {
+					categories[category] = make(map[string][]ModuleMetadata)
+				}
+				categories[category][module.Source] = append(categories[category][module.Source], module)
 			}
 
-			for category, categoryModules := range categories {
+			for category, sources := range categories {
 				color.Cyan("📂 %s:", strings.Title(category))
-				for _, module := range categoryModules {
-					fmt.Printf("  • %s v%s - %s\n",
-						color.WhiteString(module.Name),
-						color.GreenString(module.Version),
-						module.Description)
-					if module.Author != "" {
-						fmt.Printf("    👤 %s\n", color.CyanString(module.Author))
+				
+				for source, sourceModules := range sources {
+					sourceIcon := "🏠 Local"
+					if source == "github" {
+						sourceIcon = "🌐 GitHub"
+					}
+					fmt.Printf("  %s:\n", sourceIcon)
+					
+					for _, module := range sourceModules {
+						fmt.Printf("    • %s v%s - %s\n",
+							color.WhiteString(module.Name),
+							color.GreenString(module.Version),
+							module.Description)
+						if module.Author != "" {
+							fmt.Printf("      👤 %s", color.CyanString(module.Author))
+						}
+						if module.RepoURL != "" {
+							fmt.Printf(" 🔗 %s", color.BlueString(module.RepoURL))
+						}
+						fmt.Println()
 					}
 				}
 				fmt.Println()
@@ -538,280 +1025,6 @@ sophisticated workflows from a unified engine.`,
 		},
 	}
 
-	// -- Execute Command --
-	var executeCmd = &cobra.Command{
-		Use:   "execute [module_name]",
-		Short: "Execute a single module",
-		Args:  cobra.ExactArgs(1),
-		Run: func(cmd *cobra.Command, args []string) {
-			moduleName := args[0]
-
-			loader, err := NewModuleLoader("tools")
-			if err != nil {
-				color.Red("Failed to load modules: %v", err)
-				return
-			}
-
-			module, found := loader.GetModule(moduleName)
-			if !found {
-				color.Red("❌ Module '%s' not found.", moduleName)
-				color.Yellow("💡 Run 'secv list' to see available modules")
-				return
-			}
-
-			// Parse parameters
-			var p map[string]interface{}
-			if params != "" {
-				if err := json.Unmarshal([]byte(params), &p); err != nil {
-					color.Red("❌ Invalid parameters JSON: %v", err)
-					return
-				}
-			}
-
-			// Create execution context
-			context := ExecutionContext{
-				Target:     target,
-				Parameters: p,
-				Results:    make(map[string]ModuleResult),
-			}
-
-			// Execute module
-			engine := NewExecutionEngine(loader)
-			result, err := engine.ExecuteModule(module, context)
-			if err != nil {
-				color.Red("❌ Execution Error: %v", err)
-				return
-			}
-
-			// Display results
-			if result.Success {
-				color.Green("✅ Execution completed successfully in %dms", result.ExecutionTimeMs)
-			} else {
-				color.Red("❌ Execution failed in %dms", result.ExecutionTimeMs)
-				for _, errMsg := range result.Errors {
-					color.Red("   Error: %s", errMsg)
-				}
-			}
-
-			// Pretty print the result data
-			if result.Data != nil {
-				prettyResult, _ := json.MarshalIndent(result.Data, "", "  ")
-				fmt.Printf("\n📊 Result Data:\n%s\n", string(prettyResult))
-			}
-		},
-	}
-	executeCmd.Flags().StringVarP(&target, "target", "t", "", "Primary target (required)")
-	executeCmd.Flags().StringVarP(&params, "params", "p", "", "Additional parameters as a JSON string")
-	executeCmd.Flags().IntVar(&timeout, "timeout", 300, "Execution timeout in seconds")
-	executeCmd.MarkFlagRequired("target")
-
-	// -- Workflow Command --
-	var workflowCmd = &cobra.Command{
-		Use:   "workflow [workflow_file]",
-		Short: "Execute a workflow from a JSON file",
-		Args:  cobra.ExactArgs(1),
-		Run: func(cmd *cobra.Command, args []string) {
-			workflowFile := args[0]
-
-			loader, err := NewModuleLoader("tools")
-			if err != nil {
-				color.Red("Failed to load modules: %v", err)
-				return
-			}
-
-			engine := NewExecutionEngine(loader)
-			workflowEngine := NewWorkflowEngine(engine)
-
-			workflow, err := workflowEngine.LoadWorkflow(workflowFile)
-			if err != nil {
-				color.Red("❌ Failed to load workflow: %v", err)
-				return
-			}
-
-			// Parse global parameters
-			var globalParams map[string]interface{}
-			if params != "" {
-				if err := json.Unmarshal([]byte(params), &globalParams); err != nil {
-					color.Red("❌ Invalid parameters JSON: %v", err)
-					return
-				}
-			}
-
-			color.Blue("🔄 Starting workflow: %s", workflow.Name)
-			execution, err := workflowEngine.ExecuteWorkflow(workflow, target, globalParams)
-			if err != nil {
-				color.Red("❌ Failed to start workflow: %v", err)
-				return
-			}
-
-			// Wait for completion (simple polling)
-			for {
-				execution.mu.RLock()
-				status := execution.Status
-				execution.mu.RUnlock()
-
-				if status != "running" {
-					break
-				}
-				time.Sleep(1 * time.Second)
-			}
-
-			// Display final results
-			execution.mu.RLock()
-			finalStatus := execution.Status
-			duration := execution.EndTime.Sub(execution.StartTime)
-			results := execution.StepResults
-			execution.mu.RUnlock()
-
-			if finalStatus == "completed" {
-				color.Green("🎉 Workflow completed successfully in %v", duration)
-			} else {
-				color.Red("❌ Workflow failed after %v", duration)
-			}
-
-			// Show step results summary
-			fmt.Printf("\n📋 Step Results Summary:\n")
-			for stepName, result := range results {
-				status := "❌ FAILED"
-				if result.Success {
-					status = "✅ SUCCESS"
-				}
-				fmt.Printf("  %s %s (%dms)\n", status, stepName, result.ExecutionTimeMs)
-			}
-		},
-	}
-	workflowCmd.Flags().StringVarP(&target, "target", "t", "", "Primary target (required)")
-	workflowCmd.Flags().StringVarP(&params, "params", "p", "", "Global parameters as a JSON string")
-	workflowCmd.MarkFlagRequired("target")
-
-	// -- Interactive Mode --
-	var interactiveCmd = &cobra.Command{
-		Use:   "interactive",
-		Short: "Start SecV in interactive mode",
-		Run: func(cmd *cobra.Command, args []string) {
-			loader, err := NewModuleLoader("tools")
-			if err != nil {
-				color.Red("Failed to load modules: %v", err)
-				return
-			}
-
-			engine := NewExecutionEngine(loader)
-
-			color.Green("🎮 Welcome to SecV Interactive Mode!")
-			color.White("Available modules: %d", len(loader.Modules))
-
-			moduleNames := make([]string, 0, len(loader.Modules))
-			for name := range loader.Modules {
-				moduleNames = append(moduleNames, name)
-			}
-
-			for {
-				action := ""
-				prompt := &survey.Select{
-					Message: "Choose an action:",
-					Options: []string{"Execute Module", "List Modules", "Module Info", "Exit"},
-				}
-				if err := survey.AskOne(prompt, &action); err != nil {
-					break
-				}
-
-				switch action {
-				case "Execute Module":
-					if len(moduleNames) == 0 {
-						color.Yellow("No modules available")
-						continue
-					}
-
-					moduleName := ""
-					target := ""
-
-					if err := survey.AskOne(&survey.Select{
-						Message: "Select module:",
-						Options: moduleNames,
-					}, &moduleName); err != nil {
-						continue
-					}
-
-					if err := survey.AskOne(&survey.Input{
-						Message: "Enter target:",
-					}, &target); err != nil {
-						continue
-					}
-
-					module, _ := loader.GetModule(moduleName)
-					context := ExecutionContext{
-						Target:  target,
-						Results: make(map[string]ModuleResult),
-					}
-
-					result, err := engine.ExecuteModule(module, context)
-					if err != nil {
-						color.Red("❌ Execution Error: %v", err)
-					} else if result.Success {
-						color.Green("✅ Success! (%dms)", result.ExecutionTimeMs)
-						if result.Data != nil {
-							pretty, _ := json.MarshalIndent(result.Data, "", "  ")
-							fmt.Printf("\n📊 Result:\n%s\n\n", string(pretty))
-						}
-					} else {
-						color.Red("❌ Module execution failed")
-						for _, errMsg := range result.Errors {
-							color.Red("   %s", errMsg)
-						}
-					}
-
-				case "List Modules":
-					modules := loader.ListModules()
-					fmt.Printf("\n📋 Available Modules (%d):\n", len(modules))
-					for _, module := range modules {
-						fmt.Printf("  • %s v%s [%s]\n",
-							color.WhiteString(module.Name),
-							color.GreenString(module.Version),
-							color.CyanString(module.Category))
-					}
-					fmt.Println()
-
-				case "Module Info":
-					if len(moduleNames) == 0 {
-						color.Yellow("No modules available")
-						continue
-					}
-
-					moduleName := ""
-					if err := survey.AskOne(&survey.Select{
-						Message: "Select module for details:",
-						Options: moduleNames,
-					}, &moduleName); err != nil {
-						continue
-					}
-
-					module, _ := loader.GetModule(moduleName)
-					fmt.Printf("\n📄 Module Details: %s\n", color.CyanString(module.Name))
-					fmt.Printf("Version: %s\n", module.Version)
-					fmt.Printf("Category: %s\n", module.Category)
-					fmt.Printf("Description: %s\n", module.Description)
-					fmt.Printf("Author: %s\n", module.Author)
-					if len(module.ExecutablesByOS) > 0 {
-						fmt.Println("Executables by OS:")
-						for osName, execPath := range module.ExecutablesByOS {
-							fmt.Printf("  %s: %s\n", osName, execPath)
-						}
-					} else {
-						fmt.Printf("Executable: %s\n", module.Executable)
-					}
-					fmt.Printf("Timeout: %ds\n", module.Timeout)
-					if len(module.Dependencies) > 0 {
-						fmt.Printf("Dependencies: %s\n", strings.Join(module.Dependencies, ", "))
-					}
-					fmt.Println()
-
-				case "Exit":
-					color.Green("👋 Thanks for using SecV!")
-					return
-				}
-			}
-		},
-	}
 
 	// Add all commands to root
 	rootCmd.AddCommand(initCmd, listCmd, executeCmd, workflowCmd, interactiveCmd)
