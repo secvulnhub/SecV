@@ -1,6 +1,7 @@
 package main
 
 import (
+        "encoding/json"
 	"archive/zip"
 	"bytes"
 	"context"
@@ -29,6 +30,24 @@ type ExecutionContext struct {
 	Results    map[string]ModuleResult `json:"results"`
 	WorkflowID string                  `json:"workflow_id,omitempty"`
 	StepID     string                  `json:"step_id,omitempty"`
+}
+
+type ModuleMetadata struct {
+    Name            string                 `json:"name"`
+    Version         string                 `json:"version"`
+    Category        string                 `json:"category"`
+    Description     string                 `json:"description"`
+    Author          string                 `json:"author"`
+    Executable      string                 `json:"executable,omitempty"`
+    ExecutablesByOS map[string]string      `json:"executablesByOS,omitempty"`
+    Dependencies    []string               `json:"dependencies"`
+    Inputs          map[string]interface{} `json:"inputs"`
+    Outputs         map[string]interface{} `json:"outputs"`
+    Timeout         int                    `json:"timeout,omitempty"`
+    Concurrent      bool                   `json:"concurrent"`
+    ModuleDir       string                 `json:"-"`
+    Source          string                 `json:"-"`
+    RepoURL         string                 `json:"-"`
 }
 
 type ModuleResult struct {
