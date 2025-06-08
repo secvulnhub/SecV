@@ -1,0 +1,12 @@
+{
+  "name": "macspoofer-sh",
+  "version": "0.0.1",
+  "category": "Spoofing",
+  "description": "Changes the MAC address using a shell script.",
+  "author": "0xb0rn3",
+  "executable": "./macspoof",
+  "timeout": 120,
+  "concurrent": false,
+  "inputs": {},
+  "outputs": {}
+}

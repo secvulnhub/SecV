@@ -1,0 +1,17 @@
+{
+  "name": "macspoof",
+  "version": "0.0.1",
+  "category": "exploitation",
+  "description": "Spoof Device MAC-ADDRESS",
+  "author": "0xb0rn3",
+  "executablesByOS": {
+    "windows": "modules",
+    "linux": "sudo bash macspoof.sh",
+    "darwin": "bash macspoof.sh"
+  },
+  "dependencies": [],
+  "inputs": {},
+  "outputs": {},
+  "timeout": 300,
+  "concurrent": true
+}
