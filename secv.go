@@ -1,7 +1,6 @@
 package main
 
 import (
-        "encoding/json"
 	"archive/zip"
 	"bytes"
 	"context"
@@ -18,15 +17,11 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/AlecAivazis/survey/v2"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
 
 type ExecutionContext struct {
-	Target     string                  `json:"target"`
-	Parameters map[string]interface{}  `json:"parameters"`
 	Results    map[string]ModuleResult `json:"results"`
 	WorkflowID string                  `json:"workflow_id,omitempty"`
 	StepID     string                  `json:"step_id,omitempty"`
@@ -43,7 +38,6 @@ type ModuleMetadata struct {
     Dependencies    []string               `json:"dependencies"`
     Inputs          map[string]interface{} `json:"inputs"`
     Outputs         map[string]interface{} `json:"outputs"`
-    Timeout         int                    `json:"timeout,omitempty"`
     Concurrent      bool                   `json:"concurrent"`
     ModuleDir       string                 `json:"-"`
     Source          string                 `json:"-"`
