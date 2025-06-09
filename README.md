@@ -1,4 +1,4 @@
-# SecV - The Polyglot Cybersecurity Orchestration Platform
+# SecV - The Polyglot Cybersecurity Orchestration Platform (PROJECT UNDER MAINTANANCE!!)
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Go Version](https://img.shields.io/badge/go-%3E%3D1.19-blue.svg)](https://golang.org/)
