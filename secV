@@ -1,648 +1,626 @@
-#!/usr/bin/env python3
-"""
-SecV - The Polyglot Cybersecurity Orchestration Platform
-A Metasploit-style interactive shell for security module orchestration
+#!/usr/bin/env bash
+#
+# SecV - Unified Security Toolkit Platform
+# Single-file implementation with optional C core acceleration
+#
 
-Usage:
-    ./secV              # Run from current directory
-    secV                # If installed system-wide
+# Configuration
+readonly VERSION="2.0.0"
+readonly SECV_HOME="${SECV_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+readonly TOOLS_DIR="$SECV_HOME/tools"
+readonly CACHE_DIR="$SECV_HOME/.cache"
+readonly CORE_BIN="$CACHE_DIR/core"
+readonly DB_FILE="$CACHE_DIR/modules.db"
+readonly WORKFLOW_DIR="$SECV_HOME/workflows"
+
+# Performance settings
+set -o noglob 2>/dev/null
+export LC_ALL=C
+ulimit -n 65535 2>/dev/null  # More file descriptors for parallel ops
+
+# Terminal colors
+R=$'\e[31m' G=$'\e[32m' Y=$'\e[33m' B=$'\e[34m' C=$'\e[36m' N=$'\e[0m' BOLD=$'\e[1m'
+
+# Module registry (works on Bash 3+)
+declare -a MOD_NAMES MOD_PATHS MOD_CATS MOD_DESCS MOD_EXECS
+declare -a PARAM_KEYS PARAM_VALUES
+CURRENT_MODULE="" CURRENT_PATH="" CURRENT_EXEC=""
+MODULE_COUNT=0
+
+# Workflow state
+declare -a WORKFLOW_STEPS WORKFLOW_RESULTS
+WORKFLOW_MODE=0
+
+# ============================================================================
+# CORE ENGINE BUILDER
+# ============================================================================
+
+build_core() {
+    [[ -f "$CORE_BIN" ]] && return 0
     
-Installation:
-    chmod +x secV
-    ./install.sh        # Install dependencies and optionally deploy system-wide
-"""
+    mkdir -p "$CACHE_DIR"
+    local src="$CACHE_DIR/core.c"
+    
+    cat > "$src" << 'CORE_C'
+#define _GNU_SOURCE
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <dirent.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/wait.h>
+#include <signal.h>
+#include <time.h>
 
-import cmd2
-import json
-import subprocess
-import sys
-import time
-import os
-from pathlib import Path
-from typing import Dict, List, Optional, Any
-from dataclasses import dataclass, field, asdict
-from datetime import datetime
-import platform
-from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
-from rich.syntax import Syntax
-from rich import box
-from cmd2 import Cmd
-
-# Initialize rich console for beautiful output
-console = Console()
-
-# Determine SecV installation path
-SECV_DIR = Path(__file__).parent.resolve()
-TOOLS_DIR = SECV_DIR / "tools"
-
-
-@dataclass
-class ModuleMetadata:
-    """Represents a security module's metadata"""
-    name: str
-    version: str
-    category: str
-    description: str
-    author: str
-    executable: str = ""
-    executables_by_os: Dict[str, str] = field(default_factory=dict)
-    dependencies: List[str] = field(default_factory=list)
-    inputs: Dict[str, Any] = field(default_factory=dict)
-    outputs: Dict[str, Any] = field(default_factory=dict)
-    concurrent: bool = False
-    timeout: int = 300
-    module_dir: Path = None
-
-    @classmethod
-    def from_json(cls, data: dict, module_dir: Path):
-        """Create ModuleMetadata from JSON data"""
-        return cls(
-            name=data.get('name', ''),
-            version=data.get('version', '1.0.0'),
-            category=data.get('category', 'misc'),
-            description=data.get('description', ''),
-            author=data.get('author', ''),
-            executable=data.get('executable', ''),
-            executables_by_os=data.get('executablesByOS', {}),
-            dependencies=data.get('dependencies', []),
-            inputs=data.get('inputs', {}),
-            outputs=data.get('outputs', {}),
-            concurrent=data.get('concurrent', False),
-            timeout=data.get('timeout', 300),
-            module_dir=module_dir
-        )
-
-    def get_executable(self) -> str:
-        """Get the appropriate executable for current OS"""
-        os_name = platform.system().lower()
-        if os_name == 'darwin':
-            os_name = 'darwin'
-        elif os_name == 'windows':
-            os_name = 'windows'
-        else:
-            os_name = 'linux'
-        
-        return self.executables_by_os.get(os_name, self.executable)
-
-
-@dataclass
-class ModuleResult:
-    """Represents the result of module execution"""
-    success: bool
-    data: Any
-    errors: List[str]
-    execution_time_ms: int
-    module_name: str
-    timestamp: datetime
-
-    def to_dict(self):
-        return {
-            'success': self.success,
-            'data': self.data,
-            'errors': self.errors,
-            'execution_time_ms': self.execution_time_ms,
-            'module_name': self.module_name,
-            'timestamp': self.timestamp.isoformat()
+// Fast JSON field extraction
+void json_extract(const char *json, const char *key, char *out, size_t max) {
+    char pattern[256];
+    snprintf(pattern, sizeof(pattern), "\"%s\"", key);
+    char *pos = strstr(json, pattern);
+    if (!pos) { out[0] = 0; return; }
+    
+    pos = strchr(pos, ':');
+    if (!pos) { out[0] = 0; return; }
+    
+    pos++;
+    while (*pos == ' ' || *pos == '\t' || *pos == '\n') pos++;
+    
+    if (*pos == '"') {
+        pos++;
+        char *end = strchr(pos, '"');
+        if (end) {
+            size_t len = end - pos;
+            if (len >= max) len = max - 1;
+            memcpy(out, pos, len);
+            out[len] = 0;
         }
+    } else {
+        char *end = pos;
+        while (*end && *end != ',' && *end != '}' && *end != '\n') end++;
+        size_t len = end - pos;
+        if (len >= max) len = max - 1;
+        memcpy(out, pos, len);
+        out[len] = 0;
+    }
+}
 
-
-class ModuleLoader:
-    """Loads and manages security modules"""
+// Module scanner
+void scan_modules(const char *dir, int depth) {
+    if (depth > 10) return;
     
-    def __init__(self, tools_paths: List[Path]):
-        self.modules: Dict[str, ModuleMetadata] = {}
-        self.modules_by_category: Dict[str, List[str]] = {}
-        self.tools_paths = tools_paths
-        self.load_all_modules()
-
-    def load_all_modules(self):
-        """Load all modules from tools directories"""
-        module_count = 0
-        
-        for tools_path in self.tools_paths:
-            if not tools_path.exists():
-                console.print(f"[yellow]Warning: Tools path not found: {tools_path}[/yellow]")
-                continue
-            
-            # Walk through directory structure
-            for module_json in tools_path.rglob('module.json'):
-                try:
-                    self._load_module(module_json)
-                    module_count += 1
-                except Exception as e:
-                    console.print(f"[yellow]Failed to load {module_json}: {e}[/yellow]")
-        
-        console.print(f"[green]✓ Loaded {module_count} modules across {len(self.modules_by_category)} categories[/green]")
-
-    def _load_module(self, config_path: Path):
-        """Load a single module from its config file"""
-        with open(config_path, 'r') as f:
-            data = json.load(f)
-        
-        module_dir = config_path.parent
-        meta = ModuleMetadata.from_json(data, module_dir)
-        
-        # Validation
-        if not meta.name:
-            raise ValueError("Module name is required")
-        if not meta.executable and not meta.executables_by_os:
-            raise ValueError(f"Module '{meta.name}' must have an executable")
-        
-        # Store module
-        self.modules[meta.name] = meta
-        
-        # Organize by category
-        category = meta.category.lower()
-        if category not in self.modules_by_category:
-            self.modules_by_category[category] = []
-        self.modules_by_category[category].append(meta.name)
-        
-        console.print(f"[cyan]  ✓ Loaded: {meta.name} v{meta.version} [{meta.category}][/cyan]")
-
-    def get_module(self, name: str) -> Optional[ModuleMetadata]:
-        """Get a module by name"""
-        return self.modules.get(name)
-
-    def search_modules(self, query: str) -> List[ModuleMetadata]:
-        """Search modules by name, description, or category"""
-        query_lower = query.lower()
-        results = []
-        
-        for module in self.modules.values():
-            if (query_lower in module.name.lower() or 
-                query_lower in module.description.lower() or
-                query_lower in module.category.lower()):
-                results.append(module)
-        
-        return results
-
-    def get_categories(self) -> List[str]:
-        """Get all available categories"""
-        return sorted(self.modules_by_category.keys())
-
-    def get_modules_by_category(self, category: str) -> List[ModuleMetadata]:
-        """Get all modules in a category"""
-        category = category.lower()
-        module_names = self.modules_by_category.get(category, [])
-        return [self.modules[name] for name in module_names]
-
-
-class ExecutionEngine:
-    """Executes security modules"""
+    DIR *d = opendir(dir);
+    if (!d) return;
     
-    def execute(self, module: ModuleMetadata, target: str, params: Dict[str, Any]) -> ModuleResult:
-        """Execute a module against a target"""
-        start_time = time.time()
+    struct dirent *ent;
+    char path[4096], json_path[4096];
+    
+    while ((ent = readdir(d))) {
+        if (ent->d_name[0] == '.') continue;
         
-        # Get executable for current OS
-        executable = module.get_executable()
-        if not executable:
-            return ModuleResult(
-                success=False,
-                data=None,
-                errors=[f"No executable found for OS: {platform.system()}"],
-                execution_time_ms=0,
-                module_name=module.name,
-                timestamp=datetime.now()
-            )
+        snprintf(path, sizeof(path), "%s/%s", dir, ent->d_name);
         
-        # Prepare execution context
-        exec_context = {
-            'target': target,
-            'params': params,
-            'results': {},
-            'workflow_id': None,
-            'step_id': None
+        if (strcmp(ent->d_name, "module.json") == 0) {
+            FILE *f = fopen(path, "r");
+            if (f) {
+                char json[8192];
+                fread(json, 1, sizeof(json)-1, f);
+                fclose(f);
+                
+                char name[256], cat[256], desc[512], exec[512];
+                json_extract(json, "name", name, sizeof(name));
+                json_extract(json, "category", cat, sizeof(cat));
+                json_extract(json, "description", desc, sizeof(desc));
+                json_extract(json, "executable", exec, sizeof(exec));
+                
+                if (name[0]) {
+                    printf("%s|%s|%s|%s|%s\n", name, dir, cat, desc, exec);
+                }
+            }
+        } else {
+            struct stat st;
+            if (stat(path, &st) == 0 && S_ISDIR(st.st_mode)) {
+                scan_modules(path, depth + 1);
+            }
         }
-        
-        # Serialize context to JSON
-        context_json = json.dumps(exec_context)
-        
-        console.print(f"[yellow]⚙️  Executing {module.name} against {target} (timeout: {module.timeout}s)...[/yellow]")
-        
-        try:
-            # Execute the module
-            result = subprocess.run(
-                executable.split(),
-                input=context_json.encode(),
-                capture_output=True,
-                timeout=module.timeout,
-                cwd=module.module_dir
-            )
-            
-            execution_time = int((time.time() - start_time) * 1000)
-            
-            # Parse output
-            if result.returncode != 0:
-                stderr = result.stderr.decode('utf-8', errors='ignore')
-                return ModuleResult(
-                    success=False,
-                    data=None,
-                    errors=[f"Execution failed: {stderr}"],
-                    execution_time_ms=execution_time,
-                    module_name=module.name,
-                    timestamp=datetime.now()
-                )
-            
-            # Parse JSON output
-            stdout = result.stdout.decode('utf-8', errors='ignore')
-            output_data = json.loads(stdout)
-            
-            return ModuleResult(
-                success=output_data.get('success', False),
-                data=output_data.get('data'),
-                errors=output_data.get('errors', []),
-                execution_time_ms=execution_time,
-                module_name=module.name,
-                timestamp=datetime.now()
-            )
-            
-        except subprocess.TimeoutExpired:
-            execution_time = int((time.time() - start_time) * 1000)
-            return ModuleResult(
-                success=False,
-                data=None,
-                errors=[f"Execution timed out after {module.timeout} seconds"],
-                execution_time_ms=execution_time,
-                module_name=module.name,
-                timestamp=datetime.now()
-            )
-        except json.JSONDecodeError as e:
-            execution_time = int((time.time() - start_time) * 1000)
-            return ModuleResult(
-                success=False,
-                data=None,
-                errors=[f"Failed to parse module output: {e}"],
-                execution_time_ms=execution_time,
-                module_name=module.name,
-                timestamp=datetime.now()
-            )
-        except Exception as e:
-            execution_time = int((time.time() - start_time) * 1000)
-            return ModuleResult(
-                success=False,
-                data=None,
-                errors=[f"Unexpected error: {e}"],
-                execution_time_ms=execution_time,
-                module_name=module.name,
-                timestamp=datetime.now()
-            )
+    }
+    closedir(d);
+}
 
-
-class SecVShell(Cmd):
-    """SecV Interactive Shell - Metasploit-style interface"""
+// Execute with timeout
+int execute(const char *cmd, const char *input, int timeout) {
+    int pipes[2];
+    pipe(pipes);
     
-    def __init__(self):
-        super().__init__()
-        
-        # Show dramatic welcome sequence
-        self._show_welcome_sequence()
-        
-        # Shell configuration
-        self.intro = self._get_banner()
-        self.prompt = self._build_prompt()
-        
-        # Rich shell features
-        self.allow_cli_args = False
-        self.shortcuts = {
-            '?': 'help',
-            'q': 'exit',
-        }
-        
-        # Initialize components
-        console.print("\n[cyan]Loading SecV components...[/cyan]")
-        time.sleep(0.3)
-        
-        console.print("[yellow]⚙  Initializing module loader...[/yellow]")
-        time.sleep(0.2)
-        self.loader = ModuleLoader([TOOLS_DIR])
-        
-        console.print("[yellow]⚙  Starting execution engine...[/yellow]")
-        time.sleep(0.2)
-        self.executor = ExecutionEngine()
-        
-        console.print("[green]✓ All systems operational[/green]\n")
-        time.sleep(0.3)
-        
-        # Shell state
-        self.current_module: Optional[ModuleMetadata] = None
-        self.module_params: Dict[str, Any] = {}
-        
-        # Disable built-in commands we don't need
-        self.hidden_commands.extend(['alias', 'edit', 'macro', 'run_pyscript', 'run_script', 'shell'])
+    pid_t pid = fork();
+    if (pid == 0) {
+        close(pipes[1]);
+        dup2(pipes[0], 0);
+        execl("/bin/sh", "sh", "-c", cmd, NULL);
+        exit(1);
+    }
+    
+    close(pipes[0]);
+    write(pipes[1], input, strlen(input));
+    close(pipes[1]);
+    
+    alarm(timeout);
+    int status;
+    waitpid(pid, &status, 0);
+    alarm(0);
+    
+    return WEXITSTATUS(status);
+}
 
-    def _get_banner(self) -> str:
-        """Get the SecV banner"""
-        banner = """
-[cyan]╔═══════════════════════════════════════════════════════════════════╗
-║                                                                   ║
-║   ███████╗███████╗ ██████╗██╗   ██╗                             ║
-║   ██╔════╝██╔════╝██╔════╝██║   ██║                             ║
-║   ███████╗█████╗  ██║     ██║   ██║                             ║
-║   ╚════██║██╔══╝  ██║     ╚██╗ ██╔╝                             ║
-║   ███████║███████╗╚██████╗ ╚████╔╝                              ║
-║   ╚══════╝╚══════╝ ╚═════╝  ╚═══╝                               ║
-║                                                                   ║
-║   The Polyglot Cybersecurity Orchestration Platform v0.2.0       ║
-║   Type 'help' or '?' for available commands                      ║
-║                                                                   ║
-╚═══════════════════════════════════════════════════════════════════╝[/cyan]
-"""
-        return banner
+int main(int argc, char **argv) {
+    if (argc < 2) return 1;
+    
+    if (strcmp(argv[1], "scan") == 0) {
+        scan_modules(argc > 2 ? argv[2] : "tools", 0);
+    } else if (strcmp(argv[1], "exec") == 0 && argc > 4) {
+        return execute(argv[2], argv[3], atoi(argv[4]));
+    } else if (strcmp(argv[1], "json") == 0 && argc > 3) {
+        char out[1024];
+        json_extract(argv[2], argv[3], out, sizeof(out));
+        printf("%s\n", out);
+    }
+    
+    return 0;
+}
+CORE_C
+    
+    # Try compiling
+    for cc in gcc clang tcc cc; do
+        command -v "$cc" >/dev/null 2>&1 && \
+            "$cc" -O3 -o "$CORE_BIN" "$src" 2>/dev/null && \
+            rm "$src" && return 0
+    done
+    
+    rm -f "$src" "$CORE_BIN"
+    return 1
+}
 
-    def _build_prompt(self) -> str:
-        """Build the shell prompt"""
-        if self.current_module:
-            return f"[bold green]secV[/bold green] [bold red]({self.current_module.name})[/bold red] > "
-        return "[bold green]secV[/bold green] > "
+# ============================================================================
+# MODULE MANAGEMENT
+# ============================================================================
 
-    def do_show(self, args):
-        """
-        Show various information
-        Usage: show [modules|categories|options]
-        """
-        if not args:
-            console.print("[yellow]Usage: show [modules|categories|options][/yellow]")
-            return
-        
-        parts = args.split()
-        target = parts[0].lower()
-        
-        if target == 'modules':
-            self._show_modules()
-        elif target == 'categories':
-            self._show_categories()
-        elif target == 'options':
-            self._show_options()
-        else:
-            console.print(f"[yellow]Unknown show target: {target}[/yellow]")
+# JSON extractor (bash fallback)
+json_get() {
+    local json="$1" key="$2"
+    if [[ -x "$CORE_BIN" ]]; then
+        "$CORE_BIN" json "$json" "$key"
+    else
+        echo "$json" | grep -oP "\"$key\"\\s*:\\s*\"\\K[^\"]*" 2>/dev/null || \
+        echo "$json" | sed -n "s/.*\"$key\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p"
+    fi
+}
 
-    def _show_modules(self):
-        """Display all available modules"""
-        categories = self.loader.get_categories()
-        
-        table = Table(title=f"Available Modules ({len(self.loader.modules)} total)", 
-                     box=box.ROUNDED)
-        table.add_column("Module", style="cyan", no_wrap=True)
-        table.add_column("Version", style="yellow")
-        table.add_column("Category", style="green")
-        table.add_column("Description", style="white")
-        
-        for category in categories:
-            modules = self.loader.get_modules_by_category(category)
-            for module in modules:
-                table.add_row(
-                    module.name,
-                    module.version,
-                    module.category,
-                    module.description
-                )
-        
-        console.print(table)
-
-    def _show_categories(self):
-        """Display all categories"""
-        categories = self.loader.get_categories()
-        
-        table = Table(title="Module Categories", box=box.ROUNDED)
-        table.add_column("Category", style="green")
-        table.add_column("Module Count", style="cyan")
-        
-        for category in categories:
-            count = len(self.loader.modules_by_category[category])
-            table.add_row(category.upper(), str(count))
-        
-        console.print(table)
-
-    def _show_options(self):
-        """Display current module options"""
-        if not self.current_module:
-            console.print("[yellow]No module loaded. Use 'use <module>' first[/yellow]")
-            return
-        
-        if not self.current_module.inputs:
-            console.print("[yellow]This module has no configurable options[/yellow]")
-            return
-        
-        table = Table(title=f"Module Options: {self.current_module.name}", box=box.ROUNDED)
-        table.add_column("Option", style="cyan")
-        table.add_column("Type", style="yellow")
-        table.add_column("Required", style="red")
-        table.add_column("Description", style="white")
-        table.add_column("Current Value", style="green")
-        
-        for name, spec in self.current_module.inputs.items():
-            required = "Yes" if spec.get('required', False) else "No"
-            current = self.module_params.get(name, "")
+# Scan for modules
+scan_modules() {
+    echo -e "${Y}Scanning modules...${N}"
+    MODULE_COUNT=0
+    MOD_NAMES=() MOD_PATHS=() MOD_CATS=() MOD_DESCS=() MOD_EXECS=()
+    
+    if [[ -x "$CORE_BIN" ]]; then
+        # Fast C scanning
+        while IFS='|' read -r name path cat desc exec; do
+            MOD_NAMES+=("$name")
+            MOD_PATHS+=("$path")
+            MOD_CATS+=("$cat")
+            MOD_DESCS+=("$desc")
+            MOD_EXECS+=("$exec")
+            ((MODULE_COUNT++))
+        done < <("$CORE_BIN" scan "$TOOLS_DIR")
+    else
+        # Bash fallback
+        while IFS= read -r -d '' json_file; do
+            local dir="${json_file%/*}"
+            local json=$(<"$json_file")
             
-            table.add_row(
-                name,
-                str(spec.get('type', 'string')),
-                required,
-                spec.get('description', ''),
-                str(current)
-            )
-        
-        console.print(table)
+            local name=$(json_get "$json" "name")
+            local cat=$(json_get "$json" "category")
+            local desc=$(json_get "$json" "description")
+            local exec=$(json_get "$json" "executable")
+            
+            if [[ -n "$name" ]]; then
+                MOD_NAMES+=("$name")
+                MOD_PATHS+=("$dir")
+                MOD_CATS+=("$cat")
+                MOD_DESCS+=("$desc")
+                MOD_EXECS+=("$exec")
+                ((MODULE_COUNT++))
+            fi
+        done < <(find "$TOOLS_DIR" -name "module.json" -type f -print0 2>/dev/null)
+    fi
+    
+    # Save to cache
+    {
+        for ((i=0; i<MODULE_COUNT; i++)); do
+            echo "${MOD_NAMES[$i]}|${MOD_PATHS[$i]}|${MOD_CATS[$i]}|${MOD_DESCS[$i]}|${MOD_EXECS[$i]}"
+        done
+    } > "$DB_FILE"
+    
+    echo -e "${G}✓ Loaded $MODULE_COUNT modules${N}"
+}
 
-    def do_use(self, args):
-        """
-        Load a module for execution
-        Usage: use <module_name>
-        """
-        if not args:
-            console.print("[yellow]Usage: use <module_name>[/yellow]")
-            return
-        
-        module_name = args.strip()
-        module = self.loader.get_module(module_name)
-        
-        if not module:
-            console.print(f"[red]Module '{module_name}' not found[/red]")
-            return
-        
-        self.current_module = module
-        self.module_params = {}
-        self.prompt = self._build_prompt()
-        
-        console.print(f"[green]✓ Loaded module: {module.name} v{module.version}[/green]")
-        console.print(f"  Category: {module.category}")
-        console.print(f"  Author: {module.author}")
-        console.print("\n[cyan]Type 'show options' to see configuration[/cyan]")
-        console.print("[cyan]Type 'info' for detailed information[/cyan]")
-        console.print("[cyan]Type 'run' to execute[/cyan]")
+# Load from cache
+load_cache() {
+    [[ ! -f "$DB_FILE" ]] && return 1
+    
+    local age=$(($(date +%s) - $(stat -c %Y "$DB_FILE" 2>/dev/null || echo 0)))
+    [[ $age -gt 3600 ]] && return 1
+    
+    MODULE_COUNT=0
+    while IFS='|' read -r name path cat desc exec; do
+        MOD_NAMES+=("$name")
+        MOD_PATHS+=("$path")
+        MOD_CATS+=("$cat")
+        MOD_DESCS+=("$desc")
+        MOD_EXECS+=("$exec")
+        ((MODULE_COUNT++))
+    done < "$DB_FILE"
+    
+    echo -e "${G}✓ Loaded $MODULE_COUNT modules from cache${N}"
+    return 0
+}
 
-    def do_info(self, args):
-        """
-        Display detailed module information
-        Usage: info [module_name]
-        """
-        if args:
-            module = self.loader.get_module(args.strip())
-            if not module:
-                console.print(f"[red]Module '{args}' not found[/red]")
-                return
-        elif self.current_module:
-            module = self.current_module
-        else:
-            console.print("[yellow]No module selected. Usage: info <module_name>[/yellow]")
-            return
-        
-        # Create info panel
-        info_text = f"""
-[bold cyan]Name:[/bold cyan] {module.name}
-[bold cyan]Version:[/bold cyan] {module.version}
-[bold cyan]Category:[/bold cyan] {module.category}
-[bold cyan]Author:[/bold cyan] {module.author}
-[bold cyan]Description:[/bold cyan] {module.description}
-[bold cyan]Timeout:[/bold cyan] {module.timeout} seconds
-[bold cyan]Concurrent:[/bold cyan] {module.concurrent}
-"""
-        
-        if module.dependencies:
-            info_text += f"[bold cyan]Dependencies:[/bold cyan] {', '.join(module.dependencies)}\n"
-        
-        panel = Panel(info_text, title=f"Module: {module.name}", border_style="cyan")
-        console.print(panel)
-        
-        # Show inputs if available
-        if module.inputs:
-            self.current_module = module
-            self._show_options()
+# Wrap industry tools
+wrap_tool() {
+    local tool="$1"
+    local wrapper_dir="$TOOLS_DIR/wrapped"
+    mkdir -p "$wrapper_dir"
+    
+    case "$tool" in
+        nmap)
+            cat > "$wrapper_dir/nmap/module.json" << EOF
+{
+    "name": "nmap",
+    "category": "scanning",
+    "description": "Network mapper - industry standard port scanner",
+    "executable": "nmap",
+    "timeout": 600
+}
+EOF
+            ;;
+        metasploit|msfconsole)
+            cat > "$wrapper_dir/metasploit/module.json" << EOF
+{
+    "name": "metasploit",
+    "category": "exploitation",
+    "description": "Metasploit Framework integration",
+    "executable": "bash -c 'echo \"use \\\$MSF_MODULE; set RHOSTS \\\$(echo \\\$1 | jq -r .target); run\" | msfconsole -q -x -'",
+    "timeout": 1800
+}
+EOF
+            ;;
+        sqlmap)
+            cat > "$wrapper_dir/sqlmap/module.json" << EOF
+{
+    "name": "sqlmap",
+    "category": "web",
+    "description": "SQL injection detection and exploitation",
+    "executable": "sqlmap -u",
+    "timeout": 900
+}
+EOF
+            ;;
+        nikto)
+            cat > "$wrapper_dir/nikto/module.json" << EOF
+{
+    "name": "nikto",
+    "category": "web",
+    "description": "Web server scanner",
+    "executable": "nikto -h",
+    "timeout": 600
+}
+EOF
+            ;;
+    esac
+}
 
-    def do_search(self, args):
-        """
-        Search for modules
-        Usage: search <query>
-        """
-        if not args:
-            console.print("[yellow]Usage: search <query>[/yellow]")
-            return
-        
-        results = self.loader.search_modules(args)
-        
-        if not results:
-            console.print(f"[yellow]No modules found matching: {args}[/yellow]")
-            return
-        
-        table = Table(title=f"Search Results: '{args}' ({len(results)} matches)", box=box.ROUNDED)
-        table.add_column("Module", style="cyan")
-        table.add_column("Category", style="green")
-        table.add_column("Description", style="white")
-        
-        for module in results:
-            table.add_row(module.name, module.category, module.description)
-        
-        console.print(table)
+# ============================================================================
+# EXECUTION ENGINE
+# ============================================================================
 
-    def do_set(self, args):
-        """
-        Set a module parameter
-        Usage: set <option> <value>
-        """
-        if not self.current_module:
-            console.print("[yellow]No module loaded. Use 'use <module>' first[/yellow]")
-            return
-        
-        parts = args.split(maxsplit=1)
-        if len(parts) < 2:
-            console.print("[yellow]Usage: set <option> <value>[/yellow]")
-            return
-        
-        option, value = parts
-        
-        if option not in self.current_module.inputs:
-            console.print(f"[red]Unknown option: {option}[/red]")
-            return
-        
-        self.module_params[option] = value
-        console.print(f"[green]{option} => {value}[/green]")
+execute_module() {
+    local target="$1"
+    shift
+    
+    # Build JSON context
+    local json="{\"target\":\"$target\",\"params\":{"
+    local first=1
+    for ((i=0; i<${#PARAM_KEYS[@]}; i++)); do
+        [[ $first -eq 0 ]] && json+=","
+        json+="\"${PARAM_KEYS[$i]}\":\"${PARAM_VALUES[$i]}\""
+        first=0
+    done
+    json+="}}"
+    
+    echo -e "${Y}⚙ Executing $CURRENT_MODULE against $target...${N}"
+    
+    # Get timeout
+    local timeout=300
+    if [[ -f "$CURRENT_PATH/module.json" ]]; then
+        local t=$(json_get "$(<"$CURRENT_PATH/module.json")" "timeout")
+        [[ -n "$t" ]] && timeout=$t
+    fi
+    
+    # Execute
+    local start=$(date +%s%N)
+    
+    cd "$CURRENT_PATH"
+    if [[ -x "$CORE_BIN" ]]; then
+        echo "$json" | timeout $timeout $CURRENT_EXEC
+    else
+        echo "$json" | timeout $timeout bash -c "$CURRENT_EXEC"
+    fi
+    local ret=$?
+    cd - >/dev/null
+    
+    local end=$(date +%s%N)
+    local elapsed=$(((end-start)/1000000))
+    
+    [[ $ret -eq 0 ]] && echo -e "${G}✓ Success (${elapsed}ms)${N}" || echo -e "${R}✗ Failed (${elapsed}ms)${N}"
+    
+    # Store for workflows
+    if [[ $WORKFLOW_MODE -eq 1 ]]; then
+        WORKFLOW_RESULTS+=("$CURRENT_MODULE:$ret:$elapsed")
+    fi
+    
+    return $ret
+}
 
-    def do_run(self, args):
-        """
-        Execute the currently loaded module
-        Usage: run [target]
-        """
-        if not self.current_module:
-            console.print("[yellow]No module loaded. Use 'use <module>' first[/yellow]")
-            return
-        
-        # Get target
-        target = args.strip() if args else None
-        if not target:
-            target = input(console.render_str("[yellow]Target: [/yellow]")).strip()
-        
-        if not target:
-            console.print("[red]Target is required[/red]")
-            return
-        
-        # Execute module
-        result = self.executor.execute(self.current_module, target, self.module_params)
-        
-        # Display result
-        self._display_result(result)
+# ============================================================================
+# WORKFLOW ENGINE
+# ============================================================================
 
-    def _display_result(self, result: ModuleResult):
-        """Display module execution result"""
-        status_color = "green" if result.success else "red"
-        status_text = "SUCCESS" if result.success else "FAILED"
+workflow_add() {
+    local step="$1"
+    WORKFLOW_STEPS+=("$step")
+    echo -e "${G}Added to workflow: $step${N}"
+}
+
+workflow_run() {
+    echo -e "${C}${BOLD}Executing Workflow (${#WORKFLOW_STEPS[@]} steps)${N}"
+    WORKFLOW_MODE=1
+    
+    for step in "${WORKFLOW_STEPS[@]}"; do
+        echo -e "${B}Step: $step${N}"
+        eval "$step"
+    done
+    
+    WORKFLOW_MODE=0
+    echo -e "${G}Workflow complete${N}"
+}
+
+# ============================================================================
+# COMMANDS
+# ============================================================================
+
+cmd_show() {
+    case "$1" in
+        modules|"")
+            echo -e "\n${C}${BOLD}Modules ($MODULE_COUNT total)${N}"
+            local last_cat=""
+            for ((i=0; i<MODULE_COUNT; i++)); do
+                if [[ "${MOD_CATS[$i]}" != "$last_cat" ]]; then
+                    echo -e "\n${Y}[${MOD_CATS[$i]}]${N}"
+                    last_cat="${MOD_CATS[$i]}"
+                fi
+                printf "  ${G}%-20s${N} - %s\n" "${MOD_NAMES[$i]}" "${MOD_DESCS[$i]}"
+            done | sort
+            ;;
+        categories)
+            echo -e "\n${C}${BOLD}Categories${N}"
+            printf '%s\n' "${MOD_CATS[@]}" | sort -u | while read cat; do
+                local count=$(printf '%s\n' "${MOD_CATS[@]}" | grep -c "^$cat$")
+                printf "  ${G}%-20s${N} : %d modules\n" "$cat" "$count"
+            done
+            ;;
+    esac
+    echo
+}
+
+cmd_use() {
+    local module="$1"
+    
+    for ((i=0; i<MODULE_COUNT; i++)); do
+        if [[ "${MOD_NAMES[$i]}" == "$module" ]]; then
+            CURRENT_MODULE="$module"
+            CURRENT_PATH="${MOD_PATHS[$i]}"
+            CURRENT_EXEC="${MOD_EXECS[$i]}"
+            PARAM_KEYS=() PARAM_VALUES=()
+            
+            echo -e "${G}✓ Loaded: $module${N}"
+            echo -e "  Category: ${MOD_CATS[$i]}"
+            echo -e "  Path: $CURRENT_PATH"
+            return 0
+        fi
+    done
+    
+    echo -e "${R}Module '$module' not found${N}"
+    return 1
+}
+
+cmd_set() {
+    [[ -z "$CURRENT_MODULE" ]] && echo -e "${Y}No module loaded${N}" && return
+    
+    local key="$1" value="$2"
+    local found=0
+    
+    for ((i=0; i<${#PARAM_KEYS[@]}; i++)); do
+        if [[ "${PARAM_KEYS[$i]}" == "$key" ]]; then
+            PARAM_VALUES[$i]="$value"
+            found=1
+            break
+        fi
+    done
+    
+    [[ $found -eq 0 ]] && PARAM_KEYS+=("$key") && PARAM_VALUES+=("$value")
+    echo -e "${G}$key => $value${N}"
+}
+
+cmd_run() {
+    [[ -z "$CURRENT_MODULE" ]] && echo -e "${Y}No module loaded${N}" && return
+    [[ -z "$1" ]] && echo -e "${R}Target required${N}" && return
+    
+    execute_module "$1"
+}
+
+cmd_search() {
+    local query="$1"
+    echo -e "\n${C}Search: '$query'${N}"
+    
+    for ((i=0; i<MODULE_COUNT; i++)); do
+        if [[ "${MOD_NAMES[$i]}" == *"$query"* ]] || \
+           [[ "${MOD_DESCS[$i]}" == *"$query"* ]] || \
+           [[ "${MOD_CATS[$i]}" == *"$query"* ]]; then
+            printf "  ${G}%-20s${N} [${Y}%s${N}] - %s\n" \
+                "${MOD_NAMES[$i]}" "${MOD_CATS[$i]}" "${MOD_DESCS[$i]}"
+        fi
+    done
+    echo
+}
+
+cmd_chain() {
+    # Chain multiple modules: chain portscan,vuln-check,report
+    IFS=',' read -ra modules <<< "$1"
+    local target="$2"
+    
+    echo -e "${C}${BOLD}Chaining ${#modules[@]} modules${N}"
+    
+    for mod in "${modules[@]}"; do
+        cmd_use "$mod"
+        [[ $? -eq 0 ]] && execute_module "$target"
+    done
+}
+
+cmd_parallel() {
+    # Run module against multiple targets in parallel
+    local targets="$1"
+    [[ -z "$CURRENT_MODULE" ]] && echo -e "${Y}No module loaded${N}" && return
+    
+    echo -e "${C}${BOLD}Parallel execution${N}"
+    
+    for target in $targets; do
+        execute_module "$target" &
+    done
+    
+    wait
+    echo -e "${G}All parallel jobs complete${N}"
+}
+
+# ============================================================================
+# MAIN
+# ============================================================================
+
+main() {
+    # Setup
+    mkdir -p "$CACHE_DIR" "$TOOLS_DIR" "$WORKFLOW_DIR"
+    
+    # Try building C core
+    build_core && echo -e "${G}✓ C core acceleration available${N}"
+    
+    # Banner
+    echo -e "${C}╔═══════════════════════════════════════════════════════════════════╗"
+    echo "║   ███████╗███████╗ ██████╗██╗   ██╗                             ║"
+    echo "║   ██╔════╝██╔════╝██╔════╝██║   ██║                             ║"
+    echo "║   ███████╗█████╗  ██║     ██║   ██║                             ║"
+    echo "║   ╚════██║██╔══╝  ██║     ╚██╗ ██╔╝                             ║"
+    echo "║   ███████║███████╗╚██████╗ ╚████╔╝                              ║"
+    echo "║   ╚══════╝╚══════╝ ╚═════╝  ╚═══╝                               ║"
+    echo "║                                                                   ║"
+    echo "║   Unified Security Platform v$VERSION                               ║"
+    echo "╚═══════════════════════════════════════════════════════════════════╝${N}"
+    
+    # Load modules
+    load_cache || scan_modules
+    
+    # Wrap common tools if found
+    for tool in nmap metasploit sqlmap nikto; do
+        command -v "$tool" >/dev/null 2>&1 && wrap_tool "$tool"
+    done
+    
+    echo -e "${C}Type 'help' for commands${N}\n"
+    
+    # Command loop
+    while true; do
+        # Prompt
+        if [[ -n "$CURRENT_MODULE" ]]; then
+            printf "${G}secV ${R}($CURRENT_MODULE)${N} > "
+        else
+            printf "${G}secV${N} > "
+        fi
         
-        result_text = f"""
-[bold]Status:[/bold] [{status_color}]{status_text}[/{status_color}]
-[bold]Execution Time:[/bold] {result.execution_time_ms}ms
-[bold]Timestamp:[/bold] {result.timestamp.strftime('%Y-%m-%d %H:%M:%S')}
-"""
+        read -r cmd args
         
-        if result.errors:
-            result_text += "\n[bold red]Errors:[/bold red]\n"
-            for error in result.errors:
-                result_text += f"  • {error}\n"
-        
-        panel = Panel(result_text, title="Execution Result", border_style=status_color)
-        console.print(panel)
-        
-        if result.data:
-            console.print("\n[bold yellow]Data:[/bold yellow]")
-            syntax = Syntax(json.dumps(result.data, indent=2), "json", theme="monokai")
-            console.print(syntax)
+        case "$cmd" in
+            show) cmd_show $args ;;
+            use) cmd_use $args ;;
+            set) cmd_set $args ;;
+            run) cmd_run $args ;;
+            search) cmd_search "$args" ;;
+            chain) cmd_chain $args ;;
+            parallel) cmd_parallel "$args" ;;
+            workflow)
+                case "$args" in
+                    add*) workflow_add "${args#add }" ;;
+                    run) workflow_run ;;
+                    clear) WORKFLOW_STEPS=() && echo "Workflow cleared" ;;
+                    *) echo "workflow [add <cmd>|run|clear]" ;;
+                esac
+                ;;
+            back)
+                CURRENT_MODULE="" CURRENT_PATH="" CURRENT_EXEC=""
+                PARAM_KEYS=() PARAM_VALUES=()
+                ;;
+            reload)
+                rm -f "$DB_FILE"
+                scan_modules
+                ;;
+            wrap)
+                wrap_tool "$args"
+                reload
+                ;;
+            help)
+                cat << HELP
 
-    def do_back(self, args):
-        """
-        Unload the current module
-        Usage: back
-        """
-        if self.current_module:
-            console.print(f"[green]Unloaded module: {self.current_module.name}[/green]")
-            self.current_module = None
-            self.module_params = {}
-            self.prompt = self._build_prompt()
-        else:
-            console.print("[yellow]No module loaded[/yellow]")
+${C}${BOLD}Core Commands:${N}
+  show [modules|categories]  List modules/categories
+  use <module>              Load module
+  set <key> <value>         Set parameter
+  run <target>              Execute module
+  search <query>            Search modules
+  back                      Unload module
 
-    def do_exit(self, args):
-        """
-        Exit SecV shell
-        Usage: exit
-        """
-        console.print("[cyan]Goodbye![/cyan]")
-        return True
+${C}${BOLD}Advanced:${N}
+  chain <mod1,mod2> <target>  Chain modules
+  parallel <targets>          Run parallel
+  workflow add <cmd>          Add to workflow
+  workflow run                Execute workflow
+  wrap <tool>                 Wrap external tool
 
-    def do_clear(self, args):
-        """Clear the screen"""
-        console.clear()
+${C}${BOLD}Examples:${N}
+  use nmap
+  run scanme.nmap.org
+  
+  chain portscan,vulnscan 192.168.1.1
+  
+  workflow add use portscan
+  workflow add run \$TARGET
+  workflow run
 
+HELP
+                ;;
+            clear) clear ;;
+            exit|quit) echo -e "${C}Goodbye!${N}" && exit 0 ;;
+            "") ;;
+            *) echo "Unknown command: $cmd" ;;
+        esac
+    done
+}
 
-def main():
-    """Main entry point"""
-    try:
-        shell = SecVShell()
-        shell.cmdloop()
-    except KeyboardInterrupt:
-        console.print("\n[cyan]Goodbye![/cyan]")
-        sys.exit(0)
-
-
-if __name__ == '__main__':
-    main()
+# Run if not sourced
+[[ "${BASH_SOURCE[0]}" == "${0}" ]] && main "$@"
