@@ -52,41 +52,55 @@ SecV is a next-generation cybersecurity orchestration platform featuring a Metas
 
 ### Installation
 
+SecV offers **three installation tiers** to suit your needs:
+
 ```bash
 # Clone the repository
 git clone https://github.com/SecVulnHub/SecV.git
 cd SecV
 
-# Run the installer
+# Run the interactive installer
 chmod +x install.sh secV
 ./install.sh
 
-# Start SecV
-./secV              # Local execution
-# OR
-secV                # If installed system-wide
+# Choose your installation tier:
+# 1) Basic - Core functionality only (~5MB)
+# 2) Standard - Core + scanning tools (~50MB) ⭐ Recommended
+# 3) Full - All features (~100MB)
 ```
 
-See [INSTALL.md](INSTALL.md) for detailed installation instructions.
+The installer will:
+- Check Python 3.8+ and pip
+- Install dependencies based on your choice
+- Set up executable permissions
+- Optionally install system-wide
 
-### Basic Usage
+**Installation Tiers Explained:**
+
+| Tier | Dependencies | Best For | Module Support |
+|------|-------------|----------|----------------|
+| **Basic** | cmd2, rich | Minimal setup, basic modules | Core modules only |
+| **Standard** | Basic + python-nmap, scapy | Most users, full scanning | All scanning modules |
+| **Full** | Everything in requirements.txt | Power users, all features | All modules + extras |
+
+### Quick Start After Installation
 
 ```bash
-# Start the interactive shell
+# Start SecV (local installation)
+./secV
+
+# OR if installed system-wide
 secV
 
 # Inside SecV shell
 secV > show modules              # List all available modules
 secV > show categories           # List module categories
-secV > search network            # Search for modules
-secV > use spoof                 # Load a module
-secV (spoof) > show options      # View module parameters
-secV (spoof) > set interface eth0
-secV (spoof) > set new_mac random
-secV (spoof) > run 192.168.1.1   # Execute the module
-secV (spoof) > back              # Unload module
-secV > exit                      # Quit SecV
+secV > use portscan             # Load the port scanner
+secV (portscan) > show options  # View configuration
+secV (portscan) > run target.com # Execute scan
 ```
+
+See [INSTALL.md](INSTALL.md) for detailed installation instructions.
 
 ---
 
@@ -113,8 +127,8 @@ secV > exit                      # Quit SecV
 
 SecV organizes modules into logical categories:
 
+- **Scanning** - Port scanning, service enumeration, network discovery
 - **Network** - Network manipulation, spoofing, routing
-- **Scanning** - Port scanning, service enumeration, discovery
 - **Vulnerability** - Vulnerability assessment and detection
 - **Exploitation** - Exploit frameworks and PoC tools
 - **Reconnaissance** - OSINT, information gathering, footprinting
@@ -124,6 +138,39 @@ SecV organizes modules into logical categories:
 - **Post-Exploitation** - Privilege escalation, persistence, lateral movement
 - **Reporting** - Report generation, documentation tools
 - **Misc** - Utilities and helper tools
+
+---
+
+## Featured Modules
+
+### PortScan - Advanced Network Scanner
+*Author: 0xbv1 | 0xb0rn3*
+
+Multi-engine network scanner with masscan-speed capabilities:
+
+**Features:**
+- Multiple scan engines (auto-select, connect, masscan-style, nmap, scapy)
+- 20+ service fingerprints (HTTP, SSH, MySQL, Redis, etc.)
+- TLS/SSL certificate analysis
+- HTTP technology detection (WordPress, React, Angular, etc.)
+- OS fingerprinting and device identification
+- Masscan-speed async scanning (~500-1000 ports/sec)
+- Works without external dependencies (graceful degradation)
+
+**Usage:**
+```bash
+secV > use portscan
+secV (portscan) > set ports top-100
+secV (portscan) > set use_masscan_speed true
+secV (portscan) > run example.com
+```
+
+**Installation Tiers:**
+- Basic: TCP connect scan only
+- Standard: + nmap-style + SYN scanning
+- Full: All features + enhanced detection
+
+See [tools/scanning/portscan/README.md](tools/scanning/portscan/README.md) for details.
 
 ---
 
@@ -240,13 +287,34 @@ SecV/
 
 ## Requirements
 
-- **Python**: 3.8 or later
-- **pip**: Python package installer
-- **OS**: Linux, macOS, or Windows (WSL)
+**Minimum:**
+- Python 3.8 or later
+- pip (Python package installer)
+- Operating System: Linux, macOS, or Windows (WSL)
 
-**Python Dependencies:**
-- `cmd2` - Advanced command-line interface framework
-- `rich` - Beautiful terminal formatting and output
+**Python Dependencies by Tier:**
+
+*Basic Tier (Required):*
+- `cmd2` >= 2.4.3 - Advanced CLI framework
+- `rich` >= 13.0.0 - Terminal formatting
+
+*Standard Tier (Recommended):*
+- `python-nmap` >= 0.7.1 - Nmap integration for scanning modules
+- `scapy` >= 2.5.0 - Raw packet manipulation for advanced scanning
+
+*Full Tier (All Features):*
+- `requests` >= 2.31.0 - HTTP operations
+- `beautifulsoup4` >= 4.12.0 - HTML parsing
+- `dnspython` >= 2.4.0 - DNS operations
+- `pycryptodome` >= 3.19.0 - Cryptography
+- `paramiko` >= 3.4.0 - SSH operations
+- `pyyaml` >= 6.0.1 - Configuration parsing
+
+**Platform-Specific Notes:**
+- **Linux**: Scapy requires `libpcap-dev` (`sudo apt install libpcap-dev`)
+- **macOS**: All dependencies work out of the box
+- **Windows**: Scapy requires Npcap driver installation
+- **Raw Packet Operations**: SYN scanning requires root/sudo privileges
 
 ---
 
@@ -255,12 +323,25 @@ SecV/
 We welcome contributions from the security community! Whether you're adding new modules, improving the core platform, or fixing bugs - your help makes SecV better.
 
 **Ways to Contribute:**
-1. Add new security modules
-2. Improve existing modules
-3. Fix bugs or improve documentation
-4. Suggest new features
+1. **Add new security modules** - Expand SecV's capabilities
+2. **Improve existing modules** - Enhance features or fix bugs
+3. **Improve documentation** - Help others understand and use SecV
+4. **Report bugs** - Help us identify and fix issues
+5. **Suggest features** - Share your ideas for improvements
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed contribution guidelines.
+**Module Development:**
+- Modules should work at **Basic** installation tier (graceful degradation)
+- Use optional dependencies intelligently (detect and fallback)
+- Follow the patterns in [MODULE_DEVELOPMENT.md](MODULE_DEVELOPMENT.md)
+- Test across all installation tiers before submitting
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed contribution guidelines and [MODULE_DEVELOPMENT.md](MODULE_DEVELOPMENT.md) for module development best practices.
+
+**Quick Links:**
+- [Contribution Guidelines](CONTRIBUTING.md)
+- [Module Development Guide](MODULE_DEVELOPMENT.md)
+- [Installation Guide](INSTALL.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
 
 ---
 
@@ -304,14 +385,34 @@ Special thanks to all contributors who make this project possible.
 
 **Current Version: v0.2.0**
 
+**Completed:**
+- ✅ Metasploit-style interactive shell
+- ✅ Module loading and management system
+- ✅ Multi-tier installation system
+- ✅ Advanced port scanner with multiple engines
+- ✅ Rich terminal output and formatting
+- ✅ Cross-platform support (Linux, macOS, Windows)
+- ✅ Graceful dependency handling
+- ✅ Comprehensive documentation
+
 **Upcoming Features:**
-- Workflow orchestration for multi-stage attacks
-- Module dependency resolution
-- Remote module repositories
-- Built-in report generation
-- Result caching and history
-- Advanced tab completion
-- Plugin system for extensions
+- 🔄 Additional scanning modules (web, DNS, subdomain)
+- 🔄 Workflow orchestration for multi-stage attacks
+- 🔄 Module dependency auto-resolution
+- 🔄 Built-in report generation
+- 🔄 Result caching and history
+- 🔄 Advanced tab completion
+- 🔄 Plugin system for extensions
+- 🔄 Integration with Metasploit modules
+- 🔄 Web interface (optional)
+
+**Module Development:**
+- More scanning modules (masscan-style, vulnerability scanners)
+- Exploitation modules (SQLmap wrapper, web exploits)
+- Reconnaissance modules (OSINT tools, subdomain enumeration)
+- Post-exploitation modules (privilege escalation, persistence)
+
+**Community Contributions Welcome!**
 
 ---
 
