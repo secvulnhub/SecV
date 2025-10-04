@@ -1,0 +1,11 @@
+# SecV - Python Dependencies
+# Install with: pip3 install -r requirements.txt
+
+# Command-line interface framework with advanced features
+cmd2>=2.4.3
+
+# Rich terminal output and formatting
+rich>=13.0.0
+
+# Optional: Tab completion support (recommended)
+argcomplete>=3.0.0
