@@ -3,7 +3,7 @@
 # SecV Installation Script
 # Installs dependencies and optionally deploys SecV system-wide
 #
-
+break="--break-system-packages"
 set -e
 
 # Colors for output
@@ -58,7 +58,7 @@ if ! command -v pip3 &> /dev/null; then
     if [[ "$OSTYPE" == "linux-gnu"* ]]; then
         sudo apt-get update && sudo apt-get install -y python3-pip
     elif [[ "$OSTYPE" == "darwin"* ]]; then
-        python3 -m ensurepip --upgrade
+        python3 -m ensurepip --upgrade $break
     else
         echo -e "${RED}[!] Unable to install pip automatically. Please install manually.${NC}"
         exit 1
@@ -69,10 +69,10 @@ echo -e "${GREEN}[✓] pip3 found${NC}\n"
 # Install Python dependencies
 echo -e "${YELLOW}[3/5] Installing Python dependencies...${NC}"
 if [ -f "$SCRIPT_DIR/requirements.txt" ]; then
-    pip3 install -r "$SCRIPT_DIR/requirements.txt" --user
+    pip3 install -r "$SCRIPT_DIR/requirements.txt" --user $break
 else
     echo -e "${CYAN}    Installing cmd2 and rich...${NC}"
-    pip3 install cmd2 rich --user
+    pip3 install cmd2 rich --user $break
 fi
 echo -e "${GREEN}[✓] Dependencies installed${NC}\n"
 
