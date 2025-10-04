@@ -239,6 +239,199 @@ Choose the most appropriate category for your module:
 
 ---
 
+## 📦 **SecV Installation & Dependencies**
+
+### Installation Tiers
+
+SecV supports three installation levels to accommodate different use cases:
+
+```bash
+./install.sh
+```
+
+**1. Basic Installation** - Core functionality only
+- Dependencies: `cmd2`, `rich`
+- Use case: Basic module execution, shell interface
+- Size: Minimal (~5MB)
+
+**2. Standard Installation** ⭐ Recommended
+- Dependencies: Core + `python-nmap`, `scapy`
+- Use case: Full scanning capabilities, most modules
+- Size: ~50MB
+
+**3. Full Installation** - All features
+- Dependencies: Everything in `requirements.txt`
+- Use case: All modules including web scraping, SSH, crypto
+- Size: ~100MB
+
+### Writing Dependency-Aware Modules
+
+**IMPORTANT**: Your modules should gracefully handle missing optional dependencies!
+
+**✅ GOOD - Graceful degradation:**
+```python
+try:
+    import scapy.all as scapy
+    HAS_SCAPY = True
+except ImportError:
+    HAS_SCAPY = False
+
+def advanced_scan():
+    if HAS_SCAPY:
+        # Use scapy for advanced features
+        return scapy_scan()
+    else:
+        # Fall back to basic method
+        return basic_scan()
+```
+
+**❌ BAD - Hard requirement:**
+```python
+import scapy.all as scapy  # Crashes if not installed!
+
+def scan():
+    return scapy_scan()  # No fallback!
+```
+
+### Declaring Dependencies in module.json
+
+Use the `optional_dependencies` field for libraries that enhance but aren't required:
+
+```json
+{
+  "name": "mymodule",
+  "dependencies": ["python3"],
+  "optional_dependencies": {
+    "scapy": "For advanced packet manipulation",
+    "requests": "For HTTP features"
+  }
+}
+```
+
+### Testing Your Module Across Installation Tiers
+
+Before submitting, test your module with different dependency configurations:
+
+```bash
+# Test with minimal dependencies
+pip3 uninstall scapy python-nmap -y
+./secV
+secV > use mymodule
+secV (mymodule) > run target
+
+# Test with full dependencies
+pip3 install -r requirements.txt
+./secV
+secV > use mymodule
+secV (mymodule) > run target
+```
+
+Your module should:
+- ✅ Work at basic level (even if with reduced features)
+- ✅ Auto-detect available libraries
+- ✅ Inform users about missing optional features
+- ✅ Never crash due to missing optional dependencies
+
+### Example: Multi-Tier Module Pattern
+
+```python
+#!/usr/bin/env python3
+
+# Try importing optional dependencies
+try:
+    import requests
+    HAS_REQUESTS = True
+except ImportError:
+    HAS_REQUESTS = False
+
+try:
+    from bs4 import BeautifulSoup
+    HAS_BS4 = True
+except ImportError:
+    HAS_BS4 = False
+
+def scan_web(url):
+    """Scan with best available method"""
+    
+    if HAS_REQUESTS and HAS_BS4:
+        # Full featured scan
+        return advanced_web_scan(url)
+    elif HAS_REQUESTS:
+        # Basic HTTP scan
+        return basic_http_scan(url)
+    else:
+        # Fallback to urllib (stdlib)
+        return urllib_scan(url)
+
+def advanced_web_scan(url):
+    response = requests.get(url)
+    soup = BeautifulSoup(response.content, 'html.parser')
+    # Extract detailed information
+    return {"method": "advanced", "data": soup}
+
+def basic_http_scan(url):
+    response = requests.get(url)
+    # Basic analysis
+    return {"method": "basic", "data": response.text}
+
+def urllib_scan(url):
+    import urllib.request
+    response = urllib.request.urlopen(url)
+    # Minimal analysis
+    return {"method": "fallback", "data": response.read()}
+```
+
+### Dependencies Best Practices
+
+1. **Use stdlib when possible** - `socket`, `json`, `urllib`, etc.
+2. **Make advanced features optional** - Don't require heavy libraries for basic functionality
+3. **Inform users** - Tell them what they're missing:
+   ```python
+   if not HAS_SCAPY:
+       print("Note: Install scapy for SYN scan support: pip3 install scapy")
+   ```
+4. **Document requirements** - List optional dependencies in module README
+5. **Provide alternatives** - Offer multiple implementation paths
+
+### Common Optional Dependencies
+
+| Library | Use Case | Installation Tier |
+|---------|----------|------------------|
+| `python-nmap` | Nmap integration | Standard |
+| `scapy` | Raw packets, SYN scan | Standard |
+| `requests` | HTTP operations | Full |
+| `beautifulsoup4` | HTML parsing | Full |
+| `paramiko` | SSH operations | Full |
+| `dnspython` | DNS queries | Full |
+| `pycryptodome` | Cryptography | Full |
+
+### Platform-Specific Notes
+
+**Linux:**
+- `scapy` requires: `sudo apt install libpcap-dev`
+- Raw sockets need: `sudo` for SYN scanning
+
+**macOS:**
+- `scapy` works out of the box
+- Raw sockets need: `sudo` for SYN scanning
+
+**Windows:**
+- `scapy` requires: Npcap driver
+- Some features may have limited support
+
+### Contribution Checklist - Dependencies
+
+When submitting a module, ensure:
+
+- [ ] Module works with Basic installation (core only)
+- [ ] Optional dependencies are properly detected
+- [ ] Fallback methods provided for missing libraries
+- [ ] `module.json` lists optional dependencies
+- [ ] README documents what features need which libraries
+- [ ] No hard imports of optional libraries at module level
+- [ ] User-friendly messages for missing optional features
+- [ ] Tested on at least 2 dependency configurations
+
 ## Programming Language Support
 
 SecV is **truly polyglot** - write modules in any language that can:
