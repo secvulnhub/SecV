@@ -11,6 +11,8 @@ readonly TOOLS_DIR="$SECV_HOME/tools"
 readonly CACHE_DIR="$SECV_HOME/.cache"
 readonly DB_FILE="$CACHE_DIR/modules.db"
 
+python3 update.py
+
 # Colors
 R=$'\e[31m' G=$'\e[32m' Y=$'\e[33m' B=$'\e[34m' C=$'\e[36m' M=$'\e[35m' N=$'\e[0m' BOLD=$'\e[1m'
 
