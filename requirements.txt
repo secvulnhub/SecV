@@ -1,5 +1,5 @@
 # SecV Global Dependencies
-# Version: 2.1.0
+# Version: 2.3.0
 # 
 # Installation: pip3 install -r requirements.txt --break-system-packages
 # 
@@ -24,23 +24,23 @@ argcomplete>=3.0.0             # Shell completion support
 # STANDARD TIER - Recommended (scanning & pentesting)
 # ============================================================================
 
-# Network Scanning - Required by: portscan, network-discovery
-scapy>=2.5.0                   # Raw packet manipulation, SYN scanning
+# Network Scanning - Required by: portscan v3.0, network-discovery
+scapy>=2.5.0                   # Raw packet manipulation, SYN scanning, ARP
 python-nmap>=0.7.1             # Nmap integration
 
 # ============================================================================
 # FULL TIER - Complete (all features)
 # ============================================================================
 
-# HTTP Operations - Required by: portscan (tech detection), web-enum, http-fuzzer
+# HTTP Operations - Required by: portscan v3.0 (tech detection), web-enum, http-fuzzer
 requests>=2.31.0               # HTTP client library
 urllib3>=2.0.0                 # HTTP client (requests dependency)
 
-# Web Scraping - Required by: web-enum, content-discovery
+# Web Scraping - Required by: portscan v3.0 (HTML parsing), web-enum, content-discovery
 beautifulsoup4>=4.12.0         # HTML/XML parsing
 lxml>=4.9.0                    # Fast XML/HTML parser
 
-# DNS Operations - Required by: dns-enum, subdomain-scanner
+# DNS Operations - Required by: portscan v3.0 (DNS enum), dns-enum, subdomain-scanner
 dnspython>=2.4.0               # DNS toolkit
 
 # Cryptography - Required by: hash-cracker, ssl-analyzer, crypto-tools
@@ -75,10 +75,21 @@ pyyaml>=6.0.1                  # YAML configuration parsing
 # 
 # When adding a new module, document its dependencies here:
 #
-# MODULE: portscan v2.0
-#   CORE: None (stdlib only for basic functionality)
-#   STANDARD: scapy (SYN scanning), python-nmap (nmap integration)
-#   FULL: requests (HTTP tech detection)
+# MODULE: portscan v3.0.0 (Elite Scanner)
+#   CORE: None (stdlib only for basic TCP connect scanning)
+#   STANDARD: scapy (SYN scanning, ARP/MAC lookup)
+#             python-nmap (nmap integration)
+#   FULL: requests (HTTP/HTTPS analysis, technology detection)
+#         beautifulsoup4 (HTML parsing, title extraction)
+#         dnspython (DNS enumeration, reverse lookup)
+#   ELITE: masscan binary (ultra-fast scanning - not in pip)
+#
+#   Features by tier:
+#   - Basic: TCP connect scan, basic service detection
+#   - Standard: + SYN stealth scan, MAC vendor lookup, ping sweep
+#   - Advanced: + Nmap integration, OS detection
+#   - Full: + HTTP tech detection (30+ technologies), DNS enum, TLS analysis
+#   - Elite: + Masscan ultra-fast scanning (10k+ ports/sec)
 #
 # MODULE: web-enum v1.0
 #   CORE: None (urllib for basic)
@@ -95,6 +106,92 @@ pyyaml>=6.0.1                  # YAML configuration parsing
 #   STANDARD: None
 #   FULL: paramiko (authentication testing)
 #
+# MODULE: mac-spoof v2.0
+#   CORE: Works with stdlib only (network interface manipulation)
+#   STANDARD: scapy (optional, for advanced ARP features)
+#   FULL: None (no additional dependencies)
+#
+# ============================================================================
+# ELITE PORT SCANNER v3.0 FEATURES BY DEPENDENCY
+# ============================================================================
+#
+# NO DEPENDENCIES (Basic Tier - stdlib only):
+#   ✓ TCP connect scanning
+#   ✓ Basic service detection (50+ fingerprints)
+#   ✓ Banner grabbing
+#   ✓ Multi-threaded scanning (up to 500 threads)
+#   ✓ Adaptive timeout management
+#   ✓ Port presets (quick, top-20, top-100, web, database, etc.)
+#   ✓ Response time tracking
+#
+# + scapy (Standard Tier):
+#   ✓ SYN stealth scanning
+#   ✓ MAC address vendor lookup (100+ OUI database)
+#   ✓ Device type recognition
+#   ✓ TTL-based OS detection
+#   ✓ ARP-based host discovery
+#   ✓ ICMP ping sweep
+#   ✓ Raw packet manipulation
+#
+# + python-nmap (Standard Tier):
+#   ✓ Nmap integration
+#   ✓ Advanced service version detection
+#   ✓ OS fingerprinting (nmap engine)
+#   ✓ Script scanning support
+#
+# + requests (Full Tier):
+#   ✓ HTTP/HTTPS service analysis
+#   ✓ Server header extraction
+#   ✓ HTTP status code detection
+#   ✓ Technology stack detection (30+ technologies):
+#     - CMS: WordPress, Joomla, Drupal
+#     - Frameworks: Django, Flask, Express, Laravel, Rails, Spring
+#     - Servers: Apache, nginx, IIS, Tomcat
+#     - Languages: PHP, ASP.NET, Node.js
+#     - Frontend: React, Angular, Vue.js, jQuery, Bootstrap
+#     - CDN: Cloudflare, CloudFront, Varnish
+#
+# + beautifulsoup4 (Full Tier):
+#   ✓ HTML page title extraction
+#   ✓ Meta tag analysis
+#   ✓ Enhanced technology detection
+#
+# + dnspython (Full Tier):
+#   ✓ DNS forward lookup
+#   ✓ Reverse PTR lookup
+#   ✓ DNS record enumeration
+#   ✓ Hostname resolution
+#
+# + ssl (stdlib, enhanced with Full Tier):
+#   ✓ TLS/SSL certificate inspection
+#   ✓ Certificate chain analysis
+#   ✓ Subject/Issuer extraction
+#   ✓ SAN (Subject Alternative Names)
+#   ✓ Certificate validity dates
+#   ✓ TLS version detection
+#   ✓ Cipher suite identification
+#
+# EXTERNAL BINARY (Elite Tier - requires manual install):
+# + masscan (apt install masscan / yum install masscan / brew install masscan):
+#   ✓ Ultra-fast scanning (10,000+ ports/second)
+#   ✓ Internet-scale port scanning
+#   ✓ Configurable scan rate
+#   ✓ Asynchronous transmission
+#
+# CVE CORRELATION (No dependencies - built-in database):
+#   ✓ Apache HTTP Server vulnerabilities
+#   ✓ OpenSSH vulnerabilities
+#   ✓ nginx vulnerabilities
+#   ✓ MySQL/MariaDB vulnerabilities
+#   ✓ PostgreSQL vulnerabilities
+#   ✓ Redis vulnerabilities
+#   ✓ MongoDB vulnerabilities
+#   ✓ Elasticsearch vulnerabilities
+#   ✓ PHP vulnerabilities
+#   ✓ OpenSSL vulnerabilities (Heartbleed, etc.)
+#   ✓ Automatic CVE ID correlation
+#   ✓ NVD URL generation
+#
 # ============================================================================
 # CONTRIBUTOR GUIDELINES
 # ============================================================================
@@ -109,5 +206,80 @@ pyyaml>=6.0.1                  # YAML configuration parsing
 # Example:
 #   # Your Module - Required by: your-module, other-module
 #   some-library>=1.0.0        # Brief description
+#
+# IMPORTANT: Always add to the GLOBAL requirements.txt, not module-specific files!
+#
+# For detailed guidance, see: CONTRIBUTOR-REQUIREMENTS-GUIDE.md
+#
+# ============================================================================
+# SECV v2.3.0 ENHANCEMENTS
+# ============================================================================
+#
+# The SecV shell v2.3 now includes:
+#   ✓ Automatic dependency detection at module load
+#   ✓ Clear warnings for missing optional dependencies
+#   ✓ Install command suggestions
+#   ✓ Parameter validation (type, range, options)
+#   ✓ Rich output formatting for complex JSON
+#   ✓ Enhanced error messages with context
+#   ✓ Pre-execution parameter preview
+#
+# No additional dependencies required - all enhancements use stdlib + existing deps
+#
+# ============================================================================
+# PLATFORM-SPECIFIC NOTES
+# ============================================================================
+#
+# LINUX (Debian/Ubuntu):
+#   sudo apt-get install python3 python3-pip libpcap-dev
+#   pip3 install -r requirements.txt --user --break-system-packages
+#
+# LINUX (RHEL/CentOS/Fedora):
+#   sudo dnf install python3 python3-pip libpcap-devel
+#   pip3 install -r requirements.txt --user --break-system-packages
+#
+# LINUX (Arch):
+#   sudo pacman -S python python-pip libpcap
+#   pip3 install -r requirements.txt --user
+#
+# macOS:
+#   brew install python3
+#   pip3 install -r requirements.txt --user
+#
+# Windows (WSL):
+#   Use Ubuntu/Debian instructions above
+#
+# RAW SOCKET OPERATIONS (SYN scan, masscan):
+#   Require root/sudo privileges:
+#   sudo secV
+#   OR
+#   sudo ./secV
+#
+# ============================================================================
+# VERSION HISTORY
+# ============================================================================
+#
+# 2.3.0 (Current):
+#   - Updated portscan v3.0 documentation
+#   - Added detailed feature breakdown by dependency
+#   - Documented SecV v2.3 enhancements
+#   - Enhanced contributor guidelines
+#   - Added platform-specific installation notes
+#
+# 2.2.0:
+#   - Added elite port scanner v3.0 dependencies
+#   - Documented masscan requirement
+#   - Enhanced HTTP/DNS support
+#
+# 2.1.0:
+#   - Added python-nmap for scanning
+#   - Enhanced module documentation
+#
+# 2.0.0:
+#   - Introduced tiered installation system
+#   - Separated CORE, STANDARD, FULL tiers
+#
+# 1.0.0:
+#   - Initial release
 #
 # ============================================================================
