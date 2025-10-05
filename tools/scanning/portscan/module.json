@@ -1,0 +1,72 @@
+{
+    "name": "portscan",
+    "version": "2.0.0",
+    "category": "scanning",
+    "description": "Advanced network discovery and port analysis - pure Python with masscan-speed",
+    "author": "0xbv1 | 0xb0rn3",
+    "executable": "python3 portscan.py",
+    "timeout": 600,
+    "dependencies": [],
+    "optional_dependencies": {
+        "python-nmap": "Nmap integration for advanced scanning",
+        "scapy": "Raw packet manipulation for SYN scanning",
+        "masscan": "Masscan-style async scanning"
+    },
+    "inputs": {
+        "ports": {
+            "type": "string",
+            "description": "Port specification (top-100, top-1000, or custom)",
+            "default": "top-100"
+        },
+        "scan_type": {
+            "type": "string",
+            "description": "Scan type (connect, syn)",
+            "default": "connect"
+        },
+        "scan_method": {
+            "type": "string",
+            "description": "Scan method (auto, connect, masscan, nmap, scapy)",
+            "default": "auto"
+        },
+        "timeout": {
+            "type": "number",
+            "description": "Timeout in milliseconds",
+            "default": 2000
+        },
+        "concurrency": {
+            "type": "number",
+            "description": "Number of concurrent threads",
+            "default": 50
+        },
+        "service_detection": {
+            "type": "boolean",
+            "description": "Enable service detection",
+            "default": true
+        },
+        "os_detection": {
+            "type": "boolean",
+            "description": "Enable OS detection",
+            "default": false
+        },
+        "aggressive": {
+            "type": "boolean",
+            "description": "Aggressive scanning",
+            "default": false
+        },
+        "use_masscan_speed": {
+            "type": "boolean",
+            "description": "Use masscan-style async scanning",
+            "default": false
+        }
+    },
+    "outputs": {
+        "results": {
+            "type": "object",
+            "description": "Detailed scan results"
+        },
+        "summary": {
+            "type": "string",
+            "description": "Human-readable summary"
+        }
+    }
+}
