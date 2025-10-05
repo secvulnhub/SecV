@@ -3,7 +3,7 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey.svg)](https://github.com/SecVulnHub/SecV)
-[![Community](https://img.shields.io/badge/community-SecVulnHub-green.svg)](https://github.com/SecVulnHub)
+[![Version](https://img.shields.io/badge/version-2.3.0-green.svg)](https://github.com/SecVulnHub/SecV)
 
 SecV is a next-generation cybersecurity orchestration platform featuring a Metasploit-style interactive shell for executing security modules written in any programming language. Built for ethical hackers, penetration testers, and security researchers who need a unified interface for their diverse toolkit.
 
@@ -20,48 +20,55 @@ SecV is a next-generation cybersecurity orchestration platform featuring a Metas
 
 ---
 
-## What's New in v2.1
+## What's New in v2.3
 
-- **Enhanced Module Help System** - Comprehensive inline help for every module
-- **Advanced Port Scanner v2.0** - Multi-engine scanner with intelligent fallback
-- **Better Dependency Handling** - Graceful degradation across installation tiers
-- **Professional Documentation** - Complete guides for users and contributors
-- **Smart Update System** - Non-intrusive update checking with user control
-- **Enhanced UI** - Improved visual styling and better user experience
+- **Rich Output Formatting** - Beautiful formatted tables for complex module outputs
+- **Capability Detection** - Automatic detection and warnings for missing optional dependencies
+- **Parameter Validation** - Type checking, range validation, and option validation from module.json
+- **Enhanced Error Messages** - Clear, actionable feedback on validation failures
+- **Pre-execution Preview** - See parameters and configuration before running modules
+- **Formatted Scan Results** - Special formatting for port scanners and other complex tools
+- **100% Backwards Compatible** - All existing modules work without modification
 
 ---
 
 ## Features
 
-**Metasploit-Style Interface**
+### Metasploit-Style Interface
 - Interactive shell with rich terminal output
 - Module loading and management system
 - Context-aware command prompt with enhanced styling
 - Tab completion and command history
-- Integrated module help system
-- Smart update management
+- Integrated module help system with detailed documentation
+- Smart update management with auto-check capability
+- Real-time module status dashboard (optional)
 
-**Polyglot Module Support**
-- Write modules in Python, Bash, PowerShell, Go, Rust, or any executable format
-- Cross-platform executable definitions
-- Standardized JSON-based module configuration
-- Automatic module discovery and loading
+### Enhanced Module System
+- **Polyglot Support** - Write modules in Python, Bash, PowerShell, Go, Rust, or any executable format
+- **Cross-platform** - Platform-specific executable definitions
+- **Standardized** - JSON-based module configuration with validation
+- **Automatic Discovery** - Modules auto-loaded from directory structure
+- **Capability Detection** - Warns about missing optional dependencies at load time
+- **Parameter Validation** - Type checking, range validation, option validation
+- **Rich Output** - Intelligent formatting of complex JSON outputs
 
-**Enhanced User Experience**
-- `help module` - View detailed help for any module
-- `info <module>` - See documentation before loading
-- `update` - Manual update control
-- `autoupdate` - Toggle automatic updates
-- Rich terminal output with Unicode symbols
-- Comprehensive error handling and logging
+### Enhanced User Experience
+- `help module` - View detailed help for any module with dependency status
+- `info <module>` - See documentation and capabilities before loading
+- `update` - Manual update control with dependency management
+- `autoupdate` - Toggle automatic updates (checks every 24 hours)
+- `dashboard` - Real-time module execution status (if available)
+- Rich terminal output with Unicode symbols and color coding
+- Comprehensive error handling with actionable messages
+- Pre-execution parameter preview
 - Easy contribution workflow
 
-**Security-Focused**
+### Security-Focused
 - Timeout management for module execution
 - Isolated execution contexts
-- Structured result handling
+- Structured result handling with validation
 - Category-based organization
-- Dependency-aware execution
+- Dependency-aware execution with graceful degradation
 
 ---
 
@@ -112,7 +119,7 @@ secV
 # Inside SecV shell - enhanced UI!
 secV ➤ help                      # Show all commands
 secV ➤ show modules              # List all available modules
-secV ➤ info portscan             # View module help
+secV ➤ info portscan             # View module help with capability status
 secV ➤ use portscan              # Load the port scanner
 secV (portscan) ➤ help module    # View detailed module help
 secV (portscan) ➤ show options   # View configuration
@@ -128,22 +135,152 @@ See [INSTALL.md](INSTALL.md) for detailed installation instructions.
 
 | Command | Description | Example |
 |---------|-------------|---------|
-| `show modules` | List all available modules | `show modules` |
-| `show categories` | List all categories | `show categories` |
+| `show modules` | List all available modules with categories | `show modules` |
+| `show categories` | List all module categories | `show categories` |
 | `show options` | Display current module options | `show options` |
-| `use <module>` | Load a module | `use portscan` |
-| `info <module>` | Display module help | `info portscan` |
-| `help module` | Show loaded module help | `help module` |
+| `show dashboard` | View real-time module execution status | `show dashboard` |
+| `use <module>` | Load a module (with capability detection) | `use portscan` |
+| `info <module>` | Display module help and capabilities | `info portscan` |
+| `help module` | Show loaded module detailed help | `help module` |
 | `search <query>` | Search for modules | `search web` |
-| `set <option> <value>` | Set module parameter | `set timeout 60` |
+| `set <option> <value>` | Set module parameter (with validation) | `set timeout 60` |
 | `run [target]` | Execute loaded module | `run 192.168.1.1` |
 | `back` | Unload current module | `back` |
 | `reload` | Rescan module directory | `reload` |
 | `update` | Check for and install updates | `update` |
 | `autoupdate` | Toggle automatic updates | `autoupdate` |
+| `dashboard` | Quick access to execution dashboard | `dashboard` |
 | `clear` | Clear the screen | `clear` |
 | `help` | Show help menu | `help` |
 | `exit` | Exit SecV shell | `exit` |
+
+---
+
+## Enhanced Features in v2.3
+
+### 1. Capability Detection
+
+SecV now automatically detects missing optional dependencies when loading modules:
+
+```bash
+secV > use portscan
+✓ Loaded: portscan
+  Category: scanning
+  Path: /path/to/tools/scanning/portscan
+
+⚠ Optional Dependencies Missing
+Module will work with reduced features
+
+  • scapy: For SYN stealth scanning - pip3 install scapy
+  • python-nmap: For nmap integration - pip3 install python-nmap
+  • masscan: For ultra-fast scanning - apt install masscan
+
+Install with: pip3 install scapy python-nmap
+Or use: ./install.sh to reinstall with dependencies
+
+Type 'help module' for detailed usage
+```
+
+### 2. Parameter Validation
+
+SecV validates parameters based on module.json schema:
+
+```bash
+# Type validation
+secV (portscan) > set threads abc
+✗ Parameter 'threads' must be a number (got: abc)
+
+# Range validation
+secV (portscan) > set threads 1000
+✗ Parameter 'threads' must be between 1 and 500
+
+# Option validation
+secV (portscan) > set engine turbo
+✗ Parameter 'engine' must be one of: auto connect syn nmap masscan
+
+# Success
+secV (portscan) > set engine syn
+engine → syn
+```
+
+### 3. Rich Output Formatting
+
+Complex module outputs are automatically formatted for readability:
+
+```bash
+secV (portscan) > run scanme.nmap.org
+
+⚙ Executing portscan against scanme.nmap.org...
+Parameters:
+  engine: syn
+  ports: top-20
+  threads: 200
+Timeout: 600s
+
+✓ Module completed successfully
+
+Host Information
+─────────────────────────────────────────────────────────────────────
+IP Address: 45.33.32.156
+Hostname: scanme.nmap.org
+OS: Linux/Unix (confidence: 80%)
+
+Open Ports (5 found)
+─────────────────────────────────────────────────────────────────────
+
+22/tcp → ssh OpenSSH 6.6.1p1
+  
+80/tcp → http Apache 2.4.7
+  Title: Go ahead and ScanMe!
+  Tech: Apache
+  
+443/tcp → https Apache 2.4.7
+  ⚠  CVEs: CVE-2021-41773
+
+Scan Statistics
+─────────────────────────────────────────────────────────────────────
+Duration: 8.45s
+Scan Type: syn (capability: advanced)
+Results: 5 open, 12 closed, 3 filtered
+
+✓ Completed in 8450ms
+```
+
+### 4. Pre-execution Preview
+
+See what will be executed before running:
+
+```bash
+secV (portscan) > run example.com
+
+⚙ Executing portscan against example.com...
+Parameters:
+  engine: syn
+  ports: top-100
+  threads: 200
+  service_detection: true
+Timeout: 600s
+
+[Scan begins...]
+```
+
+### 5. Enhanced Module Information
+
+```bash
+secV > info portscan
+
+╔═══════════════════════════════════════════════════════════════════╗
+║ Module: portscan                                                  ║
+╚═══════════════════════════════════════════════════════════════════╝
+
+Description: Elite port scanner with multi-engine support...
+Author: SecVulnHub Team (Enhanced with r3cond0g features)
+Version: 3.0.0
+Category: scanning
+Status: ✓ All dependencies available
+
+📖 Detailed documentation: /path/to/tools/scanning/portscan/README.md
+```
 
 ---
 
@@ -180,30 +317,35 @@ secV ➤ update
 ╚═══════════════════════════════════════════════════════════════════╝
 
 Checking for updates...
-✓ You're already on the latest version!
+✓ An update is available!
+
+Do you want to pull the latest changes? [Y/n]: y
+
+Pulling latest updates from the repository...
+✓ Project files updated successfully.
+
+⚙ requirements.txt has changed in this update.
+
+╔═══════════════════════════════════════════════════════════════════╗
+║                   Dependency Changes Detected                     ║
+╚═══════════════════════════════════════════════════════════════════╝
+
+New Dependencies Added:
+  + beautifulsoup4>=4.12.0
+  + lxml>=4.9.0
+
+Installing/Updating Python Dependencies...
+✓ Dependencies installed successfully!
+
+✓ All dependencies are up to date!
 ```
 
-**Update Behavior:**
-- Only works with git-cloned installations
-- Shows helpful message if not a git repo
-- Updates both core platform and modules
-- Reminds you to reload modules after update
-
-### Update Requirements
-
-For automatic updates to work:
-- SecV must be installed via `git clone`
-- `.git` directory must exist
-- Git must be installed on system
-
-**Installed from ZIP?** Auto-update won't work, but you can manually update:
-```bash
-cd /path/to/SecV
-git init
-git remote add origin https://github.com/SecVulnHub/SecV.git
-git fetch
-git reset --hard origin/main
-```
+**Update Features:**
+- Automatic dependency installation when requirements.txt changes
+- Displays what dependencies were added/removed
+- Multiple installation strategies for maximum compatibility
+- Graceful handling of installation failures
+- Module reload reminder
 
 ---
 
@@ -227,33 +369,65 @@ SecV organizes modules into logical categories:
 
 ## Featured Modules
 
-### PortScan v2.0 - Advanced Multi-Engine Network Scanner
-*Author: SecVulnHub Team*
+### PortScan v3.0 - Elite Multi-Engine Network Scanner
+*Author: SecVulnHub Team (Enhanced with r3cond0g features)*
 
 Professional-grade port scanner with multiple scanning engines and intelligent fallback:
 
 **Features:**
-- Multiple scan engines (TCP Connect, SYN, Nmap)
-- Service detection with 20+ fingerprints
-- Banner grabbing and version detection
-- HTTP technology detection
-- Pre-defined port sets (top-20, web, db, common)
-- Concurrent scanning (50 threads)
-- Smart fallback for missing dependencies
-
-**Usage:**
-```bash
-secV ➤ use portscan
-secV (portscan) ➤ help module        # View comprehensive help
-secV (portscan) ➤ set ports top-100  # Scan top 100 ports
-secV (portscan) ➤ set engine syn     # Use SYN scan (needs root)
-secV (portscan) ➤ run example.com    # Execute scan
-```
+- 4 scan engines (TCP Connect, SYN, Nmap, Masscan) with auto-selection
+- 50+ service fingerprint probes with version detection
+- 30+ HTTP technology detection (WordPress, Django, React, etc.)
+- 100+ MAC vendor OUI database with device type recognition
+- Automatic CVE vulnerability correlation
+- TLS/SSL certificate inspection and analysis
+- OS fingerprinting (TTL + service-based)
+- Adaptive timeout management (95th percentile)
+- DNS enumeration and reverse lookup
+- Concurrent scanning (up to 500 threads)
+- Smart rate limiting
 
 **Installation Tiers:**
 - **Basic:** TCP connect scan (stdlib only)
 - **Standard:** + SYN scan (requires scapy)
-- **Full:** + HTTP tech detection (requires requests)
+- **Advanced:** + Nmap integration (requires python-nmap)
+- **Full:** + HTTP detection, DNS (requires requests, beautifulsoup4, dnspython)
+- **Elite:** + Masscan ultra-fast (requires masscan binary)
+
+**Quick Start:**
+```bash
+secV > use portscan
+secV (portscan) > help module        # View comprehensive help
+secV (portscan) > set engine auto    # Let it choose best engine
+secV (portscan) > set ports top-100  # Scan top 100 ports
+secV (portscan) > run example.com    # Execute scan
+```
+
+**Advanced Usage:**
+```bash
+# Stealth SYN scan
+secV (portscan) > set engine syn
+secV (portscan) > set ports top-1000
+secV (portscan) > set rate_limit 100
+
+# Ultra-fast masscan
+secV (portscan) > set engine masscan
+secV (portscan) > set ports common
+secV (portscan) > set rate 10000
+
+# Full security audit
+secV (portscan) > set engine auto
+secV (portscan) > set ports common
+secV (portscan) > set service_detection true
+secV (portscan) > set http_analysis true
+secV (portscan) > set os_detection true
+```
+
+**Detected Information:**
+- Device Types: Cisco/Juniper/Arista routers, Dell/HP servers, VMware VMs, Raspberry Pi, etc.
+- OS Detection: Linux/Unix, Windows, Cisco IOS, network devices
+- Technologies: Apache, nginx, WordPress, Django, React, PHP, ASP.NET, and 20+ more
+- Vulnerabilities: Automatic CVE correlation for Apache, OpenSSH, MySQL, nginx, etc.
 
 See [tools/scanning/portscan/README.md](tools/scanning/portscan/README.md) for complete documentation.
 
@@ -273,9 +447,9 @@ Automated MAC address spoofer with background daemon support:
 **Usage:**
 ```bash
 sudo secV
-secV ➤ use mac_spoof
-secV (mac_spoof) ➤ set iface wlan0
-secV (mac_spoof) ➤ run target
+secV > use mac_spoof
+secV (mac_spoof) > set iface wlan0
+secV (mac_spoof) > run target
 ```
 
 See [tools/network/mac_spoof/README.md](tools/network/mac_spoof/README.md) for complete documentation.
@@ -293,7 +467,7 @@ mkdir -p tools/network/my-module
 cd tools/network/my-module
 ```
 
-### 2. Create `module.json` with Help
+### 2. Create `module.json` with Enhanced Schema
 
 ```json
 {
@@ -306,6 +480,10 @@ cd tools/network/my-module
   
   "dependencies": [],
   
+  "optional_dependencies": {
+    "scapy": "For advanced features - pip3 install scapy"
+  },
+  
   "help": {
     "description": "Extended description of what your module does",
     "parameters": {
@@ -313,6 +491,12 @@ cd tools/network/my-module
         "description": "Target IP or hostname",
         "required": true,
         "examples": ["192.168.1.1", "example.com"]
+      },
+      "threads": {
+        "description": "Number of threads",
+        "type": "number",
+        "default": 10,
+        "range": "1-100"
       }
     },
     "examples": [
@@ -335,6 +519,13 @@ cd tools/network/my-module
       "type": "string",
       "description": "Target IP or hostname",
       "required": true
+    },
+    "threads": {
+      "type": "number",
+      "description": "Number of threads",
+      "required": false,
+      "default": 10,
+      "range": "1-100"
     }
   },
   
@@ -359,7 +550,16 @@ import sys
 def show_help():
     """Display module help"""
     print("""
-Module Help Text Here
+╔═══════════════════════════════════════════════════════════════════╗
+║                    My Module Help                                 ║
+╚═══════════════════════════════════════════════════════════════════╝
+
+DESCRIPTION:
+  What your module does
+
+USAGE:
+  secV > use my-module
+  secV (my-module) > run target
     """)
 
 def main():
@@ -371,21 +571,27 @@ def main():
     # Read execution context
     context = json.loads(sys.stdin.read())
     target = context['target']
+    threads = context.get('params', {}).get('threads', 10)
     
     # Your security operations here
     result = {
         "success": True,
-        "data": {"target": target, "status": "Complete"},
+        "data": {
+            "target": target,
+            "threads": threads,
+            "status": "Complete"
+        },
         "errors": []
     }
     
-    print(json.dumps(result))
+    # SecV v2.3 will format this automatically
+    print(json.dumps(result, indent=2))
 
 if __name__ == '__main__':
     main()
 ```
 
-### 4. Make It Executable and Test
+### 4. Test Your Module
 
 ```bash
 chmod +x module.py
@@ -393,13 +599,14 @@ chmod +x module.py
 # Test help
 python3 module.py --help
 
-# Test in SecV
+# Test in SecV with capability detection and validation
 cd ../../..
 ./secV
-secV ➤ info my-module     # View help
-secV ➤ use my-module
-secV (my-module) ➤ help module
-secV (my-module) ➤ run 192.168.1.1
+secV > info my-module          # View help and check dependencies
+secV > use my-module           # Load with capability detection
+secV (my-module) > set threads 50  # Validated against range
+secV (my-module) > help module  # View detailed help
+secV (my-module) > run 192.168.1.1  # Execute with formatted output
 ```
 
 ---
@@ -408,19 +615,21 @@ secV (my-module) ➤ run 192.168.1.1
 
 ```
 SecV/
-├── secV                    # Main executable (enhanced v2.1)
+├── secV                    # Main executable (v2.3 - enhanced)
 ├── install.sh              # Installation script
 ├── uninstall.sh            # Uninstallation script
-├── update.py               # Smart update script
-├── requirements.txt        # Python dependencies
+├── update.py               # Smart update script with dependency management
+├── dashboard.py            # Real-time module status dashboard
+├── requirements.txt        # Python dependencies (tiered)
 ├── README.md               # This file
 ├── INSTALL.md              # Installation guide
 ├── CONTRIBUTING.md         # Contributor guide
 ├── MODULE_HELP_GUIDE.md    # Help documentation guide
 ├── MODULE_DEVELOPMENT.md   # Module development guide
+├── CONTRIBUTOR-REQUIREMENTS-GUIDE.md  # Dependency management guide
 └── tools/                  # Module repository
     ├── scanning/
-    │   └── portscan/       # Enhanced v2.0
+    │   └── portscan/       # Elite Scanner v3.0
     │       ├── module.json
     │       ├── portscan.py
     │       └── README.md
@@ -482,10 +691,11 @@ We welcome contributions from the security community! Whether you're adding new 
 
 **Module Development Guidelines:**
 - Modules should work at **Basic** installation tier (graceful degradation)
-- **Always include help section in module.json**
+- **Always include help section in module.json** with parameter validation specs
 - Use optional dependencies intelligently (detect and fallback)
 - Follow the patterns in [MODULE_DEVELOPMENT.md](MODULE_DEVELOPMENT.md)
 - See [MODULE_HELP_GUIDE.md](MODULE_HELP_GUIDE.md) for help documentation
+- See [CONTRIBUTOR-REQUIREMENTS-GUIDE.md](CONTRIBUTOR-REQUIREMENTS-GUIDE.md) for dependency management
 - Test across all installation tiers before submitting
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed contribution guidelines.
@@ -494,6 +704,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed contribution guidelines.
 - [Contribution Guidelines](CONTRIBUTING.md)
 - [Module Development Guide](MODULE_DEVELOPMENT.md)
 - [Module Help Guide](MODULE_HELP_GUIDE.md)
+- [Dependency Management Guide](CONTRIBUTOR-REQUIREMENTS-GUIDE.md)
 - [Installation Guide](INSTALL.md)
 - [Code of Conduct](CODE_OF_CONDUCT.md)
 
@@ -501,7 +712,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed contribution guidelines.
 
 ## Enhanced UI Features
 
-SecV v2.1 includes visual improvements for better user experience:
+SecV v2.3 includes visual improvements for better user experience:
 
 **Enhanced Prompt:**
 ```
@@ -522,6 +733,34 @@ secV (portscan) ➤         # Shows active module
 - Color-coded parameters
 - Aligned output columns
 - Unicode symbols for clarity
+- Formatted tables for complex data
+- CVE highlighting
+- Technology stack display
+
+---
+
+## Dashboard System (Optional)
+
+SecV v2.3 includes an optional real-time dashboard for monitoring module execution:
+
+```bash
+# View full dashboard
+secV > show dashboard
+secV > dashboard
+
+# Shows:
+# - Active running modules with runtime
+# - Recently completed modules
+# - Recent failures with duration
+# - Real-time statistics
+```
+
+**Dashboard Features:**
+- Real-time module execution tracking
+- Success/failure statistics
+- Duration measurements
+- Active module list
+- Completion history
 
 ---
 
@@ -563,20 +802,23 @@ Special thanks to all contributors who make this project possible.
 
 ## Roadmap
 
-**Current Version: v2.1.0**
+**Current Version: v2.3.0**
 
 **Completed:**
 - ✓ Metasploit-style interactive shell
 - ✓ Module loading and management system
 - ✓ Multi-tier installation system
-- ✓ Enhanced module help system (v2.1)
-- ✓ Advanced port scanner with multiple engines (v2.0)
-- ✓ MAC address spoofer with daemon support (v2.0)
+- ✓ Enhanced module help system
+- ✓ Advanced port scanner with multiple engines (v3.0)
 - ✓ Rich terminal output and formatting
-- ✓ Smart update management
+- ✓ Smart update management with dependency handling
 - ✓ Cross-platform support (Linux, macOS, Windows)
 - ✓ Graceful dependency handling
 - ✓ Comprehensive documentation
+- ✓ **Parameter validation system (v2.3)**
+- ✓ **Capability detection (v2.3)**
+- ✓ **Rich output formatting (v2.3)**
+- ✓ **Enhanced error messages (v2.3)**
 
 **Upcoming Features:**
 - Additional scanning modules (web, DNS, subdomain)
@@ -589,6 +831,7 @@ Special thanks to all contributors who make this project possible.
 - Integration with Metasploit modules
 - Web interface (optional)
 - IPv6 support for scanners
+- Module marketplace/repository
 
 **Module Development:**
 - More scanning modules (vulnerability scanners)
@@ -597,6 +840,16 @@ Special thanks to all contributors who make this project possible.
 - Post-exploitation modules (privilege escalation, persistence)
 
 **Community Contributions Welcome!**
+
+---
+
+## Version History
+
+- **2.3.0** - Enhanced module handling with validation, capability detection, and rich output formatting
+- **2.2.0** - Smart update system, dashboard, enhanced UI
+- **2.1.0** - Enhanced module help system, improved scanner
+- **2.0.0** - Multi-tier installation, graceful dependency handling
+- **1.0.0** - Initial release with basic scanning
 
 ---
 
