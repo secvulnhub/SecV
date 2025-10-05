@@ -1,72 +1,279 @@
 {
-    "name": "portscan",
-    "version": "2.0.0",
-    "category": "scanning",
-    "description": "Advanced network discovery and port analysis - pure Python with masscan-speed",
-    "author": "0xbv1 | 0xb0rn3",
-    "executable": "python3 portscan.py",
-    "timeout": 600,
-    "dependencies": [],
-    "optional_dependencies": {
-        "python-nmap": "Nmap integration for advanced scanning",
-        "scapy": "Raw packet manipulation for SYN scanning",
-        "masscan": "Masscan-style async scanning"
+  "name": "portscan",
+  "version": "3.0.0",
+  "category": "scanning",
+  "description": "Advanced multi-method port scanner with CIDR support and stealth capabilities",
+  "author": "SecVulnHub Team",
+  "executable": "python3 portscan.py",
+  
+  "dependencies": ["python3"],
+  
+  "optional_dependencies": {
+    "scapy": "For SYN stealth scanning and ICMP ping - pip3 install scapy",
+    "requests": "For HTTP service detection - pip3 install requests",
+    "dnspython": "For DNS resolution - pip3 install dnspython"
+  },
+  
+  "help": {
+    "description": "High-performance network port scanner with multiple scan techniques including TCP connect, SYN stealth, and UDP scanning. Supports CIDR notation, subnet scanning, service detection, and various stealth features. Ideal for authorized penetration testing and network audits.",
+    
+    "parameters": {
+      "ports": {
+        "description": "Port specification",
+        "required": false,
+        "default": "top-20",
+        "examples": [
+          "top-20 (fastest, common ports)",
+          "top-100 (balanced)",
+          "top-1000 (comprehensive)",
+          "web (80,443,8080,8443,etc)",
+          "database (3306,5432,27017,etc)",
+          "mail (25,110,143,587,etc)",
+          "common (most used ports)",
+          "all (1-65535, very slow)",
+          "22,80,443 (specific ports)",
+          "1-1000 (port range)",
+          "80,443,8000-9000 (mixed)"
+        ]
+      },
+      "scan_type": {
+        "description": "Scan method to use",
+        "options": ["connect", "syn", "udp"],
+        "default": "connect",
+        "notes": [
+          "connect: Standard TCP connect (works everywhere)",
+          "syn: SYN stealth scan (requires scapy + root)",
+          "udp: UDP scan (slow, use sparingly)"
+        ]
+      },
+      "threads": {
+        "description": "Number of concurrent scan threads",
+        "type": "integer",
+        "default": 100,
+        "range": "1-500"
+      },
+      "timeout": {
+        "description": "Connection timeout in seconds",
+        "type": "float",
+        "default": 1.0,
+        "range": "0.1-10.0"
+      },
+      "service_detect": {
+        "description": "Enable service detection and banner grabbing",
+        "type": "boolean",
+        "default": true
+      },
+      "stealth": {
+        "description": "Enable stealth mode (ping sweep + SYN scan)",
+        "type": "boolean",
+        "default": false,
+        "notes": ["Requires scapy and root privileges"]
+      },
+      "ping_sweep": {
+        "description": "Perform ICMP ping sweep before scanning",
+        "type": "boolean",
+        "default": false,
+        "notes": ["Requires scapy"]
+      },
+      "source_port": {
+        "description": "Use specific source port (stealth)",
+        "type": "integer",
+        "default": 0,
+        "examples": [53, 80, 443]
+      },
+      "verbose": {
+        "description": "Enable verbose output",
+        "type": "boolean",
+        "default": false
+      }
     },
-    "inputs": {
-        "ports": {
-            "type": "string",
-            "description": "Port specification (top-100, top-1000, or custom)",
-            "default": "top-100"
-        },
-        "scan_type": {
-            "type": "string",
-            "description": "Scan type (connect, syn)",
-            "default": "connect"
-        },
-        "scan_method": {
-            "type": "string",
-            "description": "Scan method (auto, connect, masscan, nmap, scapy)",
-            "default": "auto"
-        },
-        "timeout": {
-            "type": "number",
-            "description": "Timeout in milliseconds",
-            "default": 2000
-        },
-        "concurrency": {
-            "type": "number",
-            "description": "Number of concurrent threads",
-            "default": 50
-        },
-        "service_detection": {
-            "type": "boolean",
-            "description": "Enable service detection",
-            "default": true
-        },
-        "os_detection": {
-            "type": "boolean",
-            "description": "Enable OS detection",
-            "default": false
-        },
-        "aggressive": {
-            "type": "boolean",
-            "description": "Aggressive scanning",
-            "default": false
-        },
-        "use_masscan_speed": {
-            "type": "boolean",
-            "description": "Use masscan-style async scanning",
-            "default": false
-        }
+    
+    "examples": [
+      {
+        "description": "Quick scan of common ports on single host",
+        "commands": [
+          "use portscan",
+          "set ports common",
+          "run 192.168.1.1"
+        ]
+      },
+      {
+        "description": "Scan entire subnet with web ports",
+        "commands": [
+          "use portscan",
+          "set ports web",
+          "set threads 200",
+          "run 192.168.1.0/24"
+        ]
+      },
+      {
+        "description": "Stealth SYN scan (requires root)",
+        "commands": [
+          "use portscan",
+          "set scan_type syn",
+          "set stealth true",
+          "set ports top-100",
+          "run 10.0.0.0/24"
+        ]
+      },
+      {
+        "description": "Fast scan with service detection",
+        "commands": [
+          "use portscan",
+          "set ports top-20",
+          "set threads 150",
+          "set timeout 0.5",
+          "set service_detect true",
+          "run target.com"
+        ]
+      },
+      {
+        "description": "Comprehensive all-ports scan",
+        "commands": [
+          "use portscan",
+          "set ports all",
+          "set threads 500",
+          "run 192.168.1.100"
+        ]
+      },
+      {
+        "description": "UDP scan of DNS and DHCP",
+        "commands": [
+          "use portscan",
+          "set scan_type udp",
+          "set ports 53,67,68,69,123,161,162",
+          "run 192.168.1.1"
+        ]
+      },
+      {
+        "description": "Scan multiple hosts with IP ranges",
+        "commands": [
+          "use portscan",
+          "set ports database",
+          "run 192.168.1.1-254"
+        ]
+      }
+    ],
+    
+    "features": [
+      "CIDR notation support (192.168.1.0/24)",
+      "IP range support (192.168.1.1-254)",
+      "Multiple target scanning (comma-separated)",
+      "TCP connect scan (stdlib, works everywhere)",
+      "SYN stealth scan (requires scapy + root)",
+      "UDP scanning support",
+      "ICMP ping sweep for host discovery",
+      "Service detection and banner grabbing",
+      "Version detection for common services",
+      "Pre-defined port sets (top-20, web, database, etc)",
+      "Custom port ranges (1-1000, 80,443,8000-9000)",
+      "Multi-threaded concurrent scanning (up to 500 threads)",
+      "Configurable timeouts and retry logic",
+      "Source port specification for stealth",
+      "Progress tracking and statistics",
+      "Structured JSON output"
+    ],
+    
+    "installation_tiers": {
+      "basic": "TCP connect scan, service detection (stdlib only)",
+      "standard": "+ SYN scan, ping sweep (requires scapy)",
+      "full": "+ HTTP detection, DNS resolution (requires requests, dnspython)"
     },
-    "outputs": {
-        "results": {
-            "type": "object",
-            "description": "Detailed scan results"
-        },
-        "summary": {
-            "type": "string",
-            "description": "Human-readable summary"
-        }
+    
+    "notes": [
+      "⚠️  AUTHORIZATION REQUIRED: Only scan systems you have permission to test",
+      "⚠️  SYN and stealth scans require root/sudo privileges",
+      "⚠️  Scapy required for: SYN scan, ping sweep, stealth mode",
+      "💡 Use 'connect' scan for maximum compatibility",
+      "💡 Start with 'top-20' or 'common' ports for quick results",
+      "💡 Increase threads for faster scanning of multiple targets",
+      "💡 Lower timeout (0.5s) for local networks, higher (2.0s) for internet",
+      "💡 Enable verbose mode to see open ports as they're discovered",
+      "💡 Combine with other modules: vuln-scan, service-enum, etc"
+    ],
+    
+    "performance_tips": [
+      "Local network: threads=200, timeout=0.5",
+      "Internet hosts: threads=100, timeout=2.0",
+      "Large subnet: use ping_sweep=true first",
+      "All ports scan: expect 10+ minutes per host"
+    ],
+    
+    "legal_disclaimer": "This tool is designed for authorized security testing only. Unauthorized port scanning may violate computer fraud laws in your jurisdiction. Always obtain explicit written permission before scanning networks you do not own."
+  },
+  
+  "inputs": {
+    "ports": {
+      "type": "string",
+      "description": "Port specification (preset name, range, or list)",
+      "required": false,
+      "default": "top-20"
+    },
+    "scan_type": {
+      "type": "string",
+      "description": "Scan method: connect, syn, or udp",
+      "required": false,
+      "default": "connect"
+    },
+    "threads": {
+      "type": "number",
+      "description": "Number of concurrent threads",
+      "required": false,
+      "default": 100
+    },
+    "timeout": {
+      "type": "number",
+      "description": "Connection timeout in seconds",
+      "required": false,
+      "default": 1.0
+    },
+    "service_detect": {
+      "type": "boolean",
+      "description": "Enable service detection and banner grabbing",
+      "required": false,
+      "default": true
+    },
+    "stealth": {
+      "type": "boolean",
+      "description": "Enable stealth mode",
+      "required": false,
+      "default": false
+    },
+    "ping_sweep": {
+      "type": "boolean",
+      "description": "Perform ping sweep first",
+      "required": false,
+      "default": false
+    },
+    "source_port": {
+      "type": "number",
+      "description": "Custom source port for stealth",
+      "required": false,
+      "default": 0
+    },
+    "verbose": {
+      "type": "boolean",
+      "description": "Verbose output",
+      "required": false,
+      "default": false
     }
+  },
+  
+  "outputs": {
+    "scan_info": {
+      "type": "object",
+      "description": "Scan metadata and configuration"
+    },
+    "statistics": {
+      "type": "object",
+      "description": "Scan statistics (open/closed/filtered counts)"
+    },
+    "results": {
+      "type": "array",
+      "description": "Array of open port results with service info"
+    }
+  },
+  
+  "timeout": 600,
+  "concurrent": true
 }
