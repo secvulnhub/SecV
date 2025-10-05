@@ -1,5 +1,113 @@
-# SecV Loader - Python Dependencies
-# Install with: pip3 install -r requirements.txt
-cmd2>=2.4.3
-rich>=13.0.0
-argcomplete>=3.0.0
+# SecV Global Dependencies
+# Version: 2.1.0
+# 
+# Installation: pip3 install -r requirements.txt --break-system-packages
+# 
+# TIER STRUCTURE:
+# - CORE: Required for basic functionality (always installed)
+# - STANDARD: Recommended for most users (scanning, pentesting)
+# - FULL: Complete feature set (web, crypto, advanced features)
+#
+# Contributors: Add your module dependencies to the appropriate tier section
+# with a comment indicating which module requires them.
+
+# ============================================================================
+# CORE TIER - Required (always installed)
+# ============================================================================
+
+# CLI Framework
+cmd2>=2.4.3                    # Interactive shell framework
+rich>=13.0.0                   # Terminal formatting and output
+argcomplete>=3.0.0             # Shell completion support
+
+# ============================================================================
+# STANDARD TIER - Recommended (scanning & pentesting)
+# ============================================================================
+
+# Network Scanning - Required by: portscan, network-discovery
+scapy>=2.5.0                   # Raw packet manipulation, SYN scanning
+python-nmap>=0.7.1             # Nmap integration
+
+# ============================================================================
+# FULL TIER - Complete (all features)
+# ============================================================================
+
+# HTTP Operations - Required by: portscan (tech detection), web-enum, http-fuzzer
+requests>=2.31.0               # HTTP client library
+urllib3>=2.0.0                 # HTTP client (requests dependency)
+
+# Web Scraping - Required by: web-enum, content-discovery
+beautifulsoup4>=4.12.0         # HTML/XML parsing
+lxml>=4.9.0                    # Fast XML/HTML parser
+
+# DNS Operations - Required by: dns-enum, subdomain-scanner
+dnspython>=2.4.0               # DNS toolkit
+
+# Cryptography - Required by: hash-cracker, ssl-analyzer, crypto-tools
+pycryptodome>=3.19.0           # Cryptographic operations
+
+# SSH Operations - Required by: ssh-bruteforce, ssh-enum
+paramiko>=3.4.0                # SSH protocol implementation
+
+# Configuration - Required by: config-parser, various modules
+pyyaml>=6.0.1                  # YAML configuration parsing
+
+# ============================================================================
+# OPTIONAL/SPECIALIZED - Install as needed
+# ============================================================================
+
+# Database Operations - Required by: db-scanner, sql-injection
+# pymongo>=4.5.0               # MongoDB client
+# psycopg2-binary>=2.9.0       # PostgreSQL client
+# mysql-connector-python>=8.0  # MySQL client
+
+# Cloud/API - Required by: cloud-enum, api-fuzzer
+# boto3>=1.28.0                # AWS SDK
+# google-cloud-storage>=2.10.0 # GCP SDK
+
+# Advanced Network - Required by: wireless modules
+# pyshark>=0.6.0               # Wireshark wrapper
+# netfilterqueue>=1.1.0        # Network packet manipulation
+
+# ============================================================================
+# MODULE DEPENDENCY REFERENCE
+# ============================================================================
+# 
+# When adding a new module, document its dependencies here:
+#
+# MODULE: portscan v2.0
+#   CORE: None (stdlib only for basic functionality)
+#   STANDARD: scapy (SYN scanning), python-nmap (nmap integration)
+#   FULL: requests (HTTP tech detection)
+#
+# MODULE: web-enum v1.0
+#   CORE: None (urllib for basic)
+#   STANDARD: requests
+#   FULL: beautifulsoup4 (HTML parsing)
+#
+# MODULE: dns-enum v1.0
+#   CORE: socket (stdlib)
+#   STANDARD: None
+#   FULL: dnspython (advanced queries)
+#
+# MODULE: ssh-enum v1.0
+#   CORE: socket (stdlib for banner grab)
+#   STANDARD: None
+#   FULL: paramiko (authentication testing)
+#
+# ============================================================================
+# CONTRIBUTOR GUIDELINES
+# ============================================================================
+#
+# 1. Add dependencies to the appropriate tier section above
+# 2. Include version constraints (>=, ==, ~=)
+# 3. Add a comment indicating which module(s) require it
+# 4. Document in MODULE DEPENDENCY REFERENCE section
+# 5. Ensure your module works at CORE tier with graceful degradation
+# 6. Test across all tiers before submitting PR
+#
+# Example:
+#   # Your Module - Required by: your-module, other-module
+#   some-library>=1.0.0        # Brief description
+#
+# ============================================================================
