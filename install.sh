@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# SecV Installation Script v2.2
-# Enhanced with universal Linux compatibility and improved dependency management
+# SecV Installation Script v2.3
+# Enhanced with better dependency detection and elite tier support
 #
 set -e
 
@@ -13,6 +13,7 @@ BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 MAGENTA='\033[0;35m'
 DIM='\033[2m'
+BOLD='\033[1m'
 NC='\033[0m' # No Color
 
 # Configuration
@@ -51,7 +52,7 @@ cat << "EOF"
 ║   ███████║███████╗╚██████╗ ╚████╔╝                              ║
 ║   ╚══════╝╚══════╝ ╚═════╝  ╚═══╝                               ║
 ║                                                                   ║
-║   SecV Installer v2.2 - Universal Linux Compatible               ║
+║   SecV Installer v2.3 - Universal Linux Compatible               ║
 ║                                                                   ║
 ╚═══════════════════════════════════════════════════════════════════╝
 EOF
@@ -63,7 +64,7 @@ echo -e "${BLUE}[*] Starting SecV installation...${NC}\n"
 # Detect System Information
 # ============================================================================
 
-echo -e "${YELLOW}[1/8] Detecting system information...${NC}"
+echo -e "${YELLOW}[1/9] Detecting system information...${NC}"
 DISTRO=$(detect_distro)
 echo -e "${GREEN}[✓] Detected distribution: ${DISTRO}${NC}"
 
@@ -83,7 +84,7 @@ echo
 # Check Prerequisites
 # ============================================================================
 
-echo -e "${YELLOW}[2/8] Checking Python installation...${NC}"
+echo -e "${YELLOW}[2/9] Checking Python installation...${NC}"
 if ! command -v python3 &> /dev/null; then
     echo -e "${RED}[!] Python 3 is not installed!${NC}"
     echo -e "${YELLOW}    Installing Python 3...${NC}"
@@ -132,7 +133,7 @@ echo -e "${GREEN}[✓] Python $PYTHON_VERSION found${NC}\n"
 # Check pip
 # ============================================================================
 
-echo -e "${YELLOW}[3/8] Checking pip installation...${NC}"
+echo -e "${YELLOW}[3/9] Checking pip installation...${NC}"
 if ! command -v pip3 &> /dev/null; then
     echo -e "${RED}[!] pip3 is not installed!${NC}"
     echo -e "${YELLOW}    Installing pip...${NC}"
@@ -176,37 +177,48 @@ echo -e "${CYAN}╚════════════════════�
 echo -e "${YELLOW}Choose your installation tier:${NC}\n"
 
 echo -e "${GREEN}1) Basic${NC} - Core functionality only (~5MB)"
-echo -e "   • cmd2, rich (required)"
+echo -e "   • cmd2, rich, argcomplete (required)"
 echo -e "   • TCP connect scanning"
 echo -e "   • All modules work with reduced features"
 echo -e "   ${BLUE}Best for: Minimal footprint, testing${NC}\n"
 
 echo -e "${GREEN}2) Standard${NC} - Core + scanning tools (~50MB) ${MAGENTA}⭐ Recommended${NC}"
 echo -e "   • Basic + scapy, python-nmap"
-echo -e "   • SYN scanning (stealth)"
+echo -e "   • SYN stealth scanning (requires root)"
 echo -e "   • Nmap integration"
+echo -e "   • MAC vendor lookup & device recognition"
 echo -e "   • Full port scanner features"
 echo -e "   ${BLUE}Best for: Most users, penetration testing${NC}\n"
 
 echo -e "${GREEN}3) Full${NC} - All features (~100MB)"
 echo -e "   • All dependencies from requirements.txt"
-echo -e "   • HTTP technology detection"
+echo -e "   • HTTP technology detection (30+ technologies)"
 echo -e "   • Web scraping capabilities"
-echo -e "   • DNS operations, SSH, crypto"
+echo -e "   • DNS operations & enumeration"
+echo -e "   • SSH, crypto operations"
 echo -e "   • Complete module support"
 echo -e "   ${BLUE}Best for: Advanced users, all features${NC}\n"
 
-read -p "Select tier [1-3] (default: 2): " TIER
+echo -e "${GREEN}4) Elite${NC} - Full + ultra-fast scanning"
+echo -e "   • Everything in Full tier"
+echo -e "   • Masscan binary for 10k+ ports/sec scanning"
+echo -e "   • Internet-scale port scanning"
+echo -e "   • Requires root for masscan"
+echo -e "   ${BLUE}Best for: Large-scale reconnaissance${NC}\n"
+
+read -p "Select tier [1-4] (default: 2): " TIER
 TIER=${TIER:-2}
 
 case $TIER in
     1)
         TIER_NAME="Basic"
         INSTALL_DEPS="cmd2>=2.4.3 rich>=13.0.0 argcomplete>=3.0.0"
+        INSTALL_MASSCAN=false
         ;;
     2)
         TIER_NAME="Standard"
         INSTALL_DEPS="cmd2>=2.4.3 rich>=13.0.0 argcomplete>=3.0.0 scapy>=2.5.0 python-nmap>=0.7.1"
+        INSTALL_MASSCAN=false
         ;;
     3)
         TIER_NAME="Full"
@@ -216,12 +228,24 @@ case $TIER in
             echo -e "${RED}[!] requirements.txt not found!${NC}"
             exit 1
         fi
+        INSTALL_MASSCAN=false
+        ;;
+    4)
+        TIER_NAME="Elite"
+        if [ -f "$REQUIREMENTS_FILE" ]; then
+            INSTALL_DEPS=$(grep -v '^#' "$REQUIREMENTS_FILE" | grep -v '^$' | sed 's/#.*//' | tr '\n' ' ' | xargs)
+        else
+            echo -e "${RED}[!] requirements.txt not found!${NC}"
+            exit 1
+        fi
+        INSTALL_MASSCAN=true
         ;;
     *)
         echo -e "${RED}[!] Invalid selection. Using Standard tier.${NC}"
         TIER=2
         TIER_NAME="Standard"
         INSTALL_DEPS="cmd2>=2.4.3 rich>=13.0.0 argcomplete>=3.0.0 scapy>=2.5.0 python-nmap>=0.7.1"
+        INSTALL_MASSCAN=false
         ;;
 esac
 
@@ -232,7 +256,7 @@ echo -e "\n${GREEN}[✓] Selected: $TIER_NAME tier${NC}\n"
 # ============================================================================
 
 if [ $TIER -ge 2 ]; then
-    echo -e "${YELLOW}[4/8] Checking platform-specific dependencies...${NC}"
+    echo -e "${YELLOW}[4/9] Checking platform-specific dependencies...${NC}"
     
     if [[ "$OS_TYPE" == "linux" ]]; then
         case "$DISTRO" in
@@ -296,7 +320,7 @@ if [ $TIER -ge 2 ]; then
         echo -e "${GREEN}[✓] macOS - no additional dependencies needed${NC}"
     fi
 else
-    echo -e "${YELLOW}[4/8] Platform-specific dependencies...${NC}"
+    echo -e "${YELLOW}[4/9] Platform-specific dependencies...${NC}"
     echo -e "${GREEN}[✓] Basic tier - no additional dependencies needed${NC}"
 fi
 echo
@@ -305,7 +329,7 @@ echo
 # Install Python Dependencies
 # ============================================================================
 
-echo -e "${YELLOW}[5/8] Installing Python dependencies ($TIER_NAME tier)...${NC}"
+echo -e "${YELLOW}[5/9] Installing Python dependencies ($TIER_NAME tier)...${NC}"
 
 install_python_deps() {
     local deps="$1"
@@ -372,10 +396,56 @@ fi
 echo
 
 # ============================================================================
+# Install Masscan (Elite Tier)
+# ============================================================================
+
+if [ "$INSTALL_MASSCAN" = true ]; then
+    echo -e "${YELLOW}[6/9] Installing masscan (Elite tier)...${NC}"
+    
+    if command -v masscan &> /dev/null; then
+        MASSCAN_VERSION=$(masscan --version 2>&1 | head -n1 | awk '{print $3}')
+        echo -e "${GREEN}[✓] masscan already installed (version: $MASSCAN_VERSION)${NC}"
+    else
+        echo -e "${YELLOW}[i] masscan not found. Installing...${NC}"
+        
+        case "$DISTRO" in
+            ubuntu|debian|linuxmint|pop|kali)
+                sudo apt-get update && sudo apt-get install -y masscan
+                ;;
+            fedora|rhel|centos|rocky|almalinux)
+                sudo dnf install -y masscan || sudo yum install -y masscan
+                ;;
+            arch|manjaro|endeavouros|archcraft)
+                sudo pacman -S --noconfirm masscan
+                ;;
+            opensuse*|suse)
+                sudo zypper install -y masscan
+                ;;
+            *)
+                echo -e "${YELLOW}[!] Masscan not available in package manager${NC}"
+                echo -e "${YELLOW}    Install manually from: https://github.com/robertdavidgraham/masscan${NC}"
+                echo -e "${YELLOW}    Or: git clone https://github.com/robertdavidgraham/masscan && cd masscan && make && sudo make install${NC}"
+                ;;
+        esac
+        
+        if command -v masscan &> /dev/null; then
+            echo -e "${GREEN}[✓] masscan installed successfully${NC}"
+        else
+            echo -e "${YELLOW}[!] masscan installation failed or not available${NC}"
+            echo -e "${YELLOW}    SecV will work without it (use Full tier features)${NC}"
+        fi
+    fi
+else
+    echo -e "${YELLOW}[6/9] Masscan installation...${NC}"
+    echo -e "${GREEN}[✓] Skipped (not selected for $TIER_NAME tier)${NC}"
+fi
+echo
+
+# ============================================================================
 # Verify Installation
 # ============================================================================
 
-echo -e "${YELLOW}[6/8] Verifying installation...${NC}"
+echo -e "${YELLOW}[7/9] Verifying installation...${NC}"
 
 if python3 -c "import cmd2, rich" 2>/dev/null; then
     echo -e "${GREEN}[✓] Core dependencies verified${NC}"
@@ -405,13 +475,21 @@ if [ $TIER -ge 3 ]; then
         echo -e "${YELLOW}[!] Some full tier dependencies may be missing${NC}"
     fi
 fi
+
+if [ $TIER -ge 4 ]; then
+    if command -v masscan &> /dev/null; then
+        echo -e "${GREEN}[✓] Elite tier: masscan available${NC}"
+    else
+        echo -e "${YELLOW}[!] Elite tier: masscan not available${NC}"
+    fi
+fi
 echo
 
 # ============================================================================
 # Make SecV Executable
 # ============================================================================
 
-echo -e "${YELLOW}[7/8] Setting executable permissions...${NC}"
+echo -e "${YELLOW}[8/9] Setting executable permissions...${NC}"
 chmod +x "$SECV_BIN"
 
 if [ -x "$SECV_BIN" ]; then
@@ -433,7 +511,7 @@ fi
 # System-Wide Installation
 # ============================================================================
 
-echo -e "${YELLOW}[8/8] System-wide installation...${NC}\n"
+echo -e "${YELLOW}[9/9] System-wide installation...${NC}\n"
 
 echo -e "${CYAN}╔═══════════════════════════════════════════════════════════════════╗${NC}"
 echo -e "${CYAN}║                                                                   ║${NC}"
@@ -484,7 +562,7 @@ echo -e "${CYAN}║   Installation Complete!                                    
 echo -e "${CYAN}║                                                                   ║${NC}"
 echo -e "${CYAN}╚═══════════════════════════════════════════════════════════════════╝${NC}\n"
 
-echo -e "${GREEN}✓ SecV v2.2 is ready to use!${NC}\n"
+echo -e "${GREEN}✓ SecV v2.3 is ready to use!${NC}\n"
 
 echo -e "${BLUE}Installation Summary:${NC}"
 echo -e "  Tier: ${GREEN}$TIER_NAME${NC}"
@@ -498,6 +576,32 @@ else
     echo -e "  Global: ${YELLOW}No${NC} (local only)\n"
 fi
 
+# Installed features
+echo -e "${BLUE}Installed Features:${NC}"
+echo -e "  ${GREEN}✓${NC} Enhanced shell with validation & formatting"
+echo -e "  ${GREEN}✓${NC} Capability detection & dependency warnings"
+echo -e "  ${GREEN}✓${NC} Parameter validation (type, range, options)"
+echo -e "  ${GREEN}✓${NC} Rich output formatting for complex data"
+
+if [ $TIER -ge 2 ]; then
+    echo -e "  ${GREEN}✓${NC} SYN stealth scanning (scapy)"
+    echo -e "  ${GREEN}✓${NC} Nmap integration"
+    echo -e "  ${GREEN}✓${NC} MAC vendor lookup & device recognition"
+fi
+
+if [ $TIER -ge 3 ]; then
+    echo -e "  ${GREEN}✓${NC} HTTP technology detection (30+ technologies)"
+    echo -e "  ${GREEN}✓${NC} Web scraping & HTML parsing"
+    echo -e "  ${GREEN}✓${NC} DNS enumeration & reverse lookup"
+    echo -e "  ${GREEN}✓${NC} TLS/SSL certificate analysis"
+fi
+
+if [ $TIER -ge 4 ] && command -v masscan &> /dev/null; then
+    echo -e "  ${GREEN}✓${NC} Masscan ultra-fast scanning (10k+ ports/sec)"
+fi
+
+echo
+
 echo -e "${BLUE}Quick Start:${NC}"
 if [ "$INSTALLED_GLOBALLY" = true ]; then
     echo -e "  ${YELLOW}secV${NC}                    # Start SecV shell"
@@ -505,6 +609,21 @@ else
     echo -e "  ${YELLOW}./secV${NC}                  # Start SecV shell"
 fi
 echo -e "  ${YELLOW}help${NC}                    # Show all commands"
-echo -e "  ${YELLOW}show modules${NC}            # List available modules\n"
+echo -e "  ${YELLOW}show modules${NC}            # List available modules"
+echo -e "  ${YELLOW}info portscan${NC}           # View module capabilities"
+echo -e "  ${YELLOW}use portscan${NC}            # Load Elite Port Scanner v3.0"
+echo -e "  ${YELLOW}help module${NC}             # View detailed module help\n"
+
+# Important notes
+echo -e "${CYAN}Important Notes:${NC}"
+if [ $TIER -ge 2 ]; then
+    echo -e "  ${YELLOW}⚠${NC}  SYN scanning requires root: ${YELLOW}sudo secV${NC}"
+fi
+if [ $TIER -ge 4 ]; then
+    echo -e "  ${YELLOW}⚠${NC}  Masscan requires root: ${YELLOW}sudo secV${NC}"
+fi
+echo -e "  ${BLUE}ℹ${NC}  Update anytime with: ${YELLOW}secV > update${NC}"
+echo -e "  ${BLUE}ℹ${NC}  Module help shows dependency status"
+echo -e "  ${BLUE}ℹ${NC}  Missing dependencies show install commands\n"
 
 echo -e "${GREEN}Happy Hacking! 🔒${NC}\n"
