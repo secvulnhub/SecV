@@ -1,53 +1,24 @@
 #!/usr/bin/env bash
 #
-# SecV - Enhanced UI Version
-# Version: 2.1.0
+# SecV - Enhanced UI with Real-Time Dashboard
+# Version: 2.2.0
 #
 
 # Configuration
-readonly VERSION="2.1.0"
+readonly VERSION="2.2.0"
 readonly SECV_HOME="${SECV_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 readonly TOOLS_DIR="$SECV_HOME/tools"
 readonly CACHE_DIR="$SECV_HOME/.cache"
 readonly DB_FILE="$CACHE_DIR/modules.db"
 readonly UPDATE_CHECK_FILE="$CACHE_DIR/.last_update_check"
+readonly DASHBOARD_PY="$SECV_HOME/dashboard.py"
 
-# Only check for updates if:
-# 1. We're in a git repository
-# 2. It's been more than 24 hours since last check
-# 3. User hasn't disabled auto-update
-should_check_updates() {
-    # Check if auto-update is disabled
-    [[ -f "$CACHE_DIR/.no_auto_update" ]] && return 1
-    
-    # Check if we're in a git repo
-    [[ ! -d "$SECV_HOME/.git" ]] && return 1
-    
-    # Check if update check file exists and is recent
-    if [[ -f "$UPDATE_CHECK_FILE" ]]; then
-        local last_check=$(cat "$UPDATE_CHECK_FILE" 2>/dev/null || echo 0)
-        local now=$(date +%s)
-        local age=$((now - last_check))
-        
-        # Only check if more than 24 hours (86400 seconds)
-        [[ $age -lt 86400 ]] && return 1
-    fi
-    
-    return 0
-}
-
-# Run updater check if appropriate
-if should_check_updates; then
-    if [[ -f "$SECV_HOME/update.py" ]]; then
-        python3 "$SECV_HOME/update.py" 2>/dev/null
-        echo "$(date +%s)" > "$UPDATE_CHECK_FILE"
-    fi
-fi
+# Dashboard status file
+readonly STATUS_FILE="$CACHE_DIR/.module_status"
 
 # Enhanced Colors & Styles
 R=$'\e[31m' G=$'\e[32m' Y=$'\e[33m' B=$'\e[34m' C=$'\e[36m' M=$'\e[35m' W=$'\e[97m' N=$'\e[0m'
 BOLD=$'\e[1m' DIM=$'\e[2m' ITALIC=$'\e[3m' UNDERLINE=$'\e[4m'
-BG_DARK=$'\e[48;5;236m' BG_BLUE=$'\e[48;5;24m' BG_GREEN=$'\e[48;5;22m'
 
 # Symbols
 CHECK="✓" CROSS="✗" ARROW="➤" BULLET="•" STAR="★" GEAR="⚙"
@@ -57,6 +28,71 @@ declare -a MOD_NAMES MOD_PATHS MOD_CATS MOD_DESCS MOD_EXECS
 declare -a PARAM_KEYS PARAM_VALUES
 CURRENT_MODULE="" CURRENT_PATH="" CURRENT_EXEC=""
 MODULE_COUNT=0
+
+# Dashboard settings
+SHOW_DASHBOARD=false
+DASHBOARD_PID=""
+
+# ============================================================================
+# DASHBOARD FUNCTIONS
+# ============================================================================
+
+init_dashboard() {
+    # Create dashboard.py if it doesn't exist
+    if [[ ! -f "$DASHBOARD_PY" ]]; then
+        return 1
+    fi
+    
+    # Initialize status file
+    python3 "$DASHBOARD_PY" json > "$STATUS_FILE" 2>/dev/null || true
+}
+
+show_dashboard_compact() {
+    if [[ -f "$DASHBOARD_PY" ]]; then
+        python3 "$DASHBOARD_PY" compact 2>/dev/null || true
+    fi
+}
+
+show_dashboard_full() {
+    if [[ -f "$DASHBOARD_PY" ]]; then
+        clear
+        python3 "$DASHBOARD_PY" dashboard 2>/dev/null || echo -e "${Y}Dashboard not available${N}"
+        echo -e "\n${DIM}Press any key to return...${N}"
+        read -n 1 -s
+    else
+        print_error "Dashboard system not found at: $DASHBOARD_PY"
+    fi
+}
+
+start_module_tracking() {
+    local module_name="$1"
+    local target="$2"
+    local pid="$3"
+    
+    if [[ -f "$DASHBOARD_PY" ]]; then
+        python3 -c "
+import sys
+sys.path.insert(0, '$SECV_HOME')
+from dashboard import start_module_tracking
+start_module_tracking('$module_name', '$target', $pid)
+" 2>/dev/null || true
+    fi
+}
+
+complete_module_tracking() {
+    local module_name="$1"
+    local success="$2"  # true or false
+    local duration="$3"
+    
+    if [[ -f "$DASHBOARD_PY" ]]; then
+        python3 -c "
+import sys
+sys.path.insert(0, '$SECV_HOME')
+from dashboard import complete_module_tracking
+complete_module_tracking('$module_name', $success, $duration)
+" 2>/dev/null || true
+    fi
+}
 
 # ============================================================================
 # ENHANCED JSON PARSER
@@ -104,17 +140,9 @@ except:
 print_header() {
     local text="$1"
     local width=67
-    echo -e "\n${BOLD}${C}╔═$(printf '═%.0s' $(seq 1 $width))═╗${N}"
+    echo -e "\n${BOLD}${C}╔$(printf '═%.0s' $(seq 1 $width))╗${N}"
     echo -e "${BOLD}${C}║${N} ${BOLD}${W}$text${N}$(printf ' %.0s' $(seq 1 $((width - ${#text}))))${BOLD}${C}║${N}"
-    echo -e "${BOLD}${C}╚═$(printf '═%.0s' $(seq 1 $width))═╝${N}"
-}
-
-print_box() {
-    local text="$1"
-    local color="${2:-$C}"
-    echo -e "${color}┌─────────────────────────────────────────────────────────────────┐${N}"
-    echo -e "${color}│${N} $text"
-    echo -e "${color}└─────────────────────────────────────────────────────────────────┘${N}"
+    echo -e "${BOLD}${C}╚$(printf '═%.0s' $(seq 1 $width))╝${N}"
 }
 
 print_success() {
@@ -131,249 +159,6 @@ print_info() {
 
 print_warning() {
     echo -e "${Y}${BOLD}⚠${N}  ${Y}$1${N}"
-}
-
-# ============================================================================
-# MODULE HELP SYSTEM
-# ============================================================================
-
-show_module_help() {
-    local module_name="$1"
-    local module_path=""
-    
-    # Find module path
-    for ((i=0; i<MODULE_COUNT; i++)); do
-        if [[ "${MOD_NAMES[$i]}" == "$module_name" ]]; then
-            module_path="${MOD_PATHS[$i]}"
-            break
-        fi
-    done
-    
-    if [[ -z "$module_path" ]]; then
-        print_error "Module '$module_name' not found"
-        return 1
-    fi
-    
-    local json_file="$module_path/module.json"
-    if [[ ! -f "$json_file" ]]; then
-        print_error "module.json not found for '$module_name'"
-        return 1
-    fi
-    
-    # Check if module has built-in help
-    local executable="${MOD_EXECS[$i]}"
-    if [[ -n "$executable" ]]; then
-        cd "$module_path"
-        if timeout 2 bash -c "$executable --help 2>/dev/null" 2>/dev/null; then
-            cd - >/dev/null
-            return 0
-        elif timeout 2 bash -c "$executable -h 2>/dev/null" 2>/dev/null; then
-            cd - >/dev/null
-            return 0
-        elif timeout 2 bash -c "$executable help 2>/dev/null" 2>/dev/null; then
-            cd - >/dev/null
-            return 0
-        fi
-        cd - >/dev/null
-    fi
-    
-    # Parse and display help from module.json
-    local json=$(<"$json_file")
-    
-    print_header "Module: $module_name"
-    
-    # Basic Info
-    local desc=$(json_get "$json" "description")
-    local author=$(json_get "$json" "author")
-    local version=$(json_get "$json" "version")
-    local category=$(json_get "$json" "category")
-    
-    echo -e "\n${BOLD}${DIM}Description:${N} $desc"
-    echo -e "${BOLD}${DIM}Author:${N} ${M}$author${N}"
-    echo -e "${BOLD}${DIM}Version:${N} ${C}$version${N}"
-    echo -e "${BOLD}${DIM}Category:${N} ${Y}$category${N}"
-    
-    # Check for help section
-    if [[ $(json_has_key "$json" "help") == "true" ]]; then
-        display_enhanced_help "$json"
-    else
-        display_basic_help "$json"
-    fi
-    
-    # Check for README
-    if [[ -f "$module_path/README.md" ]]; then
-        echo -e "\n${DIM}${ITALIC}📖 Detailed documentation: ${UNDERLINE}$module_path/README.md${N}"
-    fi
-    
-    echo
-}
-
-display_enhanced_help() {
-    local json="$1"
-    
-    # Features
-    local features=$(json_get "$json" "help.features")
-    if [[ -n "$features" && "$features" != "[]" ]]; then
-        echo -e "\n${BOLD}${G}Features:${N}"
-        echo "$features" | python3 -c "
-import json, sys
-try:
-    features = json.load(sys.stdin)
-    for f in features:
-        print(f'  ${BULLET} {f}')
-except:
-    pass
-"
-    fi
-    
-    # Parameters
-    echo -e "\n${BOLD}${Y}Parameters:${N}"
-    local params=$(json_get "$json" "help.parameters")
-    if [[ -n "$params" && "$params" != "{}" ]]; then
-        echo "$params" | python3 -c "
-import json, sys
-try:
-    params = json.load(sys.stdin)
-    for name, info in params.items():
-        print(f'  \033[1m\033[36m{name}\033[0m')
-        if isinstance(info, dict):
-            if 'description' in info:
-                print(f'    \033[2m{info[\"description\"]}\033[0m')
-            if 'options' in info:
-                print(f'    \033[33mOptions:\033[0m {\" | \".join(info[\"options\"])}')
-            if 'examples' in info:
-                print(f'    \033[32mExamples:\033[0m {\" | \".join(info[\"examples\"])}')
-            if 'default' in info:
-                print(f'    \033[35mDefault:\033[0m {info[\"default\"]}')
-        else:
-            print(f'    \033[2m{info}\033[0m')
-        print()
-except Exception as e:
-    pass
-"
-    else
-        display_inputs "$json"
-    fi
-    
-    # Examples
-    local examples=$(json_get "$json" "help.examples")
-    if [[ -n "$examples" && "$examples" != "[]" ]]; then
-        echo -e "\n${BOLD}${B}Usage Examples:${N}"
-        echo "$examples" | python3 -c "
-import json, sys
-try:
-    examples = json.load(sys.stdin)
-    for i, ex in enumerate(examples, 1):
-        if isinstance(ex, dict):
-            print(f'\n  \033[1m{i}. {ex.get(\"description\", \"Example\")}\033[0m')
-            if 'commands' in ex:
-                for cmd in ex['commands']:
-                    print(f'     \033[2msecV >\033[0m \033[36m{cmd}\033[0m')
-        else:
-            print(f'  {i}. {ex}')
-except:
-    pass
-"
-    fi
-    
-    # Installation tiers
-    local tiers=$(json_get "$json" "help.installation_tiers")
-    if [[ -n "$tiers" && "$tiers" != "{}" ]]; then
-        echo -e "\n${BOLD}${M}Installation Tiers:${N}"
-        echo "$tiers" | python3 -c "
-import json, sys
-try:
-    tiers = json.load(sys.stdin)
-    for tier, desc in tiers.items():
-        print(f'  \033[1m\033[32m{tier.upper()}\033[0m: \033[2m{desc}\033[0m')
-except:
-    pass
-"
-    fi
-    
-    # Optional dependencies
-    local opt_deps=$(json_get "$json" "optional_dependencies")
-    if [[ -n "$opt_deps" && "$opt_deps" != "{}" ]]; then
-        echo -e "\n${BOLD}${Y}Optional Dependencies:${N}"
-        echo "$opt_deps" | python3 -c "
-import json, sys
-try:
-    deps = json.load(sys.stdin)
-    for dep, desc in deps.items():
-        print(f'  ${BULLET} \033[33m{dep}\033[0m: \033[2m{desc}\033[0m')
-except:
-    pass
-"
-    fi
-    
-    # Notes
-    local notes=$(json_get "$json" "help.notes")
-    if [[ -n "$notes" && "$notes" != "[]" ]]; then
-        echo -e "\n${BOLD}${Y}Important Notes:${N}"
-        echo "$notes" | python3 -c "
-import json, sys
-try:
-    notes = json.load(sys.stdin)
-    for note in notes:
-        if note.startswith('⚠') or note.startswith('⚡'):
-            print(f'  \033[33m{note}\033[0m')
-        elif note.startswith('💡'):
-            print(f'  \033[36m{note}\033[0m')
-        else:
-            print(f'  \033[2m⚠ {note}\033[0m')
-except:
-    pass
-"
-    fi
-}
-
-display_basic_help() {
-    local json="$1"
-    display_inputs "$json"
-    
-    local outputs=$(json_get "$json" "outputs")
-    if [[ -n "$outputs" && "$outputs" != "{}" ]]; then
-        echo -e "\n${BOLD}${G}Expected Outputs:${N}"
-        echo "$outputs" | python3 -c "
-import json, sys
-try:
-    outputs = json.load(sys.stdin)
-    for name, info in outputs.items():
-        if isinstance(info, dict):
-            desc = info.get('description', '')
-            type_str = info.get('type', '')
-            print(f'  \033[36m{name}\033[0m \033[2m({type_str})\033[0m: {desc}')
-        else:
-            print(f'  \033[36m{name}\033[0m: {info}')
-except:
-    pass
-"
-    fi
-}
-
-display_inputs() {
-    local json="$1"
-    local inputs=$(json_get "$json" "inputs")
-    
-    if [[ -n "$inputs" && "$inputs" != "{}" ]]; then
-        echo -e "\n${BOLD}${Y}Input Parameters:${N}"
-        echo "$inputs" | python3 -c "
-import json, sys
-try:
-    inputs = json.load(sys.stdin)
-    for name, info in inputs.items():
-        if isinstance(info, dict):
-            desc = info.get('description', '')
-            required = '\033[31m(required)\033[0m' if info.get('required', False) else '\033[2m(optional)\033[0m'
-            default = f\" \033[35m[default: {info['default']}]\033[0m\" if 'default' in info else ''
-            print(f'  \033[1m\033[36m{name}\033[0m {required}{default}')
-            print(f'    \033[2m{desc}\033[0m')
-        else:
-            print(f'  \033[36m{name}\033[0m: {info}')
-except:
-    pass
-"
-    fi
 }
 
 # ============================================================================
@@ -428,7 +213,7 @@ load_cache() {
 }
 
 # ============================================================================
-# EXECUTION ENGINE
+# EXECUTION ENGINE WITH TRACKING
 # ============================================================================
 
 execute_module() {
@@ -453,24 +238,102 @@ execute_module() {
         [[ -n "$t" && "$t" != "null" ]] && timeout=$t
     fi
     
-    # Execute
+    # Execute with tracking
     local start=$(date +%s%N)
     
     cd "$CURRENT_PATH"
-    echo "$json" | timeout $timeout bash -c "$CURRENT_EXEC"
+    (
+        echo "$json" | timeout $timeout bash -c "$CURRENT_EXEC" &
+        local exec_pid=$!
+        
+        # Track module start
+        start_module_tracking "$CURRENT_MODULE" "$target" "$exec_pid"
+        
+        wait $exec_pid
+        exit $?
+    )
     local ret=$?
     cd - >/dev/null 2>&1
     
     local end=$(date +%s%N)
     local elapsed=$(((end-start)/1000000))
+    local elapsed_sec=$(echo "scale=2; $elapsed/1000" | bc)
     
+    # Track module completion
     if [[ $ret -eq 0 ]]; then
+        complete_module_tracking "$CURRENT_MODULE" "True" "$elapsed_sec"
         print_success "Completed in ${elapsed}ms"
     else
+        complete_module_tracking "$CURRENT_MODULE" "False" "$elapsed_sec"
         print_error "Failed after ${elapsed}ms"
     fi
     
+    # Show compact dashboard status
+    show_dashboard_compact
+    
     return $ret
+}
+
+# ============================================================================
+# MODULE HELP SYSTEM
+# ============================================================================
+
+show_module_help() {
+    local module_name="$1"
+    local module_path=""
+    
+    for ((i=0; i<MODULE_COUNT; i++)); do
+        if [[ "${MOD_NAMES[$i]}" == "$module_name" ]]; then
+            module_path="${MOD_PATHS[$i]}"
+            break
+        fi
+    done
+    
+    if [[ -z "$module_path" ]]; then
+        print_error "Module '$module_name' not found"
+        return 1
+    fi
+    
+    local json_file="$module_path/module.json"
+    if [[ ! -f "$json_file" ]]; then
+        print_error "module.json not found for '$module_name'"
+        return 1
+    fi
+    
+    # Check if module has built-in help
+    local executable="${MOD_EXECS[$i]}"
+    if [[ -n "$executable" ]]; then
+        cd "$module_path"
+        if timeout 2 bash -c "$executable --help 2>/dev/null" 2>/dev/null; then
+            cd - >/dev/null
+            return 0
+        elif timeout 2 bash -c "$executable -h 2>/dev/null" 2>/dev/null; then
+            cd - >/dev/null
+            return 0
+        fi
+        cd - >/dev/null
+    fi
+    
+    # Parse and display help from module.json
+    local json=$(<"$json_file")
+    
+    print_header "Module: $module_name"
+    
+    local desc=$(json_get "$json" "description")
+    local author=$(json_get "$json" "author")
+    local version=$(json_get "$json" "version")
+    local category=$(json_get "$json" "category")
+    
+    echo -e "\n${BOLD}${DIM}Description:${N} $desc"
+    echo -e "${BOLD}${DIM}Author:${N} ${M}$author${N}"
+    echo -e "${BOLD}${DIM}Version:${N} ${C}$version${N}"
+    echo -e "${BOLD}${DIM}Category:${N} ${Y}$category${N}"
+    
+    if [[ -f "$module_path/README.md" ]]; then
+        echo -e "\n${DIM}${ITALIC}📖 Detailed documentation: ${UNDERLINE}$module_path/README.md${N}"
+    fi
+    
+    echo
 }
 
 # ============================================================================
@@ -515,6 +378,9 @@ cmd_show() {
                 fi
             fi
             echo
+            ;;
+        status|dashboard)
+            show_dashboard_full
             ;;
     esac
 }
@@ -611,8 +477,8 @@ cmd_help() {
             cat << 'HELP'
 
 CORE COMMANDS:
-  show [modules|categories|options]
-      List modules, categories, or current configuration
+  show [modules|categories|options|dashboard]
+      List modules, categories, configuration, or show dashboard
   
   use <module>
       Load a security module
@@ -632,11 +498,20 @@ CORE COMMANDS:
   search <query>
       Search modules by name, category, or description
   
+  dashboard
+      Show real-time module status dashboard
+  
   back
       Unload current module
   
   reload
       Rescan module directory
+  
+  update
+      Check for and install updates
+  
+  autoupdate
+      Toggle automatic update checks
   
   clear
       Clear terminal screen
@@ -644,18 +519,24 @@ CORE COMMANDS:
   exit | quit
       Exit SecV shell
 
+DASHBOARD COMMANDS:
+  show dashboard      Full dashboard view
+  show status         Same as 'show dashboard'
+  dashboard           Quick access to dashboard
+  
+  The dashboard shows:
+    • Active running modules with runtime
+    • Recently completed modules
+    • Recent failures with duration
+    • Real-time statistics
+
 QUICK START:
   1. Browse modules:    show modules
   2. Load module:       use portscan
   3. View help:         help module
   4. Configure:         set ports web
   5. Execute:           run example.com
-
-TIPS:
-  • Use 'info <module>' to preview help before loading
-  • Tab completion available for commands
-  • Type 'show options' to see current configuration
-  • Most modules support --help flag directly
+  6. Check status:      dashboard
 
 HELP
             echo
@@ -666,12 +547,60 @@ HELP
     esac
 }
 
+cmd_update() {
+    if [[ -f "$SECV_HOME/update.py" ]]; then
+        python3 "$SECV_HOME/update.py"
+    else
+        print_error "Updater not found at: $SECV_HOME/update.py"
+    fi
+}
+
+cmd_no_auto_update() {
+    if [[ -f "$CACHE_DIR/.no_auto_update" ]]; then
+        rm -f "$CACHE_DIR/.no_auto_update"
+        print_success "Auto-update enabled"
+        echo -e "${DIM}SecV will check for updates every 24 hours${N}"
+    else
+        touch "$CACHE_DIR/.no_auto_update"
+        print_warning "Auto-update disabled"
+        echo -e "${DIM}Use 'update' command to manually check for updates${N}"
+    fi
+}
+
+# ============================================================================
+# UPDATE CHECK
+# ============================================================================
+
+should_check_updates() {
+    [[ -f "$CACHE_DIR/.no_auto_update" ]] && return 1
+    [[ ! -d "$SECV_HOME/.git" ]] && return 1
+    
+    if [[ -f "$UPDATE_CHECK_FILE" ]]; then
+        local last_check=$(cat "$UPDATE_CHECK_FILE" 2>/dev/null || echo 0)
+        local now=$(date +%s)
+        local age=$((now - last_check))
+        [[ $age -lt 86400 ]] && return 1
+    fi
+    
+    return 0
+}
+
+if should_check_updates; then
+    if [[ -f "$SECV_HOME/update.py" ]]; then
+        python3 "$SECV_HOME/update.py" 2>/dev/null
+        echo "$(date +%s)" > "$UPDATE_CHECK_FILE"
+    fi
+fi
+
 # ============================================================================
 # MAIN
 # ============================================================================
 
 main() {
     mkdir -p "$CACHE_DIR" "$TOOLS_DIR"
+    
+    # Initialize dashboard
+    init_dashboard
     
     # Enhanced Banner
     clear
@@ -687,15 +616,20 @@ main() {
 ╚═══════════════════════════════════════════════════════════════════╝
 BANNER
     echo -e "${N}"
-    echo -e "${DIM}   SecV v$VERSION - Enhanced Module Help System${N}"
+    echo -e "${DIM}   SecV v$VERSION - Real-Time Module Status Dashboard${N}"
     echo -e "${DIM}   The Polyglot Cybersecurity Orchestration Platform${N}\n"
     
     load_cache || scan_modules
     
-    echo -e "${DIM}${ITALIC}Type '${BOLD}help${N}${DIM}${ITALIC}' for commands, '${BOLD}help module${N}${DIM}${ITALIC}' for module help${N}\n"
+    echo -e "${DIM}${ITALIC}Type '${BOLD}help${N}${DIM}${ITALIC}' for commands, '${BOLD}dashboard${N}${DIM}${ITALIC}' for status${N}\n"
     
     # Command loop with enhanced prompt
     while true; do
+        # Show compact status if dashboard available
+        if [[ -f "$DASHBOARD_PY" ]] && [[ -z "$CURRENT_MODULE" ]]; then
+            show_dashboard_compact
+        fi
+        
         if [[ -n "$CURRENT_MODULE" ]]; then
             printf "${BOLD}${G}secV${N} ${BOLD}${R}(${CURRENT_MODULE})${N} ${C}${ARROW}${N} "
         else
@@ -713,9 +647,8 @@ BANNER
             info) cmd_info $args ;;
             help) cmd_help $args ;;
             update) cmd_update ;;
-            autoupdate)
-                cmd_no_auto_update
-                ;;
+            autoupdate) cmd_no_auto_update ;;
+            dashboard|status) show_dashboard_full ;;
             back)
                 CURRENT_MODULE="" CURRENT_PATH="" CURRENT_EXEC=""
                 PARAM_KEYS=() PARAM_VALUES=()
