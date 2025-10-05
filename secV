@@ -269,12 +269,12 @@ load_cache() {
 # Wrap industry tools
 wrap_tool() {
     local tool="$1"
-    local wrapper_dir="$TOOLS_DIR/wrapped"
+    local wrapper_dir="$TOOLS_DIR/wrapped/$tool"
     mkdir -p "$wrapper_dir"
     
     case "$tool" in
         nmap)
-            cat > "$wrapper_dir/nmap/module.json" << EOF
+            cat > "$wrapper_dir/module.json" << EOF
 {
     "name": "nmap",
     "category": "scanning",
@@ -285,7 +285,7 @@ wrap_tool() {
 EOF
             ;;
         metasploit|msfconsole)
-            cat > "$wrapper_dir/metasploit/module.json" << EOF
+            cat > "$wrapper_dir/module.json" << EOF
 {
     "name": "metasploit",
     "category": "exploitation",
@@ -296,7 +296,7 @@ EOF
 EOF
             ;;
         sqlmap)
-            cat > "$wrapper_dir/sqlmap/module.json" << EOF
+            cat > "$wrapper_dir/module.json" << EOF
 {
     "name": "sqlmap",
     "category": "web",
@@ -307,7 +307,7 @@ EOF
 EOF
             ;;
         nikto)
-            cat > "$wrapper_dir/nikto/module.json" << EOF
+            cat > "$wrapper_dir/module.json" << EOF
 {
     "name": "nikto",
     "category": "web",
@@ -318,6 +318,7 @@ EOF
 EOF
             ;;
     esac
+    echo -e "${G}✓ Wrapped tool: $tool${N}"
 }
 
 # ============================================================================
@@ -538,10 +539,31 @@ main() {
     # Load modules
     load_cache || scan_modules
     
-    # Wrap common tools if found
+    # Create sample module if no modules found
+    if [[ $MODULE_COUNT -eq 0 ]]; then
+        echo -e "${Y}No modules found. Creating sample module...${N}"
+        mkdir -p "$TOOLS_DIR/demo/test"
+        cat > "$TOOLS_DIR/demo/test/module.json" << 'EOF'
+{
+    "name": "test",
+    "category": "demo",
+    "description": "Test module - echoes target",
+    "executable": "bash -c 'read json && echo \"{\\\"success\\\":true,\\\"data\\\":{\\\"message\\\":\\\"Test successful\\\"}}\"'",
+    "timeout": 10
+}
+EOF
+        scan_modules
+    fi
+    
+    # Wrap common tools if found (after initial scan)
     for tool in nmap metasploit sqlmap nikto; do
-        command -v "$tool" >/dev/null 2>&1 && wrap_tool "$tool"
+        if command -v "$tool" >/dev/null 2>&1; then
+            wrap_tool "$tool"
+        fi
     done
+    
+    # Rescan if we added wrapped tools
+    [[ -d "$TOOLS_DIR/wrapped" ]] && scan_modules
     
     echo -e "${C}Type 'help' for commands${N}\n"
     
