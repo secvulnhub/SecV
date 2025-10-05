@@ -1,36 +1,37 @@
 #!/usr/bin/env python3
 """
-PortScan - Advanced Multi-Engine Network Scanner
-Author: SecVulnHub Team
-Version: 2.0.0
+SecV Advanced Port Scanner v3.0
+High-performance network scanner with stealth capabilities
 
-A comprehensive, extensible port scanning module with multiple scan engines,
-service detection, and intelligent fallback mechanisms.
+Author: SecVulnHub Team
+License: MIT
+WARNING: For authorized security testing only
 """
 
+import socket
 import json
 import sys
-import socket
-import struct
 import time
-import concurrent.futures
-from typing import Dict, List, Tuple, Optional, Any
+import threading
+import queue
+import ipaddress
+import random
+import struct
+import select
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, asdict
+from typing import List, Dict, Set, Optional, Tuple
+from datetime import datetime
+import re
 
-# Optional dependency detection
+# Optional imports with graceful degradation
 try:
-    import nmap
-    HAS_NMAP = True
-except ImportError:
-    HAS_NMAP = False
-    nmap = None
-
-try:
-    from scapy.all import sr1, IP, TCP, ICMP, conf
-    conf.verb = 0  # Suppress scapy output
+    import scapy.all as scapy
+    from scapy.layers.inet import IP, TCP, UDP, ICMP
     HAS_SCAPY = True
 except ImportError:
     HAS_SCAPY = False
+    scapy = None
 
 try:
     import requests
@@ -39,559 +40,539 @@ except ImportError:
     HAS_REQUESTS = False
     requests = None
 
+try:
+    import dns.resolver
+    HAS_DNSPYTHON = True
+except ImportError:
+    HAS_DNSPYTHON = False
+
+# Constants
+VERSION = "3.0.0"
+DEFAULT_TIMEOUT = 1.0
+DEFAULT_THREADS = 100
+MAX_THREADS = 500
+
+# Port presets
+PORT_PRESETS = {
+    'top-20': [21, 22, 23, 25, 53, 80, 110, 111, 135, 139, 143, 443, 445, 993, 995, 1723, 3306, 3389, 5900, 8080],
+    'top-100': list(range(1, 101)),
+    'top-1000': [21, 22, 23, 25, 53, 80, 110, 111, 135, 139, 143, 443, 445, 993, 995] + list(range(1, 1001)),
+    'web': [80, 443, 8000, 8008, 8080, 8088, 8443, 8888],
+    'database': [1433, 1521, 3306, 5432, 27017, 27018, 6379, 9200],
+    'mail': [25, 110, 143, 465, 587, 993, 995],
+    'common': [21, 22, 23, 25, 53, 80, 110, 135, 139, 143, 443, 445, 3389, 8080],
+    'all': list(range(1, 65536))
+}
+
+# Service fingerprints
+SERVICE_SIGNATURES = {
+    22: {'name': 'ssh', 'pattern': rb'SSH-'},
+    21: {'name': 'ftp', 'pattern': rb'220.*FTP'},
+    25: {'name': 'smtp', 'pattern': rb'220.*SMTP'},
+    80: {'name': 'http', 'pattern': rb'HTTP/'},
+    443: {'name': 'https', 'pattern': rb'HTTP/'},
+    3306: {'name': 'mysql', 'pattern': rb'\x00\x00\x00\x0a'},
+    5432: {'name': 'postgresql', 'pattern': rb'PostgreSQL'},
+    6379: {'name': 'redis', 'pattern': rb'\+PONG'},
+    27017: {'name': 'mongodb', 'pattern': rb'MongoDB'},
+}
+
 
 @dataclass
-class PortResult:
-    """Represents a single port scan result"""
+class ScanResult:
+    """Structured scan result"""
+    host: str
     port: int
-    state: str  # open, closed, filtered
+    protocol: str
+    state: str
     service: str = "unknown"
     version: str = ""
     banner: str = ""
-    protocol: str = "tcp"
     response_time: float = 0.0
+    timestamp: str = ""
+    ttl: int = 0
+    scan_method: str = "connect"
     
-    def to_dict(self) -> Dict:
-        return asdict(self)
-
-
-class ServiceFingerprinter:
-    """Enhanced service detection and fingerprinting"""
-    
-    COMMON_SERVICES = {
-        20: "ftp-data", 21: "ftp", 22: "ssh", 23: "telnet",
-        25: "smtp", 53: "dns", 80: "http", 110: "pop3",
-        143: "imap", 443: "https", 445: "smb", 3306: "mysql",
-        3389: "rdp", 5432: "postgresql", 5900: "vnc", 6379: "redis",
-        8080: "http-proxy", 8443: "https-alt", 27017: "mongodb"
-    }
-    
-    SERVICE_PROBES = {
-        80: b"GET / HTTP/1.1\r\nHost: {}\r\n\r\n",
-        443: b"GET / HTTP/1.1\r\nHost: {}\r\n\r\n",
-        21: b"USER anonymous\r\n",
-        22: b"\r\n",
-        25: b"EHLO scanner\r\n",
-        3306: b"\x00\x00\x00\x0a",  # MySQL handshake
-    }
-    
-    @staticmethod
-    def get_service_name(port: int) -> str:
-        """Get common service name for port"""
-        return ServiceFingerprinter.COMMON_SERVICES.get(port, f"port-{port}")
-    
-    @staticmethod
-    def grab_banner(host: str, port: int, timeout: float = 2.0) -> Tuple[str, str]:
-        """Attempt to grab service banner"""
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(timeout)
-            sock.connect((host, port))
-            
-            # Send probe if available
-            probe = ServiceFingerprinter.SERVICE_PROBES.get(port)
-            if probe:
-                sock.send(probe.replace(b"{}", host.encode()))
-            
-            banner = sock.recv(1024).decode('utf-8', errors='ignore').strip()
-            sock.close()
-            
-            # Parse version from banner
-            version = ServiceFingerprinter._parse_version(banner)
-            return banner[:200], version  # Limit banner length
-            
-        except Exception:
-            return "", ""
-    
-    @staticmethod
-    def _parse_version(banner: str) -> str:
-        """Extract version information from banner"""
-        # Common patterns
-        patterns = [
-            r'SSH-[\d\.]+-(OpenSSH_[\d\.]+)',
-            r'Apache/([\d\.]+)',
-            r'nginx/([\d\.]+)',
-            r'MySQL ([\d\.]+)',
-            r'Version ([\d\.]+)',
-        ]
-        
-        import re
-        for pattern in patterns:
-            match = re.search(pattern, banner)
-            if match:
-                return match.group(1)
-        return ""
-    
-    @staticmethod
-    def detect_http_tech(host: str, port: int) -> Dict[str, Any]:
-        """Detect HTTP technologies if available"""
-        if not HAS_REQUESTS:
-            return {}
-        
-        try:
-            url = f"http://{host}:{port}" if port != 443 else f"https://{host}:{port}"
-            resp = requests.get(url, timeout=3, verify=False, allow_redirects=False)
-            
-            tech = {
-                'server': resp.headers.get('Server', ''),
-                'powered_by': resp.headers.get('X-Powered-By', ''),
-                'framework': '',
-                'status': resp.status_code
-            }
-            
-            # Detect frameworks from headers/content
-            content = resp.text[:5000]
-            if 'wp-content' in content or 'wordpress' in content.lower():
-                tech['framework'] = 'WordPress'
-            elif 'joomla' in content.lower():
-                tech['framework'] = 'Joomla'
-            elif '__next' in content or 'nextjs' in content.lower():
-                tech['framework'] = 'Next.js'
-            elif 'react' in content.lower() or '_react' in content:
-                tech['framework'] = 'React'
-            
-            return tech
-            
-        except Exception:
-            return {}
-
-
-class ScanEngine:
-    """Base class for scan engines"""
-    
-    def __init__(self, target: str, ports: List[int], timeout: float = 1.0):
-        self.target = target
-        self.ports = ports
-        self.timeout = timeout
-        self.results: List[PortResult] = []
-    
-    def scan(self) -> List[PortResult]:
-        """Execute scan - override in subclasses"""
-        raise NotImplementedError
-
-
-class ConnectScanEngine(ScanEngine):
-    """TCP Connect scan - most compatible, no privileges required"""
-    
-    def scan(self) -> List[PortResult]:
-        """Perform TCP connect scan"""
-        with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
-            futures = {executor.submit(self._scan_port, port): port for port in self.ports}
-            
-            for future in concurrent.futures.as_completed(futures):
-                result = future.result()
-                if result:
-                    self.results.append(result)
-        
-        return self.results
-    
-    def _scan_port(self, port: int) -> Optional[PortResult]:
-        """Scan single port with TCP connect"""
-        start_time = time.time()
-        
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(self.timeout)
-            result = sock.connect_ex((self.target, port))
-            response_time = time.time() - start_time
-            sock.close()
-            
-            if result == 0:
-                service = ServiceFingerprinter.get_service_name(port)
-                banner, version = ServiceFingerprinter.grab_banner(
-                    self.target, port, self.timeout
-                )
-                
-                return PortResult(
-                    port=port,
-                    state="open",
-                    service=service,
-                    version=version,
-                    banner=banner,
-                    response_time=response_time
-                )
-        except Exception:
-            pass
-        
-        return None
-
-
-class SYNScanEngine(ScanEngine):
-    """SYN scan using Scapy - stealthy, requires root"""
-    
-    def scan(self) -> List[PortResult]:
-        """Perform SYN scan"""
-        if not HAS_SCAPY:
-            raise RuntimeError("Scapy required for SYN scanning")
-        
-        for port in self.ports:
-            result = self._syn_scan_port(port)
-            if result:
-                self.results.append(result)
-        
-        return self.results
-    
-    def _syn_scan_port(self, port: int) -> Optional[PortResult]:
-        """SYN scan single port"""
-        try:
-            start_time = time.time()
-            
-            # Send SYN packet
-            syn_packet = IP(dst=self.target)/TCP(dport=port, flags="S")
-            response = sr1(syn_packet, timeout=self.timeout, verbose=0)
-            response_time = time.time() - start_time
-            
-            if response is None:
-                return None  # Filtered or no response
-            
-            if response.haslayer(TCP):
-                if response[TCP].flags == "SA":  # SYN-ACK
-                    # Send RST to close connection
-                    rst = IP(dst=self.target)/TCP(dport=port, flags="R")
-                    sr1(rst, timeout=0.1, verbose=0)
-                    
-                    service = ServiceFingerprinter.get_service_name(port)
-                    return PortResult(
-                        port=port,
-                        state="open",
-                        service=service,
-                        response_time=response_time
-                    )
-                elif response[TCP].flags == "RA":  # RST-ACK
-                    return PortResult(
-                        port=port,
-                        state="closed",
-                        response_time=response_time
-                    )
-        except Exception:
-            pass
-        
-        return None
-
-
-class NmapScanEngine(ScanEngine):
-    """Nmap integration - comprehensive scanning"""
-    
-    def __init__(self, target: str, ports: List[int], timeout: float = 1.0, 
-                 scan_type: str = "-sV"):
-        super().__init__(target, ports, timeout)
-        self.scan_type = scan_type
-    
-    def scan(self) -> List[PortResult]:
-        """Perform nmap scan"""
-        if not HAS_NMAP:
-            raise RuntimeError("python-nmap required for nmap scanning")
-        
-        nm = nmap.PortScanner()
-        port_range = self._format_port_range()
-        
-        try:
-            nm.scan(self.target, port_range, arguments=self.scan_type)
-            
-            if self.target in nm.all_hosts():
-                for proto in nm[self.target].all_protocols():
-                    for port in nm[self.target][proto].keys():
-                        port_info = nm[self.target][proto][port]
-                        
-                        result = PortResult(
-                            port=port,
-                            state=port_info['state'],
-                            service=port_info.get('name', 'unknown'),
-                            version=port_info.get('version', ''),
-                            protocol=proto
-                        )
-                        self.results.append(result)
-        except Exception as e:
-            print(f"Nmap scan error: {e}", file=sys.stderr)
-        
-        return self.results
-    
-    def _format_port_range(self) -> str:
-        """Format ports for nmap"""
-        if not self.ports:
-            return "1-1000"
-        
-        # Optimize consecutive ports
-        ports_sorted = sorted(self.ports)
-        ranges = []
-        start = ports_sorted[0]
-        end = start
-        
-        for port in ports_sorted[1:]:
-            if port == end + 1:
-                end = port
-            else:
-                ranges.append(f"{start}-{end}" if start != end else str(start))
-                start = end = port
-        
-        ranges.append(f"{start}-{end}" if start != end else str(start))
-        return ",".join(ranges)
+    def to_dict(self):
+        return {k: v for k, v in asdict(self).items() if v}
 
 
 class PortScanner:
-    """Main scanner orchestrator"""
+    """Advanced port scanner with multiple scan techniques"""
     
-    # Pre-defined port sets
-    PORT_SETS = {
-        'top-20': [21, 22, 23, 25, 53, 80, 110, 111, 135, 139, 143, 443, 445, 
-                   993, 995, 1723, 3306, 3389, 5900, 8080],
-        'top-100': list(range(1, 101)),
-        'top-1000': list(range(1, 1001)),
-        'all': list(range(1, 65536)),
-        'web': [80, 443, 8000, 8080, 8443, 8888],
-        'db': [1433, 3306, 5432, 27017, 6379, 9200],
-        'common': [20, 21, 22, 23, 25, 53, 80, 110, 143, 443, 445, 3389, 8080]
-    }
-    
-    def __init__(self, target: str, params: Dict[str, Any]):
-        self.target = target
-        self.params = params
-        self.capabilities = self._detect_capabilities()
-        
-    def _detect_capabilities(self) -> Dict[str, bool]:
-        """Detect available scanning capabilities"""
-        caps = {
-            'connect': True,  # Always available
-            'syn': HAS_SCAPY,
-            'nmap': HAS_NMAP,
-            'http_tech': HAS_REQUESTS,
-            'banner_grab': True
+    def __init__(self, config: dict):
+        self.config = config
+        self.results: List[ScanResult] = []
+        self.results_lock = threading.Lock()
+        self.stats = {
+            'total_ports': 0,
+            'open_ports': 0,
+            'closed_ports': 0,
+            'filtered_ports': 0,
+            'start_time': time.time()
         }
-        return caps
+        
+        # Parse configuration
+        self.timeout = config.get('timeout', DEFAULT_TIMEOUT)
+        self.threads = min(config.get('threads', DEFAULT_THREADS), MAX_THREADS)
+        self.verbose = config.get('verbose', False)
+        self.service_detect = config.get('service_detect', True)
+        self.stealth = config.get('stealth', False)
+        self.scan_type = config.get('scan_type', 'connect')
+        self.source_port = config.get('source_port', 0)
+        
+    def log(self, message: str, level: str = "INFO"):
+        """Thread-safe logging"""
+        if self.verbose or level == "ERROR":
+            timestamp = datetime.now().strftime("%H:%M:%S")
+            print(f"[{timestamp}] {level}: {message}", file=sys.stderr)
     
-    def scan(self) -> Dict[str, Any]:
-        """Execute scan with best available method"""
-        # Parse ports
-        ports = self._parse_ports()
-        if not ports:
-            return self._error("No valid ports specified")
+    def parse_targets(self, target_str: str) -> List[str]:
+        """Parse target specification (IPs, CIDR, ranges)"""
+        targets = []
         
-        # Select scan engine
-        engine = self._select_engine(ports)
+        for target in target_str.split(','):
+            target = target.strip()
+            
+            # CIDR notation
+            if '/' in target:
+                try:
+                    network = ipaddress.ip_network(target, strict=False)
+                    targets.extend([str(ip) for ip in network.hosts()])
+                    self.log(f"Parsed CIDR {target}: {network.num_addresses} hosts")
+                except ValueError as e:
+                    self.log(f"Invalid CIDR {target}: {e}", "ERROR")
+            
+            # IP range (192.168.1.1-254)
+            elif '-' in target and '.' in target:
+                try:
+                    base, range_part = target.rsplit('.', 1)
+                    if '-' in range_part:
+                        start, end = map(int, range_part.split('-'))
+                        for i in range(start, end + 1):
+                            targets.append(f"{base}.{i}")
+                        self.log(f"Parsed range {target}: {end - start + 1} hosts")
+                except ValueError as e:
+                    self.log(f"Invalid range {target}: {e}", "ERROR")
+            
+            # Single host
+            else:
+                targets.append(target)
         
-        # Inform user of scanning method
-        scan_method = engine.__class__.__name__
-        print(f"INFO: Using {scan_method} for {len(ports)} ports", file=sys.stderr)
-        
-        # Execute scan
-        start_time = time.time()
-        results = engine.scan()
-        scan_duration = time.time() - start_time
-        
-        # Enhance results with additional info
-        open_ports = [r for r in results if r.state == "open"]
-        
-        # HTTP technology detection for web ports
-        if self.capabilities['http_tech'] and self.params.get('detect_http', True):
-            for result in open_ports:
-                if result.port in [80, 443, 8080, 8443]:
-                    tech = ServiceFingerprinter.detect_http_tech(
-                        self.target, result.port
-                    )
-                    if tech:
-                        result.version = tech.get('server', result.version)
-        
-        return {
-            'target': self.target,
-            'scan_method': scan_method,
-            'ports_scanned': len(ports),
-            'ports_open': len(open_ports),
-            'scan_duration': round(scan_duration, 2),
-            'results': [r.to_dict() for r in results],
-            'capabilities': self.capabilities
-        }
+        return list(set(targets))  # Remove duplicates
     
-    def _parse_ports(self) -> List[int]:
+    def parse_ports(self, port_str: str) -> List[int]:
         """Parse port specification"""
-        port_spec = self.params.get('ports', 'top-20')
+        ports = set()
         
-        # Pre-defined sets
-        if port_spec in self.PORT_SETS:
-            return self.PORT_SETS[port_spec]
+        # Check for presets
+        if port_str in PORT_PRESETS:
+            return PORT_PRESETS[port_str]
         
-        # Custom range or list
-        ports = []
-        for part in str(port_spec).split(','):
+        # Parse custom port specification
+        for part in port_str.split(','):
             part = part.strip()
             
+            # Port range
             if '-' in part:
-                # Range: 1-100
                 try:
                     start, end = map(int, part.split('-'))
-                    ports.extend(range(start, end + 1))
+                    ports.update(range(start, end + 1))
                 except ValueError:
-                    continue
+                    self.log(f"Invalid port range: {part}", "ERROR")
+            
+            # Single port
             else:
-                # Single port
                 try:
-                    ports.append(int(part))
+                    port = int(part)
+                    if 1 <= port <= 65535:
+                        ports.add(port)
                 except ValueError:
-                    continue
+                    self.log(f"Invalid port: {part}", "ERROR")
         
-        return sorted(set(p for p in ports if 1 <= p <= 65535))
+        return sorted(list(ports))
     
-    def _select_engine(self, ports: List[int]) -> ScanEngine:
-        """Select best available scan engine"""
-        engine_pref = self.params.get('engine', 'auto')
-        timeout = float(self.params.get('timeout', 1.0))
+    def tcp_connect_scan(self, host: str, port: int) -> ScanResult:
+        """Standard TCP connect scan"""
+        start_time = time.time()
+        result = ScanResult(
+            host=host,
+            port=port,
+            protocol="tcp",
+            state="closed",
+            scan_method="connect",
+            timestamp=datetime.now().isoformat()
+        )
         
-        if engine_pref == 'nmap' and self.capabilities['nmap']:
-            return NmapScanEngine(self.target, ports, timeout)
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(self.timeout)
         
-        if engine_pref == 'syn' and self.capabilities['syn']:
+        # Use custom source port if specified (for stealth)
+        if self.source_port:
             try:
-                return SYNScanEngine(self.target, ports, timeout)
-            except PermissionError:
-                print("WARN: SYN scan requires root, falling back to connect", 
-                      file=sys.stderr)
+                sock.bind(('', self.source_port))
+            except:
+                pass
         
-        # Default to connect scan
-        return ConnectScanEngine(self.target, ports, timeout)
+        try:
+            sock.connect((host, port))
+            result.state = "open"
+            result.response_time = time.time() - start_time
+            
+            # Service detection
+            if self.service_detect:
+                self.detect_service(sock, result)
+            
+            sock.close()
+            
+        except socket.timeout:
+            result.state = "filtered"
+        except socket.error:
+            result.state = "closed"
+        finally:
+            sock.close()
+        
+        return result
     
-    def _error(self, message: str) -> Dict[str, Any]:
-        """Generate error response"""
+    def syn_scan(self, host: str, port: int) -> Optional[ScanResult]:
+        """SYN stealth scan using scapy"""
+        if not HAS_SCAPY:
+            self.log("Scapy not available, falling back to connect scan", "WARN")
+            return self.tcp_connect_scan(host, port)
+        
+        start_time = time.time()
+        result = ScanResult(
+            host=host,
+            port=port,
+            protocol="tcp",
+            state="closed",
+            scan_method="syn",
+            timestamp=datetime.now().isoformat()
+        )
+        
+        try:
+            # Random source port for stealth
+            src_port = random.randint(1024, 65535) if not self.source_port else self.source_port
+            
+            # Craft SYN packet
+            ip_layer = IP(dst=host)
+            tcp_layer = TCP(sport=src_port, dport=port, flags="S", seq=random.randint(1000, 9000))
+            packet = ip_layer / tcp_layer
+            
+            # Send packet and wait for response
+            response = scapy.sr1(packet, timeout=self.timeout, verbose=0)
+            
+            if response:
+                result.response_time = time.time() - start_time
+                result.ttl = response.ttl if hasattr(response, 'ttl') else 0
+                
+                # Check response flags
+                if response.haslayer(TCP):
+                    tcp_flags = response[TCP].flags
+                    if tcp_flags == 0x12:  # SYN-ACK
+                        result.state = "open"
+                        # Send RST to close connection (stealth)
+                        rst = IP(dst=host) / TCP(sport=src_port, dport=port, flags="R", seq=response[TCP].ack)
+                        scapy.send(rst, verbose=0)
+                    elif tcp_flags == 0x14:  # RST-ACK
+                        result.state = "closed"
+                elif response.haslayer(ICMP):
+                    result.state = "filtered"
+            else:
+                result.state = "filtered"
+                
+        except Exception as e:
+            self.log(f"SYN scan error for {host}:{port}: {e}", "ERROR")
+            result.state = "error"
+        
+        return result
+    
+    def udp_scan(self, host: str, port: int) -> ScanResult:
+        """UDP scan"""
+        start_time = time.time()
+        result = ScanResult(
+            host=host,
+            port=port,
+            protocol="udp",
+            state="open|filtered",
+            scan_method="udp",
+            timestamp=datetime.now().isoformat()
+        )
+        
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(self.timeout)
+        
+        try:
+            # Send UDP probe
+            sock.sendto(b'\x00', (host, port))
+            
+            # Try to receive response
+            try:
+                data, addr = sock.recvfrom(1024)
+                result.state = "open"
+                result.banner = data[:100].decode('utf-8', errors='ignore')
+                result.response_time = time.time() - start_time
+            except socket.timeout:
+                result.state = "open|filtered"
+                
+        except socket.error as e:
+            # ICMP port unreachable means closed
+            if "unreachable" in str(e).lower():
+                result.state = "closed"
+        finally:
+            sock.close()
+        
+        return result
+    
+    def detect_service(self, sock: socket.socket, result: ScanResult):
+        """Detect service and grab banner"""
+        try:
+            # Check signature database
+            if result.port in SERVICE_SIGNATURES:
+                result.service = SERVICE_SIGNATURES[result.port]['name']
+            
+            # Try to grab banner
+            sock.settimeout(2.0)
+            
+            # Send probe based on common ports
+            if result.port in [80, 8080, 8000, 8008, 8888]:
+                sock.sendall(b"GET / HTTP/1.0\r\n\r\n")
+            elif result.port in [443, 8443]:
+                result.service = "https"
+                return
+            elif result.port == 22:
+                pass  # SSH sends banner first
+            elif result.port == 21:
+                pass  # FTP sends banner first
+            elif result.port == 25:
+                pass  # SMTP sends banner first
+            else:
+                # Try generic probe
+                sock.sendall(b"\r\n")
+            
+            # Receive response
+            try:
+                banner = sock.recv(1024)
+                if banner:
+                    result.banner = banner[:200].decode('utf-8', errors='ignore').strip()
+                    
+                    # Detect service from banner
+                    banner_lower = result.banner.lower()
+                    if 'http' in banner_lower:
+                        result.service = "http"
+                        # Extract server version
+                        if 'server:' in banner_lower:
+                            match = re.search(r'server:\s*([^\r\n]+)', banner_lower)
+                            if match:
+                                result.version = match.group(1).strip()
+                    elif 'ssh' in result.banner:
+                        result.service = "ssh"
+                        match = re.search(r'SSH-[\d.]+-(\S+)', result.banner)
+                        if match:
+                            result.version = match.group(1)
+                    elif 'ftp' in banner_lower:
+                        result.service = "ftp"
+                    elif 'smtp' in banner_lower:
+                        result.service = "smtp"
+                    elif 'mysql' in banner_lower:
+                        result.service = "mysql"
+                    elif 'postgresql' in banner_lower:
+                        result.service = "postgresql"
+                        
+            except socket.timeout:
+                pass
+                
+        except Exception as e:
+            self.log(f"Service detection error: {e}", "DEBUG")
+    
+    def ping_sweep(self, hosts: List[str]) -> List[str]:
+        """ICMP ping sweep to find live hosts"""
+        if not HAS_SCAPY:
+            self.log("Scapy not available, skipping ping sweep", "WARN")
+            return hosts
+        
+        live_hosts = []
+        self.log(f"Ping sweep: checking {len(hosts)} hosts...")
+        
+        def ping_host(host):
+            try:
+                packet = IP(dst=host) / ICMP()
+                response = scapy.sr1(packet, timeout=1, verbose=0)
+                if response:
+                    return host
+            except:
+                pass
+            return None
+        
+        with ThreadPoolExecutor(max_workers=50) as executor:
+            futures = {executor.submit(ping_host, host): host for host in hosts}
+            for future in as_completed(futures):
+                result = future.result()
+                if result:
+                    live_hosts.append(result)
+        
+        self.log(f"Ping sweep: {len(live_hosts)} hosts alive")
+        return live_hosts if live_hosts else hosts
+    
+    def scan_port(self, host: str, port: int) -> Optional[ScanResult]:
+        """Scan single port using configured method"""
+        self.stats['total_ports'] += 1
+        
+        # Select scan method
+        if self.scan_type == 'syn' and HAS_SCAPY:
+            result = self.syn_scan(host, port)
+        elif self.scan_type == 'udp':
+            result = self.udp_scan(host, port)
+        else:
+            result = self.tcp_connect_scan(host, port)
+        
+        # Update statistics
+        if result:
+            if result.state == "open":
+                self.stats['open_ports'] += 1
+            elif result.state == "closed":
+                self.stats['closed_ports'] += 1
+            elif result.state == "filtered":
+                self.stats['filtered_ports'] += 1
+            
+            with self.results_lock:
+                self.results.append(result)
+            
+            # Log open ports immediately
+            if result.state == "open" and self.verbose:
+                service_info = f" [{result.service}]" if result.service != "unknown" else ""
+                self.log(f"OPEN: {host}:{port}{service_info}")
+        
+        return result
+    
+    def scan(self, targets: List[str], ports: List[int]):
+        """Main scan orchestration"""
+        self.log(f"Starting scan: {len(targets)} hosts, {len(ports)} ports")
+        self.log(f"Scan type: {self.scan_type}, Threads: {self.threads}")
+        
+        # Ping sweep if in stealth mode
+        if self.stealth and HAS_SCAPY:
+            targets = self.ping_sweep(targets)
+        
+        # Create scan tasks
+        tasks = [(host, port) for host in targets for port in ports]
+        total_tasks = len(tasks)
+        completed = 0
+        
+        self.log(f"Total scan tasks: {total_tasks}")
+        
+        # Execute scans with thread pool
+        with ThreadPoolExecutor(max_workers=self.threads) as executor:
+            futures = {executor.submit(self.scan_port, host, port): (host, port) 
+                      for host, port in tasks}
+            
+            for future in as_completed(futures):
+                completed += 1
+                if completed % 100 == 0 or completed == total_tasks:
+                    progress = (completed / total_tasks) * 100
+                    self.log(f"Progress: {completed}/{total_tasks} ({progress:.1f}%)")
+                
+                try:
+                    future.result()
+                except Exception as e:
+                    host, port = futures[future]
+                    self.log(f"Scan error {host}:{port}: {e}", "ERROR")
+    
+    def get_results(self) -> dict:
+        """Get formatted results"""
+        duration = time.time() - self.stats['start_time']
+        
         return {
-            'success': False,
-            'error': message,
-            'target': self.target
+            "success": True,
+            "data": {
+                "scan_info": {
+                    "version": VERSION,
+                    "scan_type": self.scan_type,
+                    "duration": f"{duration:.2f}s",
+                    "threads": self.threads
+                },
+                "statistics": {
+                    "total_ports_scanned": self.stats['total_ports'],
+                    "open_ports": self.stats['open_ports'],
+                    "closed_ports": self.stats['closed_ports'],
+                    "filtered_ports": self.stats['filtered_ports']
+                },
+                "results": [r.to_dict() for r in self.results if r.state == "open"]
+            },
+            "errors": []
         }
-
-
-def show_help():
-    """Display module help"""
-    help_text = """
-╔═══════════════════════════════════════════════════════════════════╗
-║                    PortScan Module Help                           ║
-╚═══════════════════════════════════════════════════════════════════╝
-
-DESCRIPTION:
-  Advanced multi-engine network port scanner with service detection,
-  banner grabbing, and intelligent fallback mechanisms.
-
-CAPABILITIES (Auto-Detected):
-  ✓ Connect Scan   - TCP connect (always available)
-  """ + ("✓" if HAS_SCAPY else "✗") + """ SYN Scan      - Stealth SYN scan (requires scapy & root)
-  """ + ("✓" if HAS_NMAP else "✗") + """ Nmap Scan     - Full nmap integration
-  """ + ("✓" if HAS_REQUESTS else "✗") + """ HTTP Tech     - Web technology detection
-  ✓ Banner Grab   - Service version detection
-
-PARAMETERS:
-  ports           Port specification (required)
-                  Formats:
-                    - Preset: top-20, top-100, top-1000, common, web, db
-                    - Range: 1-100, 8000-9000
-                    - List: 80,443,8080
-                    - Mixed: 80,443,8000-9000
-  
-  engine          Scan engine (default: auto)
-                  Options: auto, connect, syn, nmap
-  
-  timeout         Timeout per port in seconds (default: 1.0)
-  
-  detect_http     Enable HTTP tech detection (default: true)
-
-USAGE EXAMPLES:
-
-1. Quick Scan (Top 20 Ports):
-   secV > use portscan
-   secV (portscan) > run example.com
-
-2. Common Ports:
-   secV (portscan) > set ports common
-   secV (portscan) > run 192.168.1.1
-
-3. Custom Port Range:
-   secV (portscan) > set ports 1-1000
-   secV (portscan) > run target.local
-
-4. Specific Ports:
-   secV (portscan) > set ports 80,443,8080,8443
-   secV (portscan) > run example.com
-
-5. SYN Scan (Stealth):
-   secV (portscan) > set engine syn
-   secV (portscan) > run 192.168.1.1
-   Note: Requires root privileges
-
-6. Nmap Integration:
-   secV (portscan) > set engine nmap
-   secV (portscan) > run example.com
-
-7. Fast Web Scan:
-   secV (portscan) > set ports web
-   secV (portscan) > set timeout 0.5
-   secV (portscan) > run example.com
-
-INSTALLATION TIERS:
-  Basic    : Connect scan only (stdlib)
-  Standard : + SYN scan (requires: pip install scapy)
-  Full     : + HTTP detection (requires: pip install requests)
-  Complete : + Nmap (requires: pip install python-nmap)
-
-TIPS:
-  • Use 'top-20' for quick reconnaissance
-  • Use 'syn' engine for stealth (requires root)
-  • Lower timeout for faster scans of online hosts
-  • Combine with other modules for vulnerability assessment
-
-OUTPUT:
-  • State: open, closed, filtered
-  • Service name and version (when available)
-  • Response times
-  • HTTP technologies (for web ports)
-  • Service banners
-
-AUTHOR: SecVulnHub Team
-VERSION: 2.0.0
-"""
-    print(help_text)
 
 
 def main():
     """Main entry point"""
-    # Check if help requested
-    if len(sys.argv) > 1 and sys.argv[1] in ['--help', '-h', 'help']:
-        show_help()
-        sys.exit(0)
-    
     try:
-        # Read execution context
+        # Read context from SecV
         context = json.loads(sys.stdin.read())
-        target = context.get('target')
+        target = context.get('target', '')
         params = context.get('params', {})
         
-        if not target:
-            result = {
-                'success': False,
-                'data': None,
-                'errors': ['No target specified']
-            }
-        else:
-            # Execute scan
-            scanner = PortScanner(target, params)
-            scan_data = scanner.scan()
-            
-            result = {
-                'success': True,
-                'data': scan_data,
-                'errors': []
-            }
-    
-    except json.JSONDecodeError as e:
-        result = {
-            'success': False,
-            'data': None,
-            'errors': [f'Invalid JSON input: {str(e)}']
+        # Build configuration
+        config = {
+            'timeout': float(params.get('timeout', DEFAULT_TIMEOUT)),
+            'threads': int(params.get('threads', DEFAULT_THREADS)),
+            'verbose': params.get('verbose', False),
+            'service_detect': params.get('service_detect', True),
+            'stealth': params.get('stealth', False),
+            'scan_type': params.get('scan_type', 'connect'),
+            'source_port': int(params.get('source_port', 0)),
+            'ping_sweep': params.get('ping_sweep', False)
         }
+        
+        # Initialize scanner
+        scanner = PortScanner(config)
+        
+        # Parse targets
+        targets = scanner.parse_targets(target)
+        if not targets:
+            result = {
+                "success": False,
+                "data": None,
+                "errors": ["No valid targets specified"]
+            }
+            print(json.dumps(result))
+            return
+        
+        # Parse ports
+        port_spec = params.get('ports', 'top-20')
+        ports = scanner.parse_ports(port_spec)
+        if not ports:
+            result = {
+                "success": False,
+                "data": None,
+                "errors": ["No valid ports specified"]
+            }
+            print(json.dumps(result))
+            return
+        
+        # Execute scan
+        scanner.scan(targets, ports)
+        
+        # Return results
+        result = scanner.get_results()
+        print(json.dumps(result, indent=2))
+        
+    except KeyboardInterrupt:
+        result = {
+            "success": False,
+            "data": None,
+            "errors": ["Scan interrupted by user"]
+        }
+        print(json.dumps(result))
+        sys.exit(1)
+        
     except Exception as e:
         result = {
-            'success': False,
-            'data': None,
-            'errors': [f'Scan error: {str(e)}']
+            "success": False,
+            "data": None,
+            "errors": [f"Scan error: {str(e)}"]
         }
-    
-    # Output result
-    print(json.dumps(result, indent=2))
+        print(json.dumps(result))
+        sys.exit(1)
 
 
 if __name__ == '__main__':
