@@ -12,6 +12,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 MAGENTA='\033[0;35m'
+DIM='\033[2m'
 NC='\033[0m' # No Color
 
 # Configuration
@@ -94,7 +95,7 @@ if ! command -v python3 &> /dev/null; then
         fedora|rhel|centos|rocky|almalinux)
             sudo dnf install -y python3 python3-pip || sudo yum install -y python3 python3-pip
             ;;
-        arch|manjaro|endeavouros)
+        arch|manjaro|endeavouros|archcraft)
             sudo pacman -Sy --noconfirm python python-pip
             ;;
         opensuse*|suse)
@@ -143,7 +144,7 @@ if ! command -v pip3 &> /dev/null; then
         fedora|rhel|centos|rocky|almalinux)
             sudo dnf install -y python3-pip || sudo yum install -y python3-pip
             ;;
-        arch|manjaro|endeavouros)
+        arch|manjaro|endeavouros|archcraft)
             sudo pacman -S --noconfirm python-pip
             ;;
         opensuse*|suse)
@@ -209,319 +210,8 @@ case $TIER in
         ;;
     3)
         TIER_NAME="Full"
-        # Read all dependencies from requirements.txt - properly formatted
         if [ -f "$REQUIREMENTS_FILE" ]; then
-            # Extract only the package specs, remove comments
-            INSTALL_DEPS=$(grep -v '^#' "$REQUIREMENTS_FILE" | grep -v '^
-    *)
-        echo -e "${RED}[!] Invalid selection. Using Standard tier.${NC}"
-        TIER=2
-        TIER_NAME="Standard"
-        INSTALL_DEPS="cmd2>=2.4.3 rich>=13.0.0 argcomplete>=3.0.0 scapy>=2.5.0 python-nmap>=0.7.1"
-        ;;
-esac
-
-echo -e "\n${GREEN}[✓] Selected: $TIER_NAME tier${NC}\n"
-
-# ============================================================================
-# Platform-Specific Dependencies
-# ============================================================================
-
-if [ $TIER -ge 2 ]; then
-    echo -e "${YELLOW}[4/8] Checking platform-specific dependencies...${NC}"
-    
-    if [[ "$OS_TYPE" == "linux" ]]; then
-        case "$DISTRO" in
-            ubuntu|debian|linuxmint|pop|kali)
-                if ! dpkg -l | grep -q libpcap-dev; then
-                    echo -e "${YELLOW}[i] Scapy requires libpcap-dev on Debian/Ubuntu${NC}"
-                    read -p "Install libpcap-dev? (recommended) [Y/n]: " -n 1 -r
-                    echo
-                    if [[ $REPLY =~ ^[Yy]$ ]] || [[ -z $REPLY ]]; then
-                        sudo apt-get update && sudo apt-get install -y libpcap-dev
-                        echo -e "${GREEN}[✓] libpcap-dev installed${NC}"
-                    fi
-                fi
-                ;;
-            fedora|rhel|centos|rocky|almalinux)
-                if ! rpm -q libpcap-devel &>/dev/null; then
-                    echo -e "${YELLOW}[i] Scapy requires libpcap-devel on RHEL/Fedora${NC}"
-                    read -p "Install libpcap-devel? (recommended) [Y/n]: " -n 1 -r
-                    echo
-                    if [[ $REPLY =~ ^[Yy]$ ]] || [[ -z $REPLY ]]; then
-                        sudo dnf install -y libpcap-devel || sudo yum install -y libpcap-devel
-                        echo -e "${GREEN}[✓] libpcap-devel installed${NC}"
-                    fi
-                fi
-                ;;
-            arch|manjaro|endeavouros)
-                if ! pacman -Qi libpcap &>/dev/null; then
-                    echo -e "${YELLOW}[i] Scapy requires libpcap on Arch${NC}"
-                    read -p "Install libpcap? (recommended) [Y/n]: " -n 1 -r
-                    echo
-                    if [[ $REPLY =~ ^[Yy]$ ]] || [[ -z $REPLY ]]; then
-                        sudo pacman -S --noconfirm libpcap
-                        echo -e "${GREEN}[✓] libpcap installed${NC}"
-                    fi
-                fi
-                ;;
-            opensuse*|suse)
-                if ! rpm -q libpcap-devel &>/dev/null; then
-                    echo -e "${YELLOW}[i] Scapy requires libpcap-devel on openSUSE${NC}"
-                    read -p "Install libpcap-devel? (recommended) [Y/n]: " -n 1 -r
-                    echo
-                    if [[ $REPLY =~ ^[Yy]$ ]] || [[ -z $REPLY ]]; then
-                        sudo zypper install -y libpcap-devel
-                        echo -e "${GREEN}[✓] libpcap-devel installed${NC}"
-                    fi
-                fi
-                ;;
-            alpine)
-                if ! apk info -e libpcap-dev &>/dev/null; then
-                    echo -e "${YELLOW}[i] Scapy requires libpcap-dev on Alpine${NC}"
-                    read -p "Install libpcap-dev? (recommended) [Y/n]: " -n 1 -r
-                    echo
-                    if [[ $REPLY =~ ^[Yy]$ ]] || [[ -z $REPLY ]]; then
-                        sudo apk add libpcap-dev
-                        echo -e "${GREEN}[✓] libpcap-dev installed${NC}"
-                    fi
-                fi
-                ;;
-        esac
-    elif [[ "$OS_TYPE" == "macos" ]]; then
-        echo -e "${GREEN}[✓] macOS - no additional dependencies needed${NC}"
-    fi
-else
-    echo -e "${YELLOW}[4/8] Platform-specific dependencies...${NC}"
-    echo -e "${GREEN}[✓] Basic tier - no additional dependencies needed${NC}"
-fi
-echo
-
-# ============================================================================
-# Install Python Dependencies with --break-system-packages
-# ============================================================================
-
-echo -e "${YELLOW}[5/8] Installing Python dependencies ($TIER_NAME tier)...${NC}"
-
-# Try installation with --break-system-packages for maximum compatibility
-install_python_deps() {
-    local deps="$1"
-    
-    echo -e "${CYAN}Attempting installation with multiple strategies...${NC}"
-    
-    # Strategy 1: User install
-    echo -e "${DIM}[1/5] Trying: pip3 install --user${NC}"
-    if pip3 install $deps --user 2>/dev/null; then
-        echo -e "${GREEN}[✓] Success with user install${NC}"
-        return 0
-    fi
-    
-    # Strategy 2: User install with --break-system-packages
-    echo -e "${DIM}[2/5] Trying: pip3 install --user --break-system-packages${NC}"
-    if pip3 install $deps --user --break-system-packages 2>/dev/null; then
-        echo -e "${GREEN}[✓] Success with user install + break-system-packages${NC}"
-        return 0
-    fi
-    
-    # Strategy 3: System install
-    echo -e "${DIM}[3/5] Trying: pip3 install (system)${NC}"
-    if pip3 install $deps 2>/dev/null; then
-        echo -e "${GREEN}[✓] Success with system install${NC}"
-        return 0
-    fi
-    
-    # Strategy 4: System install with --break-system-packages
-    echo -e "${DIM}[4/5] Trying: pip3 install --break-system-packages${NC}"
-    if pip3 install $deps --break-system-packages 2>/dev/null; then
-        echo -e "${GREEN}[✓] Success with system install + break-system-packages${NC}"
-        return 0
-    fi
-    
-    # Strategy 5: Sudo with --break-system-packages
-    echo -e "${DIM}[5/5] Trying: sudo pip3 install --break-system-packages${NC}"
-    if sudo pip3 install $deps --break-system-packages 2>/dev/null; then
-        echo -e "${GREEN}[✓] Success with sudo install + break-system-packages${NC}"
-        return 0
-    fi
-    
-    return 1
-}
-
-if install_python_deps "$INSTALL_DEPS"; then
-    echo -e "${GREEN}[✓] Dependencies installed successfully${NC}"
-else
-    echo -e "${RED}[!] Failed to install dependencies${NC}"
-    echo -e "${YELLOW}    Trying manual installation with pip directly...${NC}"
-    
-    # Last resort: Show user exactly what to run
-    echo -e "${CYAN}    Please run one of these commands:${NC}"
-    echo -e "${YELLOW}    pip3 install -r $REQUIREMENTS_FILE --user --break-system-packages${NC}"
-    echo -e "${YELLOW}    OR${NC}"
-    echo -e "${YELLOW}    sudo pip3 install -r $REQUIREMENTS_FILE --break-system-packages${NC}"
-    
-    read -p "$(echo -e ${YELLOW}Try with requirements.txt file instead? [Y/n]: ${NC})" -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]] || [[ -z $REPLY ]]; then
-        if pip3 install -r "$REQUIREMENTS_FILE" --user --break-system-packages 2>&1 | tee /tmp/pip_install.log; then
-            echo -e "${GREEN}[✓] Dependencies installed successfully${NC}"
-        else
-            echo -e "${RED}[!] Installation failed. Check /tmp/pip_install.log for details${NC}"
-            exit 1
-        fi
-    else
-        exit 1
-    fi
-fi
-echo
-
-# ============================================================================
-# Verify Installation
-# ============================================================================
-
-echo -e "${YELLOW}[6/8] Verifying installation...${NC}"
-
-# Check core dependencies
-if python3 -c "import cmd2, rich" 2>/dev/null; then
-    echo -e "${GREEN}[✓] Core dependencies verified${NC}"
-else
-    echo -e "${RED}[!] Core dependencies failed to verify${NC}"
-    exit 1
-fi
-
-# Check tier-specific dependencies
-if [ $TIER -ge 2 ]; then
-    if python3 -c "import scapy.all" 2>/dev/null; then
-        echo -e "${GREEN}[✓] Scapy installed and working${NC}"
-    else
-        echo -e "${YELLOW}[!] Scapy import failed - SYN scanning may not work${NC}"
-    fi
-    
-    if python3 -c "import nmap" 2>/dev/null; then
-        echo -e "${GREEN}[✓] python-nmap installed and working${NC}"
-    else
-        echo -e "${YELLOW}[!] python-nmap import failed${NC}"
-    fi
-fi
-
-if [ $TIER -ge 3 ]; then
-    if python3 -c "import requests, bs4, dns" 2>/dev/null; then
-        echo -e "${GREEN}[✓] Full tier dependencies verified${NC}"
-    else
-        echo -e "${YELLOW}[!] Some full tier dependencies may be missing${NC}"
-    fi
-fi
-echo
-
-# ============================================================================
-# Make SecV Executable
-# ============================================================================
-
-echo -e "${YELLOW}[7/8] Setting executable permissions...${NC}"
-chmod +x "$SECV_BIN"
-
-if [ -x "$SECV_BIN" ]; then
-    echo -e "${GREEN}[✓] SecV is now executable${NC}\n"
-else
-    echo -e "${RED}[!] Failed to make SecV executable${NC}"
-    exit 1
-fi
-
-# ============================================================================
-# Create Directory Structure
-# ============================================================================
-
-if [ ! -d "$SCRIPT_DIR/tools" ]; then
-    echo -e "${YELLOW}Creating tools directory...${NC}"
-    mkdir -p "$SCRIPT_DIR/tools"
-    echo -e "${GREEN}[✓] Tools directory created${NC}"
-fi
-
-if [ ! -d "$SCRIPT_DIR/.cache" ]; then
-    mkdir -p "$SCRIPT_DIR/.cache"
-fi
-
-# ============================================================================
-# System-Wide Installation
-# ============================================================================
-
-echo -e "${YELLOW}[8/8] System-wide installation...${NC}\n"
-
-echo -e "${CYAN}╔═══════════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${CYAN}║                                                                   ║${NC}"
-echo -e "${CYAN}║   System-Wide Installation (Optional)                             ║${NC}"
-echo -e "${CYAN}║                                                                   ║${NC}"
-echo -e "${CYAN}╚═══════════════════════════════════════════════════════════════════╝${NC}\n"
-
-echo -e "${YELLOW}Would you like to install SecV system-wide?${NC}"
-echo -e "${BLUE}This will allow you to run 'secV' from anywhere on your system.${NC}"
-echo -e "${BLUE}Installation location: /usr/local/bin/secV${NC}\n"
-
-read -p "Install system-wide? [y/N]: " -n 1 -r
-echo
-
-INSTALLED_GLOBALLY=false
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-    echo -e "\n${YELLOW}Installing system-wide (requires sudo)...${NC}"
-    
-    INSTALL_PATH="/usr/local/bin/secV"
-    
-    # Remove existing installation if present
-    if [ -L "$INSTALL_PATH" ] || [ -f "$INSTALL_PATH" ]; then
-        echo -e "${YELLOW}Removing existing installation...${NC}"
-        sudo rm -f "$INSTALL_PATH"
-    fi
-    
-    # Create symlink
-    sudo ln -s "$SECV_BIN" "$INSTALL_PATH"
-    
-    if [ $? -eq 0 ]; then
-        echo -e "${GREEN}[✓] SecV installed to $INSTALL_PATH${NC}"
-        echo -e "${GREEN}[✓] You can now run 'secV' from anywhere!${NC}\n"
-        INSTALLED_GLOBALLY=true
-    else
-        echo -e "${RED}[!] Failed to install system-wide${NC}"
-        echo -e "${YELLOW}    You can still run SecV with: ./secV${NC}"
-    fi
-else
-    echo -e "\n${BLUE}[i] Local installation complete.${NC}"
-    echo -e "${BLUE}    Run SecV with: ./secV${NC}"
-fi
-
-# ============================================================================
-# Installation Summary
-# ============================================================================
-
-echo -e "\n${CYAN}╔═══════════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${CYAN}║                                                                   ║${NC}"
-echo -e "${CYAN}║   Installation Complete!                                          ║${NC}"
-echo -e "${CYAN}║                                                                   ║${NC}"
-echo -e "${CYAN}╚═══════════════════════════════════════════════════════════════════╝${NC}\n"
-
-echo -e "${GREEN}✓ SecV v2.2 is ready to use!${NC}\n"
-
-echo -e "${BLUE}Installation Summary:${NC}"
-echo -e "  Tier: ${GREEN}$TIER_NAME${NC}"
-echo -e "  Python: ${GREEN}$PYTHON_VERSION${NC}"
-echo -e "  Distribution: ${GREEN}$DISTRO${NC}"
-echo -e "  Location: ${GREEN}$SCRIPT_DIR${NC}"
-
-if [ "$INSTALLED_GLOBALLY" = true ]; then
-    echo -e "  Global: ${GREEN}Yes${NC} (/usr/local/bin/secV)\n"
-else
-    echo -e "  Global: ${YELLOW}No${NC} (local only)\n"
-fi
-
-echo -e "${BLUE}Quick Start:${NC}"
-if [ "$INSTALLED_GLOBALLY" = true ]; then
-    echo -e "  ${YELLOW}secV${NC}                    # Start SecV shell"
-else
-    echo -e "  ${YELLOW}./secV${NC}                  # Start SecV shell"
-fi
-echo -e "  ${YELLOW}help${NC}                    # Show all commands"
-echo -e "  ${YELLOW}show modules${NC}            # List available modules\n"
-
-echo -e "${GREEN}Happy Hacking! 🔒${NC}\n"
- | sed 's/#.*//' | tr '\n' ' ' | xargs)
+            INSTALL_DEPS=$(grep -v '^#' "$REQUIREMENTS_FILE" | grep -v '^$' | sed 's/#.*//' | tr '\n' ' ' | xargs)
         else
             echo -e "${RED}[!] requirements.txt not found!${NC}"
             exit 1
@@ -568,7 +258,7 @@ if [ $TIER -ge 2 ]; then
                     fi
                 fi
                 ;;
-            arch|manjaro|endeavouros)
+            arch|manjaro|endeavouros|archcraft)
                 if ! pacman -Qi libpcap &>/dev/null; then
                     echo -e "${YELLOW}[i] Scapy requires libpcap on Arch${NC}"
                     read -p "Install libpcap? (recommended) [Y/n]: " -n 1 -r
@@ -612,37 +302,43 @@ fi
 echo
 
 # ============================================================================
-# Install Python Dependencies with --break-system-packages
+# Install Python Dependencies
 # ============================================================================
 
 echo -e "${YELLOW}[5/8] Installing Python dependencies ($TIER_NAME tier)...${NC}"
 
-# Try installation with --break-system-packages for maximum compatibility
 install_python_deps() {
     local deps="$1"
     
-    # Try user install first
+    echo -e "${CYAN}Attempting installation with multiple strategies...${NC}"
+    
+    echo -e "${DIM}[1/5] Trying: pip3 install --user${NC}"
     if pip3 install $deps --user 2>/dev/null; then
+        echo -e "${GREEN}[✓] Success with user install${NC}"
         return 0
     fi
     
-    # Try with --break-system-packages (for PEP 668 compliant systems)
+    echo -e "${DIM}[2/5] Trying: pip3 install --user --break-system-packages${NC}"
     if pip3 install $deps --user --break-system-packages 2>/dev/null; then
+        echo -e "${GREEN}[✓] Success with user install + break-system-packages${NC}"
         return 0
     fi
     
-    # Try system install
+    echo -e "${DIM}[3/5] Trying: pip3 install (system)${NC}"
     if pip3 install $deps 2>/dev/null; then
+        echo -e "${GREEN}[✓] Success with system install${NC}"
         return 0
     fi
     
-    # Try system install with --break-system-packages
+    echo -e "${DIM}[4/5] Trying: pip3 install --break-system-packages${NC}"
     if pip3 install $deps --break-system-packages 2>/dev/null; then
+        echo -e "${GREEN}[✓] Success with system install + break-system-packages${NC}"
         return 0
     fi
     
-    # If all else fails, try with sudo
+    echo -e "${DIM}[5/5] Trying: sudo pip3 install --break-system-packages${NC}"
     if sudo pip3 install $deps --break-system-packages 2>/dev/null; then
+        echo -e "${GREEN}[✓] Success with sudo install + break-system-packages${NC}"
         return 0
     fi
     
@@ -653,9 +349,25 @@ if install_python_deps "$INSTALL_DEPS"; then
     echo -e "${GREEN}[✓] Dependencies installed successfully${NC}"
 else
     echo -e "${RED}[!] Failed to install dependencies${NC}"
-    echo -e "${YELLOW}    Please try manual installation:${NC}"
-    echo -e "${YELLOW}    pip3 install $INSTALL_DEPS --break-system-packages${NC}"
-    exit 1
+    echo -e "${YELLOW}    Trying manual installation with requirements file...${NC}"
+    
+    echo -e "${CYAN}    Available commands:${NC}"
+    echo -e "${YELLOW}    pip3 install -r $REQUIREMENTS_FILE --user --break-system-packages${NC}"
+    echo -e "${YELLOW}    OR${NC}"
+    echo -e "${YELLOW}    sudo pip3 install -r $REQUIREMENTS_FILE --break-system-packages${NC}"
+    
+    read -p "$(echo -e ${YELLOW}Try with requirements.txt file? [Y/n]: ${NC})" -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]] || [[ -z $REPLY ]]; then
+        if pip3 install -r "$REQUIREMENTS_FILE" --user --break-system-packages 2>&1 | tee /tmp/pip_install.log; then
+            echo -e "${GREEN}[✓] Dependencies installed successfully${NC}"
+        else
+            echo -e "${RED}[!] Installation failed. Check /tmp/pip_install.log for details${NC}"
+            exit 1
+        fi
+    else
+        exit 1
+    fi
 fi
 echo
 
@@ -665,7 +377,6 @@ echo
 
 echo -e "${YELLOW}[6/8] Verifying installation...${NC}"
 
-# Check core dependencies
 if python3 -c "import cmd2, rich" 2>/dev/null; then
     echo -e "${GREEN}[✓] Core dependencies verified${NC}"
 else
@@ -673,7 +384,6 @@ else
     exit 1
 fi
 
-# Check tier-specific dependencies
 if [ $TIER -ge 2 ]; then
     if python3 -c "import scapy.all" 2>/dev/null; then
         echo -e "${GREEN}[✓] Scapy installed and working${NC}"
@@ -711,14 +421,8 @@ else
     exit 1
 fi
 
-# ============================================================================
-# Create Directory Structure
-# ============================================================================
-
 if [ ! -d "$SCRIPT_DIR/tools" ]; then
-    echo -e "${YELLOW}Creating tools directory...${NC}"
     mkdir -p "$SCRIPT_DIR/tools"
-    echo -e "${GREEN}[✓] Tools directory created${NC}"
 fi
 
 if [ ! -d "$SCRIPT_DIR/.cache" ]; then
@@ -750,13 +454,11 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     
     INSTALL_PATH="/usr/local/bin/secV"
     
-    # Remove existing installation if present
     if [ -L "$INSTALL_PATH" ] || [ -f "$INSTALL_PATH" ]; then
         echo -e "${YELLOW}Removing existing installation...${NC}"
         sudo rm -f "$INSTALL_PATH"
     fi
     
-    # Create symlink
     sudo ln -s "$SECV_BIN" "$INSTALL_PATH"
     
     if [ $? -eq 0 ]; then
