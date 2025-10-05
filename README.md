@@ -26,6 +26,8 @@ SecV is a next-generation cybersecurity orchestration platform featuring a Metas
 - **Advanced Port Scanner v2.0** - Multi-engine scanner with intelligent fallback
 - **Better Dependency Handling** - Graceful degradation across installation tiers
 - **Professional Documentation** - Complete guides for users and contributors
+- **Smart Update System** - Non-intrusive update checking with user control
+- **Enhanced UI** - Improved visual styling and better user experience
 
 ---
 
@@ -34,9 +36,10 @@ SecV is a next-generation cybersecurity orchestration platform featuring a Metas
 **Metasploit-Style Interface**
 - Interactive shell with rich terminal output
 - Module loading and management system
-- Context-aware command prompt
+- Context-aware command prompt with enhanced styling
 - Tab completion and command history
-- **NEW: Integrated module help system**
+- Integrated module help system
+- Smart update management
 
 **Polyglot Module Support**
 - Write modules in Python, Bash, PowerShell, Go, Rust, or any executable format
@@ -45,9 +48,11 @@ SecV is a next-generation cybersecurity orchestration platform featuring a Metas
 - Automatic module discovery and loading
 
 **Enhanced User Experience**
-- **NEW: `help module` - View detailed help for any module**
-- **NEW: `info <module>` - See documentation before loading**
-- Rich terminal output with tables, panels, and syntax highlighting
+- `help module` - View detailed help for any module
+- `info <module>` - See documentation before loading
+- `update` - Manual update control
+- `autoupdate` - Toggle automatic updates
+- Rich terminal output with Unicode symbols
 - Comprehensive error handling and logging
 - Easy contribution workflow
 
@@ -67,7 +72,7 @@ SecV is a next-generation cybersecurity orchestration platform featuring a Metas
 SecV offers **three installation tiers** to suit your needs:
 
 ```bash
-# Clone the repository
+# Clone the repository (recommended for auto-updates)
 git clone https://github.com/SecVulnHub/SecV.git
 cd SecV
 
@@ -104,15 +109,15 @@ The installer will:
 # OR if installed system-wide
 secV
 
-# Inside SecV shell - NEW enhanced help!
-secV > help                      # Show all commands
-secV > show modules              # List all available modules
-secV > info portscan             # View module help
-secV > use portscan              # Load the port scanner
-secV (portscan) > help module    # View detailed module help
-secV (portscan) > show options   # View configuration
-secV (portscan) > set ports web  # Configure for web ports
-secV (portscan) > run target.com # Execute scan
+# Inside SecV shell - enhanced UI!
+secV ➤ help                      # Show all commands
+secV ➤ show modules              # List all available modules
+secV ➤ info portscan             # View module help
+secV ➤ use portscan              # Load the port scanner
+secV (portscan) ➤ help module    # View detailed module help
+secV (portscan) ➤ show options   # View configuration
+secV (portscan) ➤ set ports web  # Configure for web ports
+secV (portscan) ➤ run target.com # Execute scan
 ```
 
 See [INSTALL.md](INSTALL.md) for detailed installation instructions.
@@ -127,16 +132,78 @@ See [INSTALL.md](INSTALL.md) for detailed installation instructions.
 | `show categories` | List all categories | `show categories` |
 | `show options` | Display current module options | `show options` |
 | `use <module>` | Load a module | `use portscan` |
-| **`info <module>`** | **Display module help (new!)** | **`info portscan`** |
-| **`help module`** | **Show loaded module help (new!)** | **`help module`** |
+| `info <module>` | Display module help | `info portscan` |
+| `help module` | Show loaded module help | `help module` |
 | `search <query>` | Search for modules | `search web` |
 | `set <option> <value>` | Set module parameter | `set timeout 60` |
 | `run [target]` | Execute loaded module | `run 192.168.1.1` |
 | `back` | Unload current module | `back` |
 | `reload` | Rescan module directory | `reload` |
+| `update` | Check for and install updates | `update` |
+| `autoupdate` | Toggle automatic updates | `autoupdate` |
 | `clear` | Clear the screen | `clear` |
 | `help` | Show help menu | `help` |
 | `exit` | Exit SecV shell | `exit` |
+
+---
+
+## Update Management
+
+SecV includes a smart update system that balances convenience with user control.
+
+### Automatic Updates
+
+By default, SecV checks for updates once every 24 hours (only if installed from git):
+
+```bash
+# Auto-checks happen silently in background
+secV
+
+# Disable automatic update checks
+secV ➤ autoupdate
+⚠ Auto-update disabled
+Use 'update' command to manually check for updates
+
+# Re-enable automatic checks
+secV ➤ autoupdate
+✓ Auto-update enabled
+```
+
+### Manual Updates
+
+Update anytime with the `update` command:
+
+```bash
+secV ➤ update
+╔═══════════════════════════════════════════════════════════════════╗
+║ SecV Update                                                       ║
+╚═══════════════════════════════════════════════════════════════════╝
+
+Checking for updates...
+✓ You're already on the latest version!
+```
+
+**Update Behavior:**
+- Only works with git-cloned installations
+- Shows helpful message if not a git repo
+- Updates both core platform and modules
+- Reminds you to reload modules after update
+
+### Update Requirements
+
+For automatic updates to work:
+- SecV must be installed via `git clone`
+- `.git` directory must exist
+- Git must be installed on system
+
+**Installed from ZIP?** Auto-update won't work, but you can manually update:
+```bash
+cd /path/to/SecV
+git init
+git remote add origin https://github.com/SecVulnHub/SecV.git
+git fetch
+git reset --hard origin/main
+```
 
 ---
 
@@ -166,126 +233,52 @@ SecV organizes modules into logical categories:
 Professional-grade port scanner with multiple scanning engines and intelligent fallback:
 
 **Features:**
-- **Multiple Scan Engines:**
-  - TCP Connect (always available)
-  - SYN Stealth Scan (requires scapy + root)
-  - Nmap Integration (requires python-nmap)
-- **Service Detection:**
-  - 20+ service fingerprints (HTTP, SSH, MySQL, Redis, etc.)
-  - Banner grabbing with version detection
-  - HTTP technology detection (WordPress, React, Angular, etc.)
-- **Pre-defined Port Sets:**
-  - `top-20` - Fast reconnaissance (default)
-  - `top-100`, `top-1000` - Comprehensive scans
-  - `web` - Web ports only (80, 443, 8080, etc.)
-  - `db` - Database ports (MySQL, PostgreSQL, MongoDB, etc.)
-  - `common` - Most frequently used ports
-- **Performance:**
-  - Concurrent scanning (50 threads)
-  - Response time measurement
-  - Configurable timeouts
-- **Smart Fallback:**
-  - Works without optional dependencies
-  - Auto-detects capabilities
-  - Informs users of available features
+- Multiple scan engines (TCP Connect, SYN, Nmap)
+- Service detection with 20+ fingerprints
+- Banner grabbing and version detection
+- HTTP technology detection
+- Pre-defined port sets (top-20, web, db, common)
+- Concurrent scanning (50 threads)
+- Smart fallback for missing dependencies
 
 **Usage:**
 ```bash
-secV > use portscan
-secV (portscan) > help module        # View comprehensive help
-secV (portscan) > set ports top-100  # Scan top 100 ports
-secV (portscan) > set engine syn     # Use SYN scan (needs root)
-secV (portscan) > run example.com    # Execute scan
+secV ➤ use portscan
+secV (portscan) ➤ help module        # View comprehensive help
+secV (portscan) ➤ set ports top-100  # Scan top 100 ports
+secV (portscan) ➤ set engine syn     # Use SYN scan (needs root)
+secV (portscan) ➤ run example.com    # Execute scan
 ```
 
 **Installation Tiers:**
 - **Basic:** TCP connect scan (stdlib only)
-- **Standard:** + SYN scan (pip3 install scapy)
-- **Full:** + HTTP tech detection (pip3 install requests)
-- **Complete:** + Nmap integration (pip3 install python-nmap)
-
-**Quick Examples:**
-```bash
-# Quick web scan
-secV (portscan) > set ports web
-secV (portscan) > run example.com
-
-# Database server check
-secV (portscan) > set ports db
-secV (portscan) > run 192.168.1.100
-
-# Stealth scan (requires root)
-sudo secV
-secV (portscan) > set engine syn
-secV (portscan) > set ports top-1000
-secV (portscan) > run target.local
-```
+- **Standard:** + SYN scan (requires scapy)
+- **Full:** + HTTP tech detection (requires requests)
 
 See [tools/scanning/portscan/README.md](tools/scanning/portscan/README.md) for complete documentation.
 
----
+### MAC Spoof v2.0 - Network Interface MAC Address Spoofer
+*Author: 0xb0rn3 (oxbv1) - Enhanced*
 
-## Module Help System
+Automated MAC address spoofer with background daemon support:
 
-**NEW in v2.1:** Every module now includes comprehensive inline help!
+**Features:**
+- Per-interface background daemons
+- Locally-administered MAC addresses (02:00:00 prefix)
+- State persistence and restoration
+- Multi-interface support
+- Dry-run mode for testing
+- Configurable rotation intervals
 
-### Viewing Module Help
-
+**Usage:**
 ```bash
-# Before loading a module
-secV > info portscan
-# Shows: description, parameters, examples, features, notes
-
-# After loading a module
-secV > use portscan
-secV (portscan) > help module
-# Shows: detailed help for current module
+sudo secV
+secV ➤ use mac_spoof
+secV (mac_spoof) ➤ set iface wlan0
+secV (mac_spoof) ➤ run target
 ```
 
-### Help Content Includes:
-
-- **Description** - What the module does and when to use it
-- **Parameters** - All options with examples and defaults
-- **Usage Examples** - Step-by-step command sequences
-- **Features** - Key capabilities
-- **Installation Tiers** - What works at each level
-- **Notes** - Important warnings and tips
-
-### Example Help Output:
-
-```
-╔═══════════════════════════════════════════════════════════════════╗
-║                    PortScan Module Help                           ║
-╚═══════════════════════════════════════════════════════════════════╝
-
-DESCRIPTION:
-  Advanced multi-engine network port scanner with service detection,
-  banner grabbing, and intelligent fallback mechanisms.
-
-PARAMETERS:
-  ports           Port specification (default: top-20)
-                  Options: top-20, top-100, web, db, 1-1000, 80,443
-  
-  engine          Scan engine (default: auto)
-                  Options: auto, connect, syn, nmap
-  
-  timeout         Timeout per port in seconds (default: 1.0)
-
-EXAMPLES:
-  1. Quick scan of common ports:
-     secV > use portscan
-     secV (portscan) > run example.com
-  
-  2. Web application scan:
-     secV (portscan) > set ports web
-     secV (portscan) > run webapp.com
-
-FEATURES:
-  • Multiple scan engines (connect, SYN, nmap)
-  • Service detection and banner grabbing
-  • Pre-defined port sets for common tasks
-  • Works at all installation tiers
-```
+See [tools/network/mac_spoof/README.md](tools/network/mac_spoof/README.md) for complete documentation.
 
 ---
 
@@ -403,10 +396,10 @@ python3 module.py --help
 # Test in SecV
 cd ../../..
 ./secV
-secV > info my-module     # View help
-secV > use my-module
-secV (my-module) > help module
-secV (my-module) > run 192.168.1.1
+secV ➤ info my-module     # View help
+secV ➤ use my-module
+secV (my-module) ➤ help module
+secV (my-module) ➤ run 192.168.1.1
 ```
 
 ---
@@ -418,22 +411,24 @@ SecV/
 ├── secV                    # Main executable (enhanced v2.1)
 ├── install.sh              # Installation script
 ├── uninstall.sh            # Uninstallation script
+├── update.py               # Smart update script
 ├── requirements.txt        # Python dependencies
 ├── README.md               # This file
 ├── INSTALL.md              # Installation guide
 ├── CONTRIBUTING.md         # Contributor guide
-├── MODULE_HELP_GUIDE.md    # NEW: Help documentation guide
+├── MODULE_HELP_GUIDE.md    # Help documentation guide
+├── MODULE_DEVELOPMENT.md   # Module development guide
 └── tools/                  # Module repository
     ├── scanning/
-    │   └── portscan/       # NEW: Enhanced v2.0
+    │   └── portscan/       # Enhanced v2.0
     │       ├── module.json
     │       ├── portscan.py
     │       └── README.md
     ├── network/
-    │   └── spoof/
+    │   └── mac_spoof/      # Enhanced v2.0
     │       ├── module.json
-    │       ├── macspoof.sh
-    │       └── macspoof.ps1
+    │       ├── mac_spoof.py
+    │       └── README.md
     └── ...
 ```
 
@@ -445,6 +440,7 @@ SecV/
 - Python 3.8 or later
 - pip (Python package installer)
 - Operating System: Linux, macOS, or Windows (WSL)
+- Git (for automatic updates)
 
 **Python Dependencies by Tier:**
 
@@ -497,9 +493,35 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed contribution guidelines.
 **Quick Links:**
 - [Contribution Guidelines](CONTRIBUTING.md)
 - [Module Development Guide](MODULE_DEVELOPMENT.md)
-- [Module Help Guide](MODULE_HELP_GUIDE.md) - NEW!
+- [Module Help Guide](MODULE_HELP_GUIDE.md)
 - [Installation Guide](INSTALL.md)
 - [Code of Conduct](CODE_OF_CONDUCT.md)
+
+---
+
+## Enhanced UI Features
+
+SecV v2.1 includes visual improvements for better user experience:
+
+**Enhanced Prompt:**
+```
+secV ➤                    # Clean, modern prompt
+secV (portscan) ➤         # Shows active module
+```
+
+**Visual Feedback:**
+- ✓ Success messages in green
+- ✗ Error messages in red
+- ➤ Info messages in blue
+- ⚠ Warning messages in yellow
+- ⚙ Execution indicators
+
+**Better Formatting:**
+- Box drawing characters for headers
+- Dimmed text for metadata
+- Color-coded parameters
+- Aligned output columns
+- Unicode symbols for clarity
 
 ---
 
@@ -544,15 +566,17 @@ Special thanks to all contributors who make this project possible.
 **Current Version: v2.1.0**
 
 **Completed:**
-- ✅ Metasploit-style interactive shell
-- ✅ Module loading and management system
-- ✅ Multi-tier installation system
-- ✅ **Enhanced module help system** (v2.1)
-- ✅ **Advanced port scanner with multiple engines** (v2.0)
-- ✅ Rich terminal output and formatting
-- ✅ Cross-platform support (Linux, macOS, Windows)
-- ✅ Graceful dependency handling
-- ✅ Comprehensive documentation
+- ✓ Metasploit-style interactive shell
+- ✓ Module loading and management system
+- ✓ Multi-tier installation system
+- ✓ Enhanced module help system (v2.1)
+- ✓ Advanced port scanner with multiple engines (v2.0)
+- ✓ MAC address spoofer with daemon support (v2.0)
+- ✓ Rich terminal output and formatting
+- ✓ Smart update management
+- ✓ Cross-platform support (Linux, macOS, Windows)
+- ✓ Graceful dependency handling
+- ✓ Comprehensive documentation
 
 **Upcoming Features:**
 - Additional scanning modules (web, DNS, subdomain)
