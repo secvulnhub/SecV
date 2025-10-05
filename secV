@@ -6,12 +6,28 @@
 
 # Configuration
 readonly VERSION="2.2.0"
-readonly SECV_HOME="${SECV_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+
+# Resolve actual script location (handles symlinks)
+if [[ -L "${BASH_SOURCE[0]}" ]]; then
+    # Script is a symlink, resolve to actual location
+    SCRIPT_REAL_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
+    readonly SECV_HOME="$(cd "$(dirname "$SCRIPT_REAL_PATH")" && pwd)"
+else
+    # Script is not a symlink
+    readonly SECV_HOME="${SECV_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+fi
+
 readonly TOOLS_DIR="$SECV_HOME/tools"
 readonly CACHE_DIR="$SECV_HOME/.cache"
 readonly DB_FILE="$CACHE_DIR/modules.db"
 readonly UPDATE_CHECK_FILE="$CACHE_DIR/.last_update_check"
 readonly DASHBOARD_PY="$SECV_HOME/dashboard.py"
+
+# Debug: Show where we're looking for tools (can be removed later)
+if [[ "${DEBUG_SECV:-}" == "1" ]]; then
+    echo -e "${DIM}[DEBUG] SECV_HOME: $SECV_HOME${N}" >&2
+    echo -e "${DIM}[DEBUG] TOOLS_DIR: $TOOLS_DIR${N}" >&2
+fi
 
 # Dashboard status file
 readonly STATUS_FILE="$CACHE_DIR/.module_status"
@@ -170,6 +186,15 @@ scan_modules() {
     MODULE_COUNT=0
     MOD_NAMES=() MOD_PATHS=() MOD_CATS=() MOD_DESCS=() MOD_EXECS=()
     
+    # Check if tools directory exists
+    if [[ ! -d "$TOOLS_DIR" ]]; then
+        print_error "Tools directory not found: $TOOLS_DIR"
+        echo -e "${YELLOW}Creating tools directory...${N}"
+        mkdir -p "$TOOLS_DIR"
+        echo -e "${BLUE}${ARROW} Tools directory created. Add modules to: $TOOLS_DIR${N}"
+        return
+    fi
+    
     while IFS= read -r -d '' json_file; do
         local dir="${json_file%/*}"
         local json=$(<"$json_file")
@@ -189,7 +214,15 @@ scan_modules() {
         fi
     done < <(find "$TOOLS_DIR" -name "module.json" -type f -print0 2>/dev/null)
     
-    print_success "Loaded $MODULE_COUNT modules"
+    if [[ $MODULE_COUNT -eq 0 ]]; then
+        print_warning "No modules found in: $TOOLS_DIR"
+        echo -e "${BLUE}${ARROW} Add modules to: $TOOLS_DIR/<category>/<module-name>/module.json${N}"
+        echo -e "${DIM}Example structure:${N}"
+        echo -e "${DIM}  $TOOLS_DIR/scanning/portscan/module.json${N}"
+        echo -e "${DIM}  $TOOLS_DIR/network/scanner/module.json${N}"
+    else
+        print_success "Loaded $MODULE_COUNT modules"
+    fi
 }
 
 load_cache() {
