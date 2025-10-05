@@ -2,7 +2,7 @@
   "name": "mac_spoof",
   "title": "MAC Spoof (automated)",
   "version": "1.0",
-  "author": "oxbv1",
+  "author": "0xb0rn3 (oxbv1)",
   "description": "Automated MAC spoofer that randomizes the last 3 octets while keeping a locally-administered OUI prefix (02:00:00). Launches one background runner per interface to change MAC every 500ms. Supports start/stop/status, all-up interfaces, and multi-interface lists.",
   "category": "network",
   "language": "bash",
@@ -10,6 +10,9 @@
   "entrypoint": "mac_spoof.sh",
   "dependencies": ["bash", "ip"],
   "timeout_seconds": 0,
+  "on_load": [
+    "chmod +x mac_spoof.sh"
+  ],
   "inputs": {
     "iface": {
       "description": "Single interface (e.g. eth0) or comma-separated list (e.g. eth0,wlan0). If omitted you will be prompted.",
@@ -30,62 +33,5 @@
       "required": false,
       "default": false
     }
-  },
-  "help": {
-    "features": [
-      "Per-interface background runner (one PID per interface).",
-      "Keeps first 3 octets fixed to 02:00:00 (locally-administered) to avoid OUI conflicts.",
-      "Supports single interface, multiple interfaces, or all currently UP interfaces.",
-      "Saves original MAC for each interface and restores it when stopping the runner.",
-      "Dry-run mode to preview actions without making changes."
-    ],
-    "parameters": {
-      "iface": {
-        "description": "Interface name or comma-separated list. If omitted, module will prompt.",
-        "examples": ["eth0", "wlan0", "eth0,wlan0"]
-      },
-      "all_up": {
-        "description": "Boolean. If true, select all non-loopback interfaces currently UP.",
-        "options": ["true", "false"],
-        "default": "false"
-      },
-      "action": {
-        "description": "start|stop|status",
-        "examples": ["start", "stop", "status"],
-        "default": "start"
-      },
-      "dry_run": {
-        "description": "If true, do not perform changes; only print planned actions.",
-        "options": ["true", "false"],
-        "default": "false"
-      }
-    },
-    "examples": [
-      {
-        "description": "Start automated spoofing on eth0",
-        "commands": ["secV > use mac_spoof", "secV (mac_spoof) > set iface eth0", "secV (mac_spoof) > run target"]
-      },
-      {
-        "description": "Start spoofing on multiple interfaces",
-        "commands": ["secV (mac_spoof) > set iface eth0,wlan0", "secV (mac_spoof) > run target"]
-      },
-      {
-        "description": "Start spoofing on all UP interfaces",
-        "commands": ["secV (mac_spoof) > set all_up true", "secV (mac_spoof) > run target"]
-      },
-      {
-        "description": "Stop spoofing on eth0",
-        "commands": ["secV (mac_spoof) > set iface eth0", "secV (mac_spoof) > set action stop", "secV (mac_spoof) > run target"]
-      },
-      {
-        "description": "Check status of all spoofers",
-        "commands": ["secV (mac_spoof) > set action status", "secV (mac_spoof) > run target"]
-      }
-    ],
-    "notes": [
-      "Rapidly changing MACs will break active connections (DHCP/Wi-Fi associations). Use in a lab or with interfaces/drivers known to tolerate it.",
-      "This module currently supports Linux using 'ip' (iproute2).",
-      "Each interface spoofer runs independently; stopping restores that interface's original MAC."
-    ]
   }
 }
