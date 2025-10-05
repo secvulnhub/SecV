@@ -1,96 +1,197 @@
 {
   "name": "mac_spoof",
-  "title": "MAC Spoof (automated)",
-  "version": "1.0",
-  "author": "0xb0rn3 (oxbv1)",
-  "description": "Automated MAC spoofer that randomizes the last 3 octets while keeping a locally-administered OUI prefix (02:00:00). Launches one background runner per interface to change MAC every 500ms. Supports start/stop/status, all-up interfaces, and multi-interface lists.",
+  "version": "2.0.0",
   "category": "network",
-  "language": "bash",
-  "executable": "bash mac_spoof.sh",
-  "entrypoint": "mac_spoof.sh",
-  "dependencies": ["bash", "ip"],
-  "timeout_seconds": 0,
-  "inputs": {
-    "iface": {
-      "description": "Single interface (e.g. eth0) or comma-separated list (e.g. eth0,wlan0). If omitted you will be prompted.",
-      "required": false
-    },
-    "all_up": {
-      "description": "If true, target all interfaces that are UP (ignores loopback). Values: true|false",
-      "required": false,
-      "default": false
-    },
-    "action": {
-      "description": "Action to perform: start (default), stop, status",
-      "required": false,
-      "default": "start"
-    },
-    "dry_run": {
-      "description": "If true, print actions but do not change MACs or spawn background runners",
-      "required": false,
-      "default": false
-    }
-  },
+  "description": "Automated MAC address spoofer with background daemon support and graceful state management",
+  "author": "0xb0rn3 (oxbv1) - Enhanced",
+  "executable": "python3 mac_spoof.py",
+  
+  "dependencies": [
+    "python3"
+  ],
+  
+  "optional_dependencies": {},
+  
   "help": {
-    "features": [
-      "Per-interface background runner (one PID per interface).",
-      "Keeps first 3 octets fixed to 02:00:00 (locally-administered) to reduce OUI conflicts.",
-      "Supports single interface, multiple interfaces, or all currently UP interfaces.",
-      "Saves original MAC for each interface and restores it when stopping the runner.",
-      "Dry-run mode to preview actions without making changes."
-    ],
+    "description": "Automated MAC address spoofer that randomizes the last 3 octets while keeping a locally-administered OUI prefix (02:00:00). Launches background daemon per interface to change MAC at configurable intervals. Supports start/stop/status, all-up interfaces, and multi-interface lists. State is tracked in ~/.secv/mac_spoof/ for persistence.",
+    
     "parameters": {
       "iface": {
-        "description": "Interface name or comma-separated list. If omitted, module will prompt.",
-        "examples": ["eth0", "wlan0", "eth0,wlan0"]
+        "description": "Interface name or comma-separated list. Leave empty to prompt or use all_up",
+        "type": "string",
+        "examples": ["wlan0", "eth0", "eth0,wlan0"],
+        "required": false
       },
       "all_up": {
-        "description": "Boolean. If true, select all non-loopback interfaces currently UP.",
+        "description": "If true, select all non-loopback interfaces currently UP",
+        "type": "boolean",
         "options": ["true", "false"],
         "default": "false"
       },
       "action": {
-        "description": "start|stop|status",
-        "examples": ["start", "stop", "status"],
-        "default": "start"
+        "description": "Operation to perform on the spoofer",
+        "type": "string",
+        "options": ["start", "stop", "status"],
+        "default": "start",
+        "examples": ["start", "stop", "status"]
       },
       "dry_run": {
-        "description": "If true, do not perform changes; only print planned actions.",
+        "description": "If true, preview actions without making changes",
+        "type": "boolean",
         "options": ["true", "false"],
         "default": "false"
+      },
+      "interval": {
+        "description": "Seconds between MAC address changes",
+        "type": "number",
+        "default": "0.5",
+        "range": "0.1-60",
+        "examples": ["0.5", "1.0", "5.0"]
       }
     },
+    
     "examples": [
       {
-        "description": "Start automated spoofing on eth0",
-        "commands": ["secV > use mac_spoof", "secV (mac_spoof) > set iface eth0", "secV (mac_spoof) > run target"]
+        "description": "Start automated spoofing on wlan0",
+        "commands": [
+          "use mac_spoof",
+          "set iface wlan0",
+          "run target"
+        ]
       },
       {
         "description": "Start spoofing on multiple interfaces",
-        "commands": ["secV (mac_spoof) > set iface eth0,wlan0", "secV (mac_spoof) > run target"]
+        "commands": [
+          "use mac_spoof",
+          "set iface eth0,wlan0",
+          "run target"
+        ]
       },
       {
         "description": "Start spoofing on all UP interfaces",
-        "commands": ["secV (mac_spoof) > set all_up true", "secV (mac_spoof) > run target"]
+        "commands": [
+          "use mac_spoof",
+          "set all_up true",
+          "run target"
+        ]
       },
       {
-        "description": "Stop spoofing on eth0",
-        "commands": ["secV (mac_spoof) > set iface eth0", "secV (mac_spoof) > set action stop", "secV (mac_spoof) > run target"]
+        "description": "Stop spoofing on wlan0 (restores original MAC)",
+        "commands": [
+          "use mac_spoof",
+          "set iface wlan0",
+          "set action stop",
+          "run target"
+        ]
       },
       {
-        "description": "Check status of all spoofers",
-        "commands": ["secV (mac_spoof) > set action status", "secV (mac_spoof) > run target"]
+        "description": "Check status of all running spoofers",
+        "commands": [
+          "use mac_spoof",
+          "set action status",
+          "set all_up true",
+          "run target"
+        ]
+      },
+      {
+        "description": "Preview changes with dry run mode",
+        "commands": [
+          "use mac_spoof",
+          "set iface wlan0",
+          "set dry_run true",
+          "run target"
+        ]
+      },
+      {
+        "description": "Slower MAC rotation (every 5 seconds)",
+        "commands": [
+          "use mac_spoof",
+          "set iface wlan0",
+          "set interval 5.0",
+          "run target"
+        ]
       }
     ],
+    
+    "features": [
+      "Per-interface background daemon (one process per interface)",
+      "Locally-administered OUI prefix (02:00:00) to reduce conflicts",
+      "Saves and restores original MAC addresses",
+      "Supports single interface, multiple interfaces, or all UP interfaces",
+      "Status tracking with persistent state files",
+      "Dry-run mode for safe testing",
+      "Configurable MAC rotation interval",
+      "Graceful daemon management with proper cleanup"
+    ],
+    
+    "installation_tiers": {
+      "basic": "Full functionality - only requires Python 3 stdlib and iproute2",
+      "standard": "Same as basic - no additional dependencies needed",
+      "full": "Same as basic - no additional dependencies needed"
+    },
+    
     "notes": [
-      "Rapidly changing MACs will break active connections (DHCP/Wi-Fi associations). Use in a lab or with interfaces/drivers known to tolerate it.",
-      "This module currently supports Linux using 'ip' (iproute2).",
-      "Each interface spoofer runs independently; stopping restores that interface's original MAC."
+      "⚠ Requires root/sudo privileges for MAC address changes",
+      "⚠ Rapidly changing MACs will break active connections (DHCP, WiFi associations)",
+      "⚠ Use only in authorized lab environments or with proper authorization",
+      "⚠ Some network drivers may not handle frequent MAC changes well",
+      "⚠ Currently supports Linux only (using iproute2)",
+      "⚠ Each interface spoofer runs independently; stopping restores original MAC",
+      "⚠ State files stored in ~/.secv/mac_spoof/ for tracking daemons",
+      "💡 Use 'dry_run true' to preview actions before execution",
+      "💡 Use slower intervals (5+ seconds) for better driver compatibility",
+      "💡 Check status regularly to ensure daemons are running properly"
     ]
   },
-  "contribution": {
-    "developer": "0xb0rn3 (oxbv1)",
-    "how_to_contribute": "Create issues or pull requests in the SecV repository. For this module, follow the MODULE_DEVELOPMENT.md guidelines: keep changes small, include tests/dry-run, document behavioral and safety caveats, and sign commits with your GitHub identity.",
-    "contact": "https://github.com/0xb0rn3"
-  }
+  
+  "inputs": {
+    "iface": {
+      "type": "string",
+      "description": "Interface name or comma-separated list",
+      "required": false,
+      "default": ""
+    },
+    "all_up": {
+      "type": "boolean",
+      "description": "Select all UP interfaces",
+      "required": false,
+      "default": false
+    },
+    "action": {
+      "type": "string",
+      "description": "Action: start, stop, or status",
+      "required": false,
+      "default": "start"
+    },
+    "dry_run": {
+      "type": "boolean",
+      "description": "Preview mode without changes",
+      "required": false,
+      "default": false
+    },
+    "interval": {
+      "type": "number",
+      "description": "Seconds between MAC changes",
+      "required": false,
+      "default": 0.5
+    }
+  },
+  
+  "outputs": {
+    "action": {
+      "type": "string",
+      "description": "Action that was performed"
+    },
+    "results": {
+      "type": "object",
+      "description": "Per-interface operation results"
+    },
+    "dry_run": {
+      "type": "boolean",
+      "description": "Whether this was a dry run"
+    }
+  },
+  
+  "timeout": 30,
+  "concurrent": false
 }
