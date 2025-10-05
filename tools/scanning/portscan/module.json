@@ -2,275 +2,493 @@
   "name": "portscan",
   "version": "3.0.0",
   "category": "scanning",
-  "description": "Advanced multi-method port scanner with CIDR support and stealth capabilities",
-  "author": "SecVulnHub Team",
+  "description": "Elite port scanner with multi-engine support, device recognition, OS fingerprinting, and vulnerability mapping",
+  "author": "SecVulnHub Team (Enhanced with r3cond0g features)",
   "executable": "python3 portscan.py",
   
   "dependencies": ["python3"],
   
   "optional_dependencies": {
-    "scapy": "For SYN stealth scanning and ICMP ping - pip3 install scapy",
-    "requests": "For HTTP service detection - pip3 install requests",
-    "dnspython": "For DNS resolution - pip3 install dnspython"
+    "scapy": "For SYN stealth scanning and ARP/ICMP - pip3 install scapy",
+    "python-nmap": "For nmap integration - pip3 install python-nmap",
+    "requests": "For HTTP/HTTPS technology detection - pip3 install requests",
+    "beautifulsoup4": "For HTML parsing and title extraction - pip3 install beautifulsoup4",
+    "dnspython": "For DNS enumeration and reverse lookup - pip3 install dnspython",
+    "masscan": "For ultra-fast scanning (binary) - apt install masscan"
   },
   
   "help": {
-    "description": "High-performance network port scanner with multiple scan techniques including TCP connect, SYN stealth, and UDP scanning. Supports CIDR notation, subnet scanning, service detection, and various stealth features. Ideal for authorized penetration testing and network audits.",
+    "description": "Professional network reconnaissance tool with intelligent device recognition, OS fingerprinting, service detection with 50+ probes, HTTP technology stack identification (30+ technologies), TLS/SSL certificate analysis, MAC vendor lookup (100+ OUI entries), and automatic CVE vulnerability correlation. Features adaptive timeout management, multiple scan engines with intelligent fallback, and comprehensive metadata extraction.",
     
     "parameters": {
+      "engine": {
+        "description": "Scan engine selection with intelligent fallback",
+        "options": ["auto", "connect", "syn", "nmap", "masscan"],
+        "default": "auto",
+        "examples": [
+          "auto - Intelligent selection based on port count and permissions",
+          "connect - TCP connect scan (stdlib, works everywhere)",
+          "syn - SYN stealth scan (requires scapy + root)",
+          "nmap - Nmap integration (requires python-nmap)",
+          "masscan - Ultra-fast scanner (requires masscan binary + root)"
+        ],
+        "notes": [
+          "auto selects: masscan (>10k ports), syn (>100 ports), nmap, or connect",
+          "SYN and masscan require root/sudo privileges"
+        ]
+      },
       "ports": {
-        "description": "Port specification",
+        "description": "Port specification - presets, ranges, or custom lists",
         "required": false,
         "default": "top-20",
         "examples": [
-          "top-20 (fastest, common ports)",
-          "top-100 (balanced)",
-          "top-1000 (comprehensive)",
-          "web (80,443,8080,8443,etc)",
-          "database (3306,5432,27017,etc)",
-          "mail (25,110,143,587,etc)",
-          "common (most used ports)",
-          "all (1-65535, very slow)",
-          "22,80,443 (specific ports)",
-          "1-1000 (port range)",
-          "80,443,8000-9000 (mixed)"
-        ]
-      },
-      "scan_type": {
-        "description": "Scan method to use",
-        "options": ["connect", "syn", "udp"],
-        "default": "connect",
-        "notes": [
-          "connect: Standard TCP connect (works everywhere)",
-          "syn: SYN stealth scan (requires scapy + root)",
-          "udp: UDP scan (slow, use sparingly)"
+          "quick - 15 most common ports",
+          "top-20 - Top 20 ports (default)",
+          "top-100 - Top 100 ports",
+          "top-1000 - Top 1000 ports",
+          "web - 70+ web-related ports (80, 443, 8080, 8443, etc)",
+          "database - 30+ database ports (3306, 5432, 27017, 6379, etc)",
+          "mail - Mail server ports (25, 110, 143, 465, 587, 993, 995)",
+          "common - 50+ commonly used ports",
+          "well-known - Ports 1-1023",
+          "all - All 65535 ports (very slow)",
+          "22,80,443 - Specific port list",
+          "1-1000 - Port range",
+          "80,443,8000-9000 - Mixed specification"
         ]
       },
       "threads": {
         "description": "Number of concurrent scan threads",
         "type": "integer",
         "default": 100,
-        "range": "1-500"
+        "range": "1-500",
+        "notes": [
+          "Higher values = faster scans but more resource usage",
+          "Recommended: 100 (internet), 200 (LAN), 500 (localhost)"
+        ]
       },
       "timeout": {
-        "description": "Connection timeout in seconds",
+        "description": "Base timeout in seconds (adapts automatically during scan)",
         "type": "float",
         "default": 1.0,
-        "range": "0.1-10.0"
+        "range": "0.5-10.0",
+        "notes": [
+          "Scanner automatically adjusts timeout based on response times",
+          "Uses 95th percentile adaptive timeout for optimal performance"
+        ]
       },
-      "service_detect": {
-        "description": "Enable service detection and banner grabbing",
-        "type": "boolean",
-        "default": true
-      },
-      "stealth": {
-        "description": "Enable stealth mode (ping sweep + SYN scan)",
-        "type": "boolean",
-        "default": false,
-        "notes": ["Requires scapy and root privileges"]
-      },
-      "ping_sweep": {
-        "description": "Perform ICMP ping sweep before scanning",
-        "type": "boolean",
-        "default": false,
-        "notes": ["Requires scapy"]
-      },
-      "source_port": {
-        "description": "Use specific source port (stealth)",
+      "rate_limit": {
+        "description": "Maximum packets per second (0 = unlimited)",
         "type": "integer",
         "default": 0,
-        "examples": [53, 80, 443]
+        "range": "0-100000",
+        "examples": [
+          "0 - Unlimited (default)",
+          "1000 - 1k packets/sec (gentle)",
+          "10000 - 10k packets/sec (masscan default)"
+        ]
       },
-      "verbose": {
-        "description": "Enable verbose output",
+      "service_detection": {
+        "description": "Enable advanced service detection with banner grabbing",
+        "type": "boolean",
+        "default": true,
+        "features": [
+          "50+ service fingerprint probes",
+          "Version detection for major services",
+          "Banner grabbing and analysis",
+          "Confidence scoring"
+        ]
+      },
+      "http_analysis": {
+        "description": "Deep HTTP/HTTPS service analysis",
+        "type": "boolean",
+        "default": true,
+        "features": [
+          "Server header extraction",
+          "Page title extraction",
+          "Technology stack detection (30+ technologies)",
+          "TLS/SSL certificate analysis",
+          "HTTP header collection"
+        ],
+        "detected_technologies": [
+          "WordPress, Joomla, Drupal",
+          "Django, Flask, Express",
+          "Apache, Nginx, IIS",
+          "PHP, ASP.NET",
+          "React, Angular, Vue.js",
+          "jQuery, Bootstrap",
+          "Laravel, Ruby on Rails, Symfony, Spring",
+          "Tomcat, Varnish",
+          "Cloudflare, CloudFront"
+        ]
+      },
+      "os_detection": {
+        "description": "Operating system fingerprinting",
+        "type": "boolean",
+        "default": false,
+        "methods": [
+          "TTL analysis (ICMP-based)",
+          "Service-based inference",
+          "TCP stack fingerprinting",
+          "Nmap OS detection (if using nmap engine)"
+        ]
+      },
+      "dns_lookup": {
+        "description": "DNS enumeration and reverse lookup",
+        "type": "boolean",
+        "default": true,
+        "features": [
+          "Forward DNS resolution",
+          "Reverse PTR lookup",
+          "DNS record enumeration"
+        ]
+      },
+      "mac_lookup": {
+        "description": "MAC address vendor lookup (local network only)",
+        "type": "boolean",
+        "default": true,
+        "features": [
+          "ARP-based MAC discovery",
+          "100+ OUI vendor database",
+          "Device type inference"
+        ],
+        "notes": ["Only works on local network segment"]
+      },
+      "show_closed": {
+        "description": "Include closed ports in output",
         "type": "boolean",
         "default": false
+      },
+      "show_filtered": {
+        "description": "Include filtered ports in output",
+        "type": "boolean",
+        "default": false
+      },
+      "rate": {
+        "description": "Masscan scan rate (packets/sec)",
+        "type": "integer",
+        "default": 1000,
+        "range": "100-1000000",
+        "notes": ["Only applies when using masscan engine"]
       }
     },
     
     "examples": [
       {
-        "description": "Quick scan of common ports on single host",
+        "description": "Quick reconnaissance scan",
         "commands": [
           "use portscan",
-          "set ports common",
-          "run 192.168.1.1"
+          "set ports quick",
+          "run example.com"
         ]
       },
       {
-        "description": "Scan entire subnet with web ports",
+        "description": "Comprehensive web application scan",
         "commands": [
           "use portscan",
           "set ports web",
-          "set threads 200",
-          "run 192.168.1.0/24"
+          "set http_analysis true",
+          "set service_detection true",
+          "run webapp.example.com"
         ]
       },
       {
-        "description": "Stealth SYN scan (requires root)",
+        "description": "Stealth SYN scan with OS detection",
         "commands": [
           "use portscan",
-          "set scan_type syn",
-          "set stealth true",
-          "set ports top-100",
-          "run 10.0.0.0/24"
-        ]
-      },
-      {
-        "description": "Fast scan with service detection",
-        "commands": [
-          "use portscan",
-          "set ports top-20",
-          "set threads 150",
-          "set timeout 0.5",
-          "set service_detect true",
+          "set engine syn",
+          "set ports top-1000",
+          "set os_detection true",
           "run target.com"
         ]
       },
       {
-        "description": "Comprehensive all-ports scan",
+        "description": "Ultra-fast masscan of entire network",
         "commands": [
           "use portscan",
-          "set ports all",
-          "set threads 500",
-          "run 192.168.1.100"
+          "set engine masscan",
+          "set ports common",
+          "set rate 10000",
+          "run 192.168.1.0/24"
         ]
       },
       {
-        "description": "UDP scan of DNS and DHCP",
-        "commands": [
-          "use portscan",
-          "set scan_type udp",
-          "set ports 53,67,68,69,123,161,162",
-          "run 192.168.1.1"
-        ]
-      },
-      {
-        "description": "Scan multiple hosts with IP ranges",
+        "description": "Database server audit",
         "commands": [
           "use portscan",
           "set ports database",
-          "run 192.168.1.1-254"
+          "set service_detection true",
+          "run 10.0.0.50"
+        ]
+      },
+      {
+        "description": "Full-featured security audit",
+        "commands": [
+          "use portscan",
+          "set engine auto",
+          "set ports top-100",
+          "set service_detection true",
+          "set http_analysis true",
+          "set os_detection true",
+          "set dns_lookup true",
+          "run target.local"
         ]
       }
     ],
     
     "features": [
-      "CIDR notation support (192.168.1.0/24)",
-      "IP range support (192.168.1.1-254)",
-      "Multiple target scanning (comma-separated)",
-      "TCP connect scan (stdlib, works everywhere)",
-      "SYN stealth scan (requires scapy + root)",
-      "UDP scanning support",
-      "ICMP ping sweep for host discovery",
-      "Service detection and banner grabbing",
-      "Version detection for common services",
-      "Pre-defined port sets (top-20, web, database, etc)",
-      "Custom port ranges (1-1000, 80,443,8000-9000)",
-      "Multi-threaded concurrent scanning (up to 500 threads)",
-      "Configurable timeouts and retry logic",
-      "Source port specification for stealth",
-      "Progress tracking and statistics",
-      "Structured JSON output"
+      "Multiple scan engines (connect, SYN, nmap, masscan)",
+      "Intelligent engine selection based on port count and permissions",
+      "Adaptive timeout management (95th percentile auto-adjustment)",
+      "50+ service fingerprint probes with version detection",
+      "HTTP/HTTPS technology stack detection (30+ technologies)",
+      "TLS/SSL certificate inspection and analysis",
+      "OS fingerprinting (TTL + service-based)",
+      "Device type recognition (100+ MAC vendors)",
+      "CVE vulnerability correlation for detected services",
+      "DNS enumeration and reverse lookup",
+      "MAC vendor identification (local network)",
+      "NetBIOS/SMB enumeration support",
+      "Concurrent scanning (up to 500 threads)",
+      "Smart rate limiting and congestion control",
+      "Response time tracking and statistics",
+      "Comprehensive metadata extraction",
+      "Structured JSON output with full details"
     ],
     
+    "service_detection": {
+      "supported_services": [
+        "FTP (FileZilla, ProFTPD, vsftpd, Pure-FTPd, IIS FTP)",
+        "SSH (OpenSSH, libssh, Dropbear, Cisco SSH)",
+        "Telnet (Linux, generic)",
+        "SMTP (Postfix, Exim, Sendmail, Exchange)",
+        "DNS (BIND, dnsmasq)",
+        "HTTP/HTTPS (Apache, nginx, IIS, lighttpd)",
+        "POP3 (Dovecot, Courier)",
+        "IMAP (Dovecot, Courier)",
+        "SMB/CIFS (Windows, Samba)",
+        "MySQL/MariaDB",
+        "PostgreSQL",
+        "Redis",
+        "MongoDB",
+        "Elasticsearch",
+        "VNC (RealVNC, TightVNC)",
+        "RDP (Microsoft Remote Desktop)"
+      ],
+      "confidence_levels": "70-95% based on fingerprint quality"
+    },
+    
+    "device_types": {
+      "recognized_types": [
+        "Network Device (Cisco, Juniper, Arista, MikroTik, Fortinet, Palo Alto)",
+        "Server (Dell, HP, IBM, Super Micro)",
+        "Virtual Machine (VMware, Xen, VirtualBox, KVM/QEMU, Hyper-V)",
+        "Cloud Instance (Docker, AWS, Google Cloud, Azure)",
+        "IoT/Embedded (Raspberry Pi, ESP32/ESP8266, Arduino)",
+        "End-User Device (Apple, Samsung, Lenovo, ASUS, Acer)",
+        "Windows Server/Workstation",
+        "Linux Server"
+      ],
+      "oui_database": "100+ vendor MAC prefixes"
+    },
+    
+    "vulnerability_mapping": {
+      "description": "Automatic CVE correlation for detected service versions",
+      "coverage": [
+        "Apache HTTP Server (CVE-2021-41773, CVE-2021-42013, etc)",
+        "OpenSSH (CVE-2018-15473, CVE-2019-6110, CVE-2023-38408, etc)",
+        "nginx (CVE-2014-3616, CVE-2016-0742, CVE-2021-23017, etc)",
+        "MySQL/MariaDB vulnerabilities",
+        "PostgreSQL vulnerabilities",
+        "Redis vulnerabilities",
+        "MongoDB vulnerabilities",
+        "Elasticsearch vulnerabilities",
+        "PHP vulnerabilities",
+        "OpenSSL (Heartbleed CVE-2014-0160, etc)"
+      ],
+      "output_format": "CVE ID, service, version, NVD URL"
+    },
+    
     "installation_tiers": {
-      "basic": "TCP connect scan, service detection (stdlib only)",
-      "standard": "+ SYN scan, ping sweep (requires scapy)",
-      "full": "+ HTTP detection, DNS resolution (requires requests, dnspython)"
+      "basic": "TCP connect scan, basic service detection (stdlib only)",
+      "standard": "+ SYN scan, ping sweep, MAC lookup (requires scapy)",
+      "advanced": "+ Nmap integration, OS detection (requires python-nmap)",
+      "full": "+ HTTP analysis, DNS enumeration (requires requests, beautifulsoup4, dnspython)",
+      "elite": "+ Masscan ultra-fast scanning (requires masscan binary)"
+    },
+    
+    "performance": {
+      "scan_speeds": {
+        "connect": "~100 ports/second (100 threads)",
+        "syn": "~500 ports/second (scapy)",
+        "nmap": "~200 ports/second (optimized)",
+        "masscan": "~10,000+ ports/second (configurable rate)"
+      },
+      "recommendations": {
+        "local_network": "threads=200, timeout=0.5, engine=syn",
+        "internet": "threads=100, timeout=2.0, engine=auto",
+        "large_subnet": "engine=masscan, rate=10000",
+        "stealth": "engine=syn, rate_limit=100"
+      }
+    },
+    
+    "output_structure": {
+      "host_info": {
+        "ip": "Target IP address",
+        "hostname": "Resolved hostname",
+        "mac_address": "MAC address (if local)",
+        "mac_vendor": "Vendor from OUI database",
+        "os_family": "Detected OS (Linux/Unix, Windows, etc)",
+        "os_version": "OS version if available",
+        "os_confidence": "Confidence score 0-100",
+        "device_type": "Classified device type",
+        "reverse_dns": "PTR record",
+        "avg_response_time": "Average response time in seconds"
+      },
+      "port_results": {
+        "port": "Port number",
+        "protocol": "tcp/udp",
+        "state": "open/closed/filtered",
+        "service": "Detected service name",
+        "version": "Service version",
+        "banner": "Raw banner text",
+        "http_title": "Page title (if HTTP)",
+        "http_server": "Server header",
+        "http_status": "HTTP status code",
+        "http_technologies": "Array of detected technologies",
+        "tls_version": "TLS protocol version",
+        "tls_cipher": "Cipher suite",
+        "tls_subject": "Certificate subject",
+        "tls_issuer": "Certificate issuer",
+        "tls_san": "Subject Alternative Names",
+        "vulnerabilities": "Array of CVE IDs",
+        "cves": "Detailed CVE information with URLs",
+        "response_time": "Response time in seconds",
+        "confidence": "Detection confidence 0-100"
+      },
+      "scan_stats": {
+        "packets_sent": "Total packets sent",
+        "packets_received": "Total packets received",
+        "open_ports": "Count of open ports",
+        "closed_ports": "Count of closed ports",
+        "filtered_ports": "Count of filtered ports",
+        "duration": "Scan duration in seconds",
+        "scan_type": "Engine used",
+        "capability": "Detected capability level"
+      }
     },
     
     "notes": [
-      "⚠️  AUTHORIZATION REQUIRED: Only scan systems you have permission to test",
-      "⚠️  SYN and stealth scans require root/sudo privileges",
-      "⚠️  Scapy required for: SYN scan, ping sweep, stealth mode",
-      "💡 Use 'connect' scan for maximum compatibility",
-      "💡 Start with 'top-20' or 'common' ports for quick results",
-      "💡 Increase threads for faster scanning of multiple targets",
-      "💡 Lower timeout (0.5s) for local networks, higher (2.0s) for internet",
-      "💡 Enable verbose mode to see open ports as they're discovered",
-      "💡 Combine with other modules: vuln-scan, service-enum, etc"
+      "⚠️  AUTHORIZATION REQUIRED: Only scan systems you have explicit permission to test",
+      "⚠️  SYN scan and masscan require root/sudo privileges",
+      "⚠️  Scapy required for: SYN scan, MAC lookup, ping sweep",
+      "⚠️  Masscan binary required for ultra-fast scanning",
+      "💡 Start with 'top-20' or 'quick' ports for fastest results",
+      "💡 Use 'auto' engine for intelligent scan method selection",
+      "💡 Enable http_analysis for web application testing",
+      "💡 Adaptive timeout automatically optimizes for network conditions",
+      "💡 Rate limiting prevents network congestion and detection",
+      "💡 Combine with vuln-scan module for complete security audit",
+      "🔒 Always follow responsible disclosure practices",
+      "📊 Full scan statistics included in output for analysis"
     ],
     
-    "performance_tips": [
-      "Local network: threads=200, timeout=0.5",
-      "Internet hosts: threads=100, timeout=2.0",
-      "Large subnet: use ping_sweep=true first",
-      "All ports scan: expect 10+ minutes per host"
-    ],
-    
-    "legal_disclaimer": "This tool is designed for authorized security testing only. Unauthorized port scanning may violate computer fraud laws in your jurisdiction. Always obtain explicit written permission before scanning networks you do not own."
+    "legal_disclaimer": "This tool is designed exclusively for authorized security testing, penetration testing, and network auditing. Unauthorized port scanning may violate computer fraud and abuse laws in your jurisdiction (including CFAA in the US). Users must obtain explicit written permission before scanning any networks, systems, or devices they do not own or have authorization to test. The authors and contributors assume no liability for misuse."
   },
   
   "inputs": {
+    "engine": {
+      "type": "string",
+      "description": "Scan engine: auto, connect, syn, nmap, masscan",
+      "required": false,
+      "default": "auto"
+    },
     "ports": {
       "type": "string",
-      "description": "Port specification (preset name, range, or list)",
+      "description": "Port specification (preset, range, or list)",
       "required": false,
       "default": "top-20"
     },
-    "scan_type": {
-      "type": "string",
-      "description": "Scan method: connect, syn, or udp",
-      "required": false,
-      "default": "connect"
-    },
     "threads": {
       "type": "number",
-      "description": "Number of concurrent threads",
+      "description": "Concurrent threads (1-500)",
       "required": false,
       "default": 100
     },
     "timeout": {
       "type": "number",
-      "description": "Connection timeout in seconds",
+      "description": "Base timeout in seconds (0.5-10.0)",
       "required": false,
       "default": 1.0
     },
-    "service_detect": {
+    "rate_limit": {
+      "type": "number",
+      "description": "Packets per second (0 = unlimited)",
+      "required": false,
+      "default": 0
+    },
+    "service_detection": {
       "type": "boolean",
       "description": "Enable service detection and banner grabbing",
       "required": false,
       "default": true
     },
-    "stealth": {
+    "http_analysis": {
       "type": "boolean",
-      "description": "Enable stealth mode",
+      "description": "Enable HTTP/HTTPS analysis",
+      "required": false,
+      "default": true
+    },
+    "os_detection": {
+      "type": "boolean",
+      "description": "Enable OS fingerprinting",
       "required": false,
       "default": false
     },
-    "ping_sweep": {
+    "dns_lookup": {
       "type": "boolean",
-      "description": "Perform ping sweep first",
+      "description": "Enable DNS enumeration",
+      "required": false,
+      "default": true
+    },
+    "mac_lookup": {
+      "type": "boolean",
+      "description": "Enable MAC vendor lookup",
+      "required": false,
+      "default": true
+    },
+    "show_closed": {
+      "type": "boolean",
+      "description": "Include closed ports in output",
       "required": false,
       "default": false
     },
-    "source_port": {
+    "show_filtered": {
+      "type": "boolean",
+      "description": "Include filtered ports in output",
+      "required": false,
+      "default": false
+    },
+    "rate": {
       "type": "number",
-      "description": "Custom source port for stealth",
+      "description": "Masscan rate (packets/sec)",
       "required": false,
-      "default": 0
-    },
-    "verbose": {
-      "type": "boolean",
-      "description": "Verbose output",
-      "required": false,
-      "default": false
+      "default": 1000
     }
   },
   
   "outputs": {
-    "scan_info": {
+    "host_info": {
       "type": "object",
-      "description": "Scan metadata and configuration"
+      "description": "Complete host information including IP, hostname, MAC, OS, device type, DNS data"
     },
-    "statistics": {
+    "scan_stats": {
       "type": "object",
-      "description": "Scan statistics (open/closed/filtered counts)"
+      "description": "Comprehensive scan statistics and performance metrics"
     },
-    "results": {
-      "type": "array",
-      "description": "Array of open port results with service info"
+    "summary": {
+      "type": "object",
+      "description": "Quick summary of total, open, closed, and filtered ports"
     }
   },
   
