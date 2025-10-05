@@ -28,7 +28,7 @@ CYAN = '\033[0;36m'
 NC = '\033[0m'
 
 # Configuration
-GITHUB_REPO = "secvulnhub/secV"
+GITHUB_REPO = "secvulnhub/SecV"
 GITHUB_API = f"https://api.github.com/repos/{GITHUB_REPO}"
 GITHUB_RAW = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main"
 
