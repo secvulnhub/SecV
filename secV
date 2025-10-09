@@ -1,18 +1,11 @@
 #!/usr/bin/env bash
 #
-# SecV - Enhanced with Advanced Module Handling v2.3
-# Major improvements:
-# - Rich output formatting for complex data structures
-# - Module capability detection and warnings
-# - Parameter validation from module.json
-# - Improved error handling and user feedback
-# - Support for complex parameter types (arrays, objects)
-# - Real-time scan progress for long-running modules
-# - Module output formatting and statistics display
+# SecV - Complete Enhanced Shell v2.3.1
+# Full implementation with all commands and features
 #
 
 # Configuration
-readonly VERSION="2.3.0"
+readonly VERSION="2.3.1"
 
 # Resolve actual script location (handles symlinks)
 if [[ -L "${BASH_SOURCE[0]}" ]]; then
@@ -24,12 +17,8 @@ fi
 
 readonly TOOLS_DIR="$SECV_HOME/tools"
 readonly CACHE_DIR="$SECV_HOME/.cache"
-readonly DB_FILE="$CACHE_DIR/modules.db"
-readonly UPDATE_CHECK_FILE="$CACHE_DIR/.last_update_check"
 readonly DASHBOARD_PY="$SECV_HOME/dashboard.py"
-
-# Dashboard status file
-readonly STATUS_FILE="$CACHE_DIR/.module_status"
+readonly UPDATE_PY="$SECV_HOME/update.py"
 
 # Enhanced Colors & Styles
 R=$'\e[31m' G=$'\e[32m' Y=$'\e[33m' B=$'\e[34m' C=$'\e[36m' M=$'\e[35m' W=$'\e[97m' N=$'\e[0m'
@@ -39,18 +28,14 @@ BOLD=$'\e[1m' DIM=$'\e[2m' ITALIC=$'\e[3m' UNDERLINE=$'\e[4m'
 CHECK="✓" CROSS="✗" ARROW="➤" BULLET="•" STAR="★" GEAR="⚙" WARNING="⚠"
 
 # Module registry
-declare -a MOD_NAMES MOD_PATHS MOD_CATS MOD_DESCS MOD_EXECS
+declare -a MOD_NAMES MOD_PATHS MOD_CATS MOD_DESCS MOD_EXECS MOD_VERSIONS
 declare -a PARAM_KEYS PARAM_VALUES
 CURRENT_MODULE="" CURRENT_PATH="" CURRENT_EXEC=""
 MODULE_COUNT=0
-MODULE_JSON=""  # Store current module.json content
-
-# Dashboard settings
-SHOW_DASHBOARD=false
-DASHBOARD_PID=""
+MODULE_JSON=""
 
 # ============================================================================
-# ENHANCED JSON PARSER - Python-based for robust handling
+# ENHANCED JSON PARSER
 # ============================================================================
 
 json_get() {
@@ -76,25 +61,6 @@ except:
 " 2>/dev/null
 }
 
-json_has_key() {
-    local json="$1" key="$2"
-    echo "$json" | python3 -c "
-import json, sys
-try:
-    data = json.load(sys.stdin)
-    keys = '$key'.split('.')
-    result = data
-    for k in keys:
-        if not isinstance(result, dict) or k not in result:
-            print('false')
-            sys.exit()
-        result = result[k]
-    print('true')
-except:
-    print('false')
-" 2>/dev/null
-}
-
 json_array_length() {
     local json="$1"
     echo "$json" | python3 -c "
@@ -111,7 +77,7 @@ except:
 }
 
 # ============================================================================
-# ENHANCED UI FUNCTIONS
+# UI FUNCTIONS
 # ============================================================================
 
 print_header() {
@@ -144,188 +110,13 @@ print_section() {
 }
 
 # ============================================================================
-# MODULE CAPABILITY DETECTION
-# ============================================================================
-
-check_module_capabilities() {
-    local module_path="$1"
-    local json_file="$module_path/module.json"
-    
-    if [[ ! -f "$json_file" ]]; then
-        return 0
-    fi
-    
-    local json=$(<"$json_file")
-    local opt_deps=$(json_get "$json" "optional_dependencies")
-    
-    if [[ -z "$opt_deps" || "$opt_deps" == "{}" ]]; then
-        return 0
-    fi
-    
-    local missing_deps=()
-    local warnings=()
-    
-    # Check Python packages
-    while IFS= read -r dep; do
-        if [[ -n "$dep" ]]; then
-            # Extract package name (before colon)
-            local pkg=$(echo "$dep" | cut -d':' -f1 | tr -d '"' | xargs)
-            
-            if ! python3 -c "import $pkg" 2>/dev/null; then
-                missing_deps+=("$pkg")
-                
-                # Extract description
-                local desc=$(echo "$opt_deps" | python3 -c "
-import json, sys
-try:
-    data = json.load(sys.stdin)
-    print(data.get('$pkg', ''))
-except:
-    pass
-" 2>/dev/null)
-                
-                warnings+=("${Y}${BULLET}${N} ${BOLD}$pkg${N}: $desc")
-            fi
-        fi
-    done < <(echo "$opt_deps" | python3 -c "
-import json, sys
-try:
-    data = json.load(sys.stdin)
-    for key in data.keys():
-        print(key)
-except:
-    pass
-" 2>/dev/null)
-    
-    # Display warnings if dependencies missing
-    if [[ ${#missing_deps[@]} -gt 0 ]]; then
-        echo -e "\n${Y}${BOLD}${WARNING} Optional Dependencies Missing${N}"
-        echo -e "${DIM}Module will work with reduced features${N}\n"
-        
-        for warning in "${warnings[@]}"; do
-            echo -e "  $warning"
-        done
-        
-        echo -e "\n${DIM}Install with: ${BOLD}pip3 install ${missing_deps[*]}${N}"
-        echo -e "${DIM}Or use: ${BOLD}./install.sh${N} ${DIM}to reinstall with dependencies${N}"
-        
-        return 1
-    fi
-    
-    return 0
-}
-
-# ============================================================================
-# PARAMETER VALIDATION
-# ============================================================================
-
-validate_parameter() {
-    local key="$1"
-    local value="$2"
-    local json="$MODULE_JSON"
-    
-    if [[ -z "$json" ]]; then
-        return 0  # No validation data
-    fi
-    
-    # Check if parameter is defined in inputs
-    local param_def=$(json_get "$json" "inputs.$key")
-    
-    if [[ -z "$param_def" || "$param_def" == "null" ]]; then
-        # Check in help.parameters
-        param_def=$(json_get "$json" "help.parameters.$key")
-    fi
-    
-    if [[ -z "$param_def" || "$param_def" == "null" ]]; then
-        print_warning "Parameter '$key' not defined in module schema"
-        return 0  # Allow undefined params
-    fi
-    
-    # Get parameter type
-    local param_type=$(echo "$param_def" | python3 -c "
-import json, sys
-try:
-    data = json.load(sys.stdin)
-    print(data.get('type', 'string'))
-except:
-    print('string')
-" 2>/dev/null)
-    
-    # Validate based on type
-    case "$param_type" in
-        number|integer)
-            if ! [[ "$value" =~ ^-?[0-9]+\.?[0-9]*$ ]]; then
-                print_error "Parameter '$key' must be a number (got: $value)"
-                return 1
-            fi
-            
-            # Check range if defined
-            local range=$(echo "$param_def" | python3 -c "
-import json, sys
-try:
-    data = json.load(sys.stdin)
-    print(data.get('range', ''))
-except:
-    pass
-" 2>/dev/null)
-            
-            if [[ -n "$range" ]]; then
-                local min=$(echo "$range" | cut -d'-' -f1)
-                local max=$(echo "$range" | cut -d'-' -f2)
-                
-                if (( $(echo "$value < $min" | bc -l) )) || (( $(echo "$value > $max" | bc -l) )); then
-                    print_error "Parameter '$key' must be between $min and $max"
-                    return 1
-                fi
-            fi
-            ;;
-            
-        boolean)
-            if [[ ! "$value" =~ ^(true|false|yes|no|1|0)$ ]]; then
-                print_error "Parameter '$key' must be boolean (true/false)"
-                return 1
-            fi
-            
-            # Normalize boolean
-            case "${value,,}" in
-                true|yes|1) value="true" ;;
-                false|no|0) value="false" ;;
-            esac
-            ;;
-            
-        string)
-            # Check options if defined
-            local options=$(echo "$param_def" | python3 -c "
-import json, sys
-try:
-    data = json.load(sys.stdin)
-    opts = data.get('options', [])
-    if opts:
-        print(' '.join(opts))
-except:
-    pass
-" 2>/dev/null)
-            
-            if [[ -n "$options" ]]; then
-                if ! echo " $options " | grep -q " $value "; then
-                    print_error "Parameter '$key' must be one of: $options"
-                    return 1
-                fi
-            fi
-            ;;
-    esac
-    
-    return 0
-}
-
-# ============================================================================
 # MODULE MANAGEMENT
 # ============================================================================
 
 scan_modules() {
     echo -e "${DIM}Scanning modules...${N}"
     MODULE_COUNT=0
-    MOD_NAMES=() MOD_PATHS=() MOD_CATS=() MOD_DESCS=() MOD_EXECS=()
+    MOD_NAMES=() MOD_PATHS=() MOD_CATS=() MOD_DESCS=() MOD_EXECS=() MOD_VERSIONS=()
     
     if [[ ! -d "$TOOLS_DIR" ]]; then
         print_error "Tools directory not found: $TOOLS_DIR"
@@ -343,13 +134,15 @@ scan_modules() {
         local cat=$(json_get "$json" "category")
         local desc=$(json_get "$json" "description")
         local exec=$(json_get "$json" "executable")
+        local ver=$(json_get "$json" "version")
         
         if [[ -n "$name" ]]; then
             MOD_NAMES+=("$name")
             MOD_PATHS+=("$dir")
-            MOD_CATS+=("$cat")
-            MOD_DESCS+=("$desc")
+            MOD_CATS+=("${cat:-uncategorized}")
+            MOD_DESCS+=("${desc:-No description}")
             MOD_EXECS+=("$exec")
+            MOD_VERSIONS+=("${ver:-1.0.0}")
             ((MODULE_COUNT++))
         fi
     done < <(find "$TOOLS_DIR" -name "module.json" -type f -print0 2>/dev/null)
@@ -363,402 +156,16 @@ scan_modules() {
 }
 
 # ============================================================================
-# ENHANCED OUTPUT FORMATTING
-# ============================================================================
-
-format_module_output() {
-    local output="$1"
-    
-    # Parse JSON output
-    local success=$(echo "$output" | json_get "" "success")
-    local data=$(echo "$output" | json_get "" "data")
-    local errors=$(echo "$output" | json_get "" "errors")
-    
-    if [[ "$success" == "false" ]]; then
-        print_error "Module execution failed"
-        
-        if [[ -n "$errors" && "$errors" != "[]" ]]; then
-            local error_count=$(echo "$errors" | json_array_length)
-            for ((i=0; i<error_count; i++)); do
-                local err=$(echo "$errors" | python3 -c "
-import json, sys
-try:
-    data = json.load(sys.stdin)
-    print(data[$i] if $i < len(data) else '')
-except:
-    pass
-" 2>/dev/null)
-                echo -e "  ${R}${BULLET} $err${N}"
-            done
-        fi
-        return 1
-    fi
-    
-    # Success - format output based on module type
-    print_success "Module completed successfully"
-    
-    # Display structured data
-    if [[ -n "$data" && "$data" != "null" ]]; then
-        display_formatted_data "$data"
-    fi
-    
-    return 0
-}
-
-display_formatted_data() {
-    local data="$1"
-    
-    # Check if data contains host_info (port scanner output)
-    if echo "$data" | python3 -c "import json, sys; d=json.load(sys.stdin); sys.exit(0 if 'host_info' in d else 1)" 2>/dev/null; then
-        display_portscan_output "$data"
-    else
-        # Generic structured display
-        display_generic_output "$data"
-    fi
-}
-
-display_portscan_output() {
-    local data="$1"
-    
-    # Extract sections
-    local host_info=$(echo "$data" | json_get "" "host_info")
-    local scan_stats=$(echo "$data" | json_get "" "scan_stats")
-    local summary=$(echo "$data" | json_get "" "summary")
-    
-    # Host Information
-    print_section "Host Information"
-    
-    local ip=$(echo "$host_info" | json_get "" "ip")
-    local hostname=$(echo "$host_info" | json_get "" "hostname")
-    local os_family=$(echo "$host_info" | json_get "" "os_family")
-    local os_confidence=$(echo "$host_info" | json_get "" "os_confidence")
-    local device_type=$(echo "$host_info" | json_get "" "device_type")
-    local mac_vendor=$(echo "$host_info" | json_get "" "mac_vendor")
-    
-    echo -e "${BOLD}IP Address:${N} ${C}$ip${N}"
-    [[ -n "$hostname" ]] && echo -e "${BOLD}Hostname:${N} ${G}$hostname${N}"
-    [[ -n "$os_family" ]] && echo -e "${BOLD}OS:${N} ${Y}$os_family${N} ${DIM}(confidence: ${os_confidence}%)${N}"
-    [[ -n "$device_type" ]] && echo -e "${BOLD}Device Type:${N} ${M}$device_type${N}"
-    [[ -n "$mac_vendor" ]] && echo -e "${BOLD}Vendor:${N} ${B}$mac_vendor${N}"
-    
-    # Open Ports
-    local open_ports=$(echo "$host_info" | json_get "" "open_ports")
-    local port_count=$(echo "$open_ports" | json_array_length)
-    
-    if [[ $port_count -gt 0 ]]; then
-        print_section "Open Ports ($port_count found)"
-        
-        echo "$open_ports" | python3 << 'PYEOF'
-import json, sys
-
-try:
-    ports = json.load(sys.stdin)
-    
-    # Colors
-    BOLD = '\033[1m'
-    DIM = '\033[2m'
-    G = '\033[32m'
-    Y = '\033[33m'
-    C = '\033[36m'
-    M = '\033[35m'
-    R = '\033[31m'
-    N = '\033[0m'
-    
-    for port in ports:
-        port_num = port.get('port', 0)
-        service = port.get('service', 'unknown')
-        version = port.get('version', '')
-        http_title = port.get('http_title', '')
-        http_technologies = port.get('http_technologies', [])
-        vulnerabilities = port.get('vulnerabilities', [])
-        
-        # Port and service
-        print(f"\n{BOLD}{G}{port_num}/tcp{N} {DIM}→{N} {C}{service}{N}", end='')
-        
-        if version:
-            print(f" {Y}{version}{N}", end='')
-        
-        print()  # Newline
-        
-        # HTTP info
-        if http_title:
-            print(f"  {DIM}Title:{N} {http_title[:80]}")
-        
-        if http_technologies:
-            tech_str = ', '.join(http_technologies[:5])
-            print(f"  {DIM}Tech:{N} {M}{tech_str}{N}")
-        
-        # Vulnerabilities
-        if vulnerabilities:
-            vuln_str = ', '.join(vulnerabilities[:3])
-            print(f"  {R}⚠  CVEs:{N} {R}{vuln_str}{N}")
-
-except Exception as e:
-    pass
-PYEOF
-    fi
-    
-    # Statistics
-    if [[ -n "$scan_stats" ]]; then
-        print_section "Scan Statistics"
-        
-        local duration=$(echo "$scan_stats" | json_get "" "duration")
-        local scan_type=$(echo "$scan_stats" | json_get "" "scan_type")
-        local capability=$(echo "$scan_stats" | json_get "" "capability")
-        local open=$(echo "$scan_stats" | json_get "" "open_ports")
-        local closed=$(echo "$scan_stats" | json_get "" "closed_ports")
-        local filtered=$(echo "$scan_stats" | json_get "" "filtered_ports")
-        
-        printf "${BOLD}Duration:${N} ${C}%.2fs${N}\n" "$duration"
-        echo -e "${BOLD}Scan Type:${N} ${Y}$scan_type${N} ${DIM}(capability: $capability)${N}"
-        echo -e "${BOLD}Results:${N} ${G}$open open${N}, ${R}$closed closed${N}, ${Y}$filtered filtered${N}"
-    fi
-}
-
-display_generic_output() {
-    local data="$1"
-    
-    print_section "Results"
-    
-    # Pretty print JSON with Python
-    echo "$data" | python3 -m json.tool 2>/dev/null || echo "$data"
-}
-
-# ============================================================================
-# EXECUTION ENGINE WITH ENHANCED TRACKING
-# ============================================================================
-
-execute_module() {
-    local target="$1"
-    
-    # Validate required parameters
-    if ! validate_required_params; then
-        return 1
-    fi
-    
-    # Build JSON context
-    local json="{\"target\":\"$target\",\"params\":{"
-    local first=1
-    for ((i=0; i<${#PARAM_KEYS[@]}; i++)); do
-        [[ $first -eq 0 ]] && json+=","
-        
-        # Escape quotes in values
-        local escaped_value=$(echo "${PARAM_VALUES[$i]}" | sed 's/"/\\"/g')
-        json+="\"${PARAM_KEYS[$i]}\":\"${escaped_value}\""
-        first=0
-    done
-    json+="}}"
-    
-    echo -e "\n${BOLD}${C}${GEAR} Executing ${W}$CURRENT_MODULE${C} against ${Y}$target${C}...${N}"
-    
-    # Show parameters
-    if [[ ${#PARAM_KEYS[@]} -gt 0 ]]; then
-        echo -e "${DIM}Parameters:${N}"
-        for ((i=0; i<${#PARAM_KEYS[@]}; i++)); do
-            echo -e "  ${DIM}${PARAM_KEYS[$i]}:${N} ${PARAM_VALUES[$i]}"
-        done
-    fi
-    
-    # Get timeout
-    local timeout=300
-    if [[ -n "$MODULE_JSON" ]]; then
-        local t=$(json_get "$MODULE_JSON" "timeout")
-        [[ -n "$t" && "$t" != "null" ]] && timeout=$t
-    fi
-    
-    echo -e "${DIM}Timeout: ${timeout}s${N}\n"
-    
-    # Execute with tracking
-    local start=$(date +%s%N)
-    local output_file=$(mktemp)
-    
-    cd "$CURRENT_PATH"
-    (
-        echo "$json" | timeout $timeout bash -c "$CURRENT_EXEC" &
-        local exec_pid=$!
-        
-        # Track module start (if dashboard available)
-        if [[ -f "$DASHBOARD_PY" ]]; then
-            python3 -c "
-import sys
-sys.path.insert(0, '$SECV_HOME')
-from dashboard import start_module_tracking
-start_module_tracking('$CURRENT_MODULE', '$target', $exec_pid)
-" 2>/dev/null &
-        fi
-        
-        wait $exec_pid
-        exit $?
-    ) > "$output_file" 2>&1
-    local ret=$?
-    cd - >/dev/null 2>&1
-    
-    local end=$(date +%s%N)
-    local elapsed=$(((end-start)/1000000))
-    local elapsed_sec=$(echo "scale=2; $elapsed/1000" | bc)
-    
-    # Track module completion
-    if [[ -f "$DASHBOARD_PY" ]]; then
-        local success_bool=$([[ $ret -eq 0 ]] && echo "True" || echo "False")
-        python3 -c "
-import sys
-sys.path.insert(0, '$SECV_HOME')
-from dashboard import complete_module_tracking
-complete_module_tracking('$CURRENT_MODULE', $success_bool, $elapsed_sec)
-" 2>/dev/null &
-    fi
-    
-    # Format and display output
-    local output=$(<"$output_file")
-    rm -f "$output_file"
-    
-    if [[ $ret -eq 0 ]]; then
-        # Try to format as JSON
-        if echo "$output" | python3 -m json.tool >/dev/null 2>&1; then
-            format_module_output "$output"
-        else
-            # Not JSON, display as-is
-            echo "$output"
-        fi
-        
-        print_success "Completed in ${elapsed}ms"
-    else
-        print_error "Failed after ${elapsed}ms"
-        
-        # Show error output
-        if [[ -n "$output" ]]; then
-            echo -e "\n${R}${BOLD}Error Output:${N}"
-            echo "$output"
-        fi
-    fi
-    
-    return $ret
-}
-
-validate_required_params() {
-    if [[ -z "$MODULE_JSON" ]]; then
-        return 0  # No validation data
-    fi
-    
-    # Check inputs for required parameters
-    local inputs=$(json_get "$MODULE_JSON" "inputs")
-    
-    if [[ -z "$inputs" || "$inputs" == "{}" ]]; then
-        return 0
-    fi
-    
-    # Extract required parameters
-    local required_params=$(echo "$inputs" | python3 -c "
-import json, sys
-try:
-    data = json.load(sys.stdin)
-    required = [k for k, v in data.items() if isinstance(v, dict) and v.get('required', False)]
-    print(' '.join(required))
-except:
-    pass
-" 2>/dev/null)
-    
-    if [[ -z "$required_params" ]]; then
-        return 0
-    fi
-    
-    # Check if all required parameters are set
-    for req in $required_params; do
-        local found=0
-        for ((i=0; i<${#PARAM_KEYS[@]}; i++)); do
-            if [[ "${PARAM_KEYS[$i]}" == "$req" ]]; then
-                found=1
-                break
-            fi
-        done
-        
-        if [[ $found -eq 0 ]]; then
-            print_error "Required parameter '$req' not set"
-            return 1
-        fi
-    done
-    
-    return 0
-}
-
-# ============================================================================
-# MODULE HELP SYSTEM
-# ============================================================================
-
-show_module_help() {
-    local module_name="$1"
-    local module_path=""
-    
-    for ((i=0; i<MODULE_COUNT; i++)); do
-        if [[ "${MOD_NAMES[$i]}" == "$module_name" ]]; then
-            module_path="${MOD_PATHS[$i]}"
-            break
-        fi
-    done
-    
-    if [[ -z "$module_path" ]]; then
-        print_error "Module '$module_name' not found"
-        return 1
-    fi
-    
-    local json_file="$module_path/module.json"
-    if [[ ! -f "$json_file" ]]; then
-        print_error "module.json not found for '$module_name'"
-        return 1
-    fi
-    
-    # Check if module has built-in help
-    local executable="${MOD_EXECS[$i]}"
-    if [[ -n "$executable" ]]; then
-        cd "$module_path"
-        if timeout 2 bash -c "$executable --help 2>/dev/null" 2>/dev/null; then
-            cd - >/dev/null
-            return 0
-        elif timeout 2 bash -c "$executable -h 2>/dev/null" 2>/dev/null; then
-            cd - >/dev/null
-            return 0
-        fi
-        cd - >/dev/null
-    fi
-    
-    # Parse and display help from module.json
-    local json=$(<"$json_file")
-    
-    print_header "Module: $module_name"
-    
-    local desc=$(json_get "$json" "description")
-    local author=$(json_get "$json" "author")
-    local version=$(json_get "$json" "version")
-    local category=$(json_get "$json" "category")
-    
-    echo -e "\n${BOLD}${DIM}Description:${N} $desc"
-    echo -e "${BOLD}${DIM}Author:${N} ${M}$author${N}"
-    echo -e "${BOLD}${DIM}Version:${N} ${C}$version${N}"
-    echo -e "${BOLD}${DIM}Category:${N} ${Y}$category${N}"
-    
-    # Show capabilities
-    check_module_capabilities "$module_path" >/dev/null
-    local has_all_deps=$?
-    
-    if [[ $has_all_deps -eq 0 ]]; then
-        echo -e "${BOLD}${DIM}Status:${N} ${G}${CHECK} All dependencies available${N}"
-    else
-        echo -e "${BOLD}${DIM}Status:${N} ${Y}${WARNING} Optional dependencies missing (reduced features)${N}"
-    fi
-    
-    if [[ -f "$module_path/README.md" ]]; then
-        echo -e "\n${DIM}${ITALIC}📖 Detailed documentation: ${UNDERLINE}$module_path/README.md${N}"
-    fi
-    
-    echo
-}
-
-# ============================================================================
-# ENHANCED COMMANDS
+# COMMANDS - MODULE SELECTION
 # ============================================================================
 
 cmd_use() {
     local module="$1"
+    
+    if [[ -z "$module" ]]; then
+        print_error "Usage: use <module_name>"
+        return 1
+    fi
     
     for ((i=0; i<MODULE_COUNT; i++)); do
         if [[ "${MOD_NAMES[$i]}" == "$module" ]]; then
@@ -776,27 +183,43 @@ cmd_use() {
             
             print_success "Loaded: ${BOLD}$module${N}"
             echo -e "  ${DIM}Category:${N} ${Y}${MOD_CATS[$i]}${N}"
+            echo -e "  ${DIM}Version:${N} ${C}${MOD_VERSIONS[$i]}${N}"
             echo -e "  ${DIM}Path:${N} ${B}$CURRENT_PATH${N}"
-            
-            # Check capabilities
-            check_module_capabilities "$CURRENT_PATH"
-            
             echo -e "\n${C}${ITALIC}Type '${BOLD}help module${N}${C}${ITALIC}' for detailed usage${N}"
             return 0
         fi
     done
     
     print_error "Module '$module' not found"
+    echo -e "${DIM}Use 'show modules' to see available modules${N}"
     return 1
 }
 
+cmd_back() {
+    if [[ -z "$CURRENT_MODULE" ]]; then
+        print_warning "No module loaded"
+        return 1
+    fi
+    
+    CURRENT_MODULE="" CURRENT_PATH="" CURRENT_EXEC="" MODULE_JSON=""
+    PARAM_KEYS=() PARAM_VALUES=()
+    print_info "Module unloaded"
+}
+
+# ============================================================================
+# COMMANDS - PARAMETERS
+# ============================================================================
+
 cmd_set() {
-    [[ -z "$CURRENT_MODULE" ]] && print_warning "No module loaded" && return
+    if [[ -z "$CURRENT_MODULE" ]]; then
+        print_warning "No module loaded. Use 'use <module>' first"
+        return 1
+    fi
     
     local key="$1" value="$2"
     
-    # Validate parameter
-    if ! validate_parameter "$key" "$value"; then
+    if [[ -z "$key" || -z "$value" ]]; then
+        print_error "Usage: set <parameter> <value>"
         return 1
     fi
     
@@ -813,17 +236,364 @@ cmd_set() {
     echo -e "${G}${BOLD}$key${N} ${DIM}→${N} ${C}$value${N}"
 }
 
-# Include all other commands from previous version...
-# (show, run, search, info, help, update, etc.)
+cmd_unset() {
+    if [[ -z "$CURRENT_MODULE" ]]; then
+        print_warning "No module loaded"
+        return 1
+    fi
+    
+    local key="$1"
+    
+    if [[ -z "$key" ]]; then
+        print_error "Usage: unset <parameter>"
+        return 1
+    fi
+    
+    local new_keys=() new_values=()
+    local found=0
+    
+    for ((i=0; i<${#PARAM_KEYS[@]}; i++)); do
+        if [[ "${PARAM_KEYS[$i]}" != "$key" ]]; then
+            new_keys+=("${PARAM_KEYS[$i]}")
+            new_values+=("${PARAM_VALUES[$i]}")
+        else
+            found=1
+        fi
+    done
+    
+    if [[ $found -eq 1 ]]; then
+        PARAM_KEYS=("${new_keys[@]}")
+        PARAM_VALUES=("${new_values[@]}")
+        print_success "Unset: $key"
+    else
+        print_warning "Parameter '$key' not set"
+    fi
+}
 
 # ============================================================================
-# MAIN
+# COMMANDS - EXECUTION
+# ============================================================================
+
+cmd_run() {
+    if [[ -z "$CURRENT_MODULE" ]]; then
+        print_warning "No module loaded. Use 'use <module>' first"
+        return 1
+    fi
+    
+    local target="$1"
+    
+    if [[ -z "$target" ]]; then
+        print_error "Usage: run <target>"
+        return 1
+    fi
+    
+    # Build JSON context
+    local json="{\"target\":\"$target\",\"params\":{"
+    local first=1
+    for ((i=0; i<${#PARAM_KEYS[@]}; i++)); do
+        [[ $first -eq 0 ]] && json+=","
+        local escaped_value=$(echo "${PARAM_VALUES[$i]}" | sed 's/"/\\"/g')
+        json+="\"${PARAM_KEYS[$i]}\":\"${escaped_value}\""
+        first=0
+    done
+    json+="}}"
+    
+    echo -e "\n${BOLD}${C}${GEAR} Executing ${W}$CURRENT_MODULE${C} against ${Y}$target${C}...${N}"
+    
+    if [[ ${#PARAM_KEYS[@]} -gt 0 ]]; then
+        echo -e "${DIM}Parameters:${N}"
+        for ((i=0; i<${#PARAM_KEYS[@]}; i++)); do
+            echo -e "  ${DIM}${PARAM_KEYS[$i]}:${N} ${PARAM_VALUES[$i]}"
+        done
+    fi
+    echo
+    
+    # Execute
+    local start=$(date +%s)
+    local output_file=$(mktemp)
+    
+    cd "$CURRENT_PATH" || return 1
+    echo "$json" | bash -c "$CURRENT_EXEC" > "$output_file" 2>&1
+    local ret=$?
+    cd - >/dev/null 2>&1 || true
+    
+    local end=$(date +%s)
+    local elapsed=$((end-start))
+    
+    # Display output
+    cat "$output_file"
+    rm -f "$output_file"
+    
+    if [[ $ret -eq 0 ]]; then
+        print_success "Completed in ${elapsed}s"
+    else
+        print_error "Failed after ${elapsed}s (exit code: $ret)"
+    fi
+    
+    return $ret
+}
+
+# ============================================================================
+# COMMANDS - INFORMATION
+# ============================================================================
+
+cmd_show_modules() {
+    print_header "Available Modules"
+    
+    if [[ $MODULE_COUNT -eq 0 ]]; then
+        print_warning "No modules found"
+        return
+    fi
+    
+    # Group by category
+    declare -A cats
+    for ((i=0; i<MODULE_COUNT; i++)); do
+        local cat="${MOD_CATS[$i]}"
+        cats[$cat]=1
+    done
+    
+    for cat in $(echo "${!cats[@]}" | tr ' ' '\n' | sort); do
+        echo -e "\n${BOLD}${Y}${cat}${N}"
+        echo -e "${DIM}$(printf '─%.0s' $(seq 1 67))${N}"
+        
+        for ((i=0; i<MODULE_COUNT; i++)); do
+            if [[ "${MOD_CATS[$i]}" == "$cat" ]]; then
+                local name="${MOD_NAMES[$i]}"
+                local desc="${MOD_DESCS[$i]}"
+                local ver="${MOD_VERSIONS[$i]}"
+                
+                printf "  ${BOLD}${C}%-20s${N} ${DIM}v%-8s${N} ${desc:0:35}\n" "$name" "$ver"
+            fi
+        done
+    done
+    
+    echo -e "\n${DIM}Total: $MODULE_COUNT modules${N}"
+    echo -e "${DIM}Use 'use <module>' to load a module${N}\n"
+}
+
+cmd_show_options() {
+    if [[ -z "$CURRENT_MODULE" ]]; then
+        print_warning "No module loaded. Use 'use <module>' first"
+        return 1
+    fi
+    
+    print_header "Module Options: $CURRENT_MODULE"
+    
+    # Show module info
+    for ((i=0; i<MODULE_COUNT; i++)); do
+        if [[ "${MOD_NAMES[$i]}" == "$CURRENT_MODULE" ]]; then
+            echo -e "\n${DIM}Description:${N} ${MOD_DESCS[$i]}"
+            echo -e "${DIM}Category:${N} ${Y}${MOD_CATS[$i]}${N}"
+            echo -e "${DIM}Version:${N} ${C}${MOD_VERSIONS[$i]}${N}"
+            break
+        fi
+    done
+    
+    # Show current parameters
+    print_section "Current Parameters"
+    
+    if [[ ${#PARAM_KEYS[@]} -eq 0 ]]; then
+        echo -e "${DIM}No parameters set${N}"
+    else
+        for ((i=0; i<${#PARAM_KEYS[@]}; i++)); do
+            printf "  ${BOLD}%-20s${N} ${C}%s${N}\n" "${PARAM_KEYS[$i]}" "${PARAM_VALUES[$i]}"
+        done
+    fi
+    
+    # Show available parameters from module.json
+    if [[ -n "$MODULE_JSON" ]]; then
+        local inputs=$(json_get "$MODULE_JSON" "inputs")
+        
+        if [[ -n "$inputs" && "$inputs" != "{}" ]]; then
+            print_section "Available Parameters"
+            
+            echo "$inputs" | python3 << 'PYEOF'
+import json, sys
+
+try:
+    data = json.load(sys.stdin)
+    for key, info in data.items():
+        typ = info.get('type', 'string')
+        desc = info.get('description', '')
+        required = ' [REQUIRED]' if info.get('required', False) else ''
+        print(f"  \033[1m{key}\033[0m \033[2m({typ}){required}\033[0m")
+        if desc:
+            print(f"    {desc}")
+except:
+    pass
+PYEOF
+        fi
+    fi
+    
+    echo -e "\n${DIM}Use 'set <param> <value>' to configure parameters${N}\n"
+}
+
+cmd_info() {
+    local module="${1:-$CURRENT_MODULE}"
+    
+    if [[ -z "$module" ]]; then
+        print_error "Usage: info [module_name]"
+        return 1
+    fi
+    
+    local module_path=""
+    local module_idx=-1
+    
+    for ((i=0; i<MODULE_COUNT; i++)); do
+        if [[ "${MOD_NAMES[$i]}" == "$module" ]]; then
+            module_path="${MOD_PATHS[$i]}"
+            module_idx=$i
+            break
+        fi
+    done
+    
+    if [[ -z "$module_path" ]]; then
+        print_error "Module '$module' not found"
+        return 1
+    fi
+    
+    print_header "Module: $module"
+    
+    echo -e "\n${BOLD}${DIM}Name:${N} ${BOLD}${C}$module${N}"
+    echo -e "${BOLD}${DIM}Version:${N} ${C}${MOD_VERSIONS[$module_idx]}${N}"
+    echo -e "${BOLD}${DIM}Category:${N} ${Y}${MOD_CATS[$module_idx]}${N}"
+    echo -e "${BOLD}${DIM}Description:${N} ${MOD_DESCS[$module_idx]}"
+    echo -e "${BOLD}${DIM}Path:${N} ${B}$module_path${N}"
+    
+    # Show additional info from module.json
+    local json_file="$module_path/module.json"
+    if [[ -f "$json_file" ]]; then
+        local json=$(<"$json_file")
+        
+        local author=$(json_get "$json" "author")
+        [[ -n "$author" ]] && echo -e "${BOLD}${DIM}Author:${N} ${M}$author${N}"
+        
+        local deps=$(json_get "$json" "dependencies")
+        if [[ -n "$deps" && "$deps" != "[]" ]]; then
+            echo -e "\n${BOLD}${DIM}Dependencies:${N}"
+            echo "$deps" | python3 -c "import json, sys; [print(f'  • {d}') for d in json.load(sys.stdin)]" 2>/dev/null
+        fi
+    fi
+    
+    if [[ -f "$module_path/README.md" ]]; then
+        echo -e "\n${DIM}${ITALIC}📖 Detailed documentation: ${UNDERLINE}$module_path/README.md${N}"
+    fi
+    
+    echo
+}
+
+cmd_search() {
+    local query="$1"
+    
+    if [[ -z "$query" ]]; then
+        print_error "Usage: search <keyword>"
+        return 1
+    fi
+    
+    print_header "Search Results: $query"
+    
+    local found=0
+    
+    for ((i=0; i<MODULE_COUNT; i++)); do
+        local name="${MOD_NAMES[$i]}"
+        local desc="${MOD_DESCS[$i]}"
+        local cat="${MOD_CATS[$i]}"
+        
+        if [[ "$name" =~ $query ]] || [[ "$desc" =~ $query ]] || [[ "$cat" =~ $query ]]; then
+            ((found++))
+            echo -e "\n${BOLD}${C}$name${N} ${DIM}[${cat}]${N}"
+            echo -e "  ${desc}"
+        fi
+    done
+    
+    if [[ $found -eq 0 ]]; then
+        echo -e "\n${DIM}No modules found matching '$query'${N}"
+    else
+        echo -e "\n${DIM}Found $found module(s)${N}"
+    fi
+    echo
+}
+
+# ============================================================================
+# COMMANDS - UTILITY
+# ============================================================================
+
+cmd_reload() {
+    scan_modules
+}
+
+cmd_clear() {
+    clear
+    echo -e "${BOLD}${C}SecV v$VERSION${N} - ${DIM}Cleared${N}\n"
+}
+
+cmd_update() {
+    if [[ -f "$UPDATE_PY" ]]; then
+        echo -e "${C}${BOLD}Checking for updates...${N}\n"
+        python3 "$UPDATE_PY"
+    else
+        print_error "Update script not found: $UPDATE_PY"
+    fi
+}
+
+cmd_dashboard() {
+    if [[ -f "$DASHBOARD_PY" ]]; then
+        python3 "$DASHBOARD_PY" dashboard
+    else
+        print_error "Dashboard not available"
+    fi
+}
+
+cmd_help() {
+    local topic="$1"
+    
+    if [[ "$topic" == "module" ]]; then
+        if [[ -z "$CURRENT_MODULE" ]]; then
+            print_warning "No module loaded"
+            return 1
+        fi
+        cmd_info "$CURRENT_MODULE"
+        return
+    fi
+    
+    print_header "SecV Command Reference"
+    
+    echo -e "\n${BOLD}${Y}MODULE SELECTION${N}"
+    echo -e "  ${C}use <module>${N}          Load a module"
+    echo -e "  ${C}back${N}                  Unload current module"
+    echo -e "  ${C}reload${N}                Rescan modules directory"
+    
+    echo -e "\n${BOLD}${Y}CONFIGURATION${N}"
+    echo -e "  ${C}set <param> <value>${N}   Set module parameter"
+    echo -e "  ${C}unset <param>${N}         Remove parameter"
+    echo -e "  ${C}show options${N}          Show module parameters"
+    
+    echo -e "\n${BOLD}${Y}EXECUTION${N}"
+    echo -e "  ${C}run <target>${N}          Execute loaded module"
+    
+    echo -e "\n${BOLD}${Y}INFORMATION${N}"
+    echo -e "  ${C}show modules${N}          List all modules"
+    echo -e "  ${C}info [module]${N}         Show module details"
+    echo -e "  ${C}search <keyword>${N}      Search modules"
+    echo -e "  ${C}help module${N}           Show current module help"
+    
+    echo -e "\n${BOLD}${Y}UTILITIES${N}"
+    echo -e "  ${C}update${N}                Update SecV"
+    echo -e "  ${C}dashboard${N}             Show module dashboard"
+    echo -e "  ${C}clear${N}                 Clear screen"
+    echo -e "  ${C}exit${N}                  Exit SecV"
+    
+    echo -e "\n${DIM}Type 'help module' for current module help${N}\n"
+}
+
+# ============================================================================
+# MAIN LOOP
 # ============================================================================
 
 main() {
     mkdir -p "$CACHE_DIR" "$TOOLS_DIR"
     
-    # Enhanced Banner
+    # Banner
     clear
     echo -e "${BOLD}${C}"
     cat << 'BANNER'
@@ -856,33 +626,32 @@ BANNER
         
         case "$cmd" in
             use) cmd_use $args ;;
+            back) cmd_back ;;
             set) cmd_set $args ;;
-            run) execute_module $args ;;
-            info) show_module_help "${args:-$CURRENT_MODULE}" ;;
-            help) 
-                if [[ "$args" == "module" ]]; then
-                    show_module_help "$CURRENT_MODULE"
-                else
-                    # Show general help
-                    print_header "SecV Commands"
-                    echo -e "\nCore: use, set, run, info, help module"
-                    echo -e "View: show modules, show options"
-                    echo -e "Util: back, reload, clear, exit\n"
-                fi
+            unset) cmd_unset $args ;;
+            run) cmd_run $args ;;
+            show)
+                case "$args" in
+                    modules) cmd_show_modules ;;
+                    options) cmd_show_options ;;
+                    *) print_error "Usage: show {modules|options}" ;;
+                esac
                 ;;
-            back)
-                CURRENT_MODULE="" CURRENT_PATH="" CURRENT_EXEC="" MODULE_JSON=""
-                PARAM_KEYS=() PARAM_VALUES=()
-                print_info "Module unloaded"
-                ;;
-            reload) scan_modules ;;
-            clear) clear ;;
+            info) cmd_info $args ;;
+            search) cmd_search $args ;;
+            help) cmd_help $args ;;
+            reload) cmd_reload ;;
+            clear) cmd_clear ;;
+            update) cmd_update ;;
+            dashboard) cmd_dashboard ;;
             exit|quit) 
                 echo -e "\n${C}${BOLD}Thanks for using SecV! ${STAR}${N}\n"
                 exit 0 
                 ;;
             "") ;;
-            *) print_warning "Unknown command: $cmd ${DIM}(type 'help')${N}" ;;
+            *) 
+                print_warning "Unknown command: $cmd ${DIM}(type 'help')${N}"
+                ;;
         esac
     done
 }
