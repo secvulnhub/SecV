@@ -91,25 +91,25 @@ if ! command -v python3 &> /dev/null; then
     
     case "$DISTRO" in
         ubuntu|debian|linuxmint|pop|kali)
-            sudo apt-get update && sudo apt-get install -y python3 python3-pip
+            sudo apt-get update && sudo apt-get install -y python3 python3-pip android-tools-adb
             ;;
         fedora|rhel|centos|rocky|almalinux)
-            sudo dnf install -y python3 python3-pip || sudo yum install -y python3 python3-pip
+            sudo dnf install -y python3 python3-pip || sudo yum install -y python3 python3-pip android-tools-adb
             ;;
         arch|manjaro|endeavouros|archcraft)
-            sudo pacman -Sy --noconfirm python python-pip
+            sudo pacman -Sy --noconfirm python python-pip android-tools-adb
             ;;
         opensuse*|suse)
-            sudo zypper install -y python3 python3-pip
+            sudo zypper install -y python3 python3-pip android-tools-adb
             ;;
         gentoo)
-            sudo emerge -av dev-lang/python
+            sudo emerge -av dev-lang/python android-tools-adb
             ;;
         alpine)
             sudo apk add python3 py3-pip
             ;;
         void)
-            sudo xbps-install -Sy python3 python3-pip
+            sudo xbps-install -Sy python3 python3-pip android-tools-adb
             ;;
         *)
             echo -e "${RED}[!] Unsupported distribution. Please install Python 3.8+ manually.${NC}"
