@@ -91,25 +91,25 @@ if ! command -v python3 &> /dev/null; then
     
     case "$DISTRO" in
         ubuntu|debian|linuxmint|pop|kali)
-            sudo apt-get update && sudo apt-get install -y python3 python3-pip android-tools-adb
+            sudo apt-get update && sudo apt-get install -y python3 python3-pip android-tools-adb golang-go
             ;;
         fedora|rhel|centos|rocky|almalinux)
-            sudo dnf install -y python3 python3-pip || sudo yum install -y python3 python3-pip android-tools-adb
+            sudo dnf install -y python3 python3-pip || sudo yum install -y python3 python3-pip android-tools-adb golang
             ;;
         arch|manjaro|endeavouros|archcraft)
-            sudo pacman -Sy --noconfirm python python-pip android-tools-adb
+            sudo pacman -Sy --noconfirm python python-pip android-tools-adb go
             ;;
         opensuse*|suse)
             sudo zypper install -y python3 python3-pip android-tools-adb
             ;;
         gentoo)
-            sudo emerge -av dev-lang/python android-tools-adb
+            sudo emerge -av dev-lang/python android-tools-adb dev-lang/go
             ;;
         alpine)
-            sudo apk add python3 py3-pip
+            sudo apk add python3 py3-pip go
             ;;
         void)
-            sudo xbps-install -Sy python3 python3-pip android-tools-adb
+            sudo xbps-install -Sy python3 python3-pip android-tools-adb go
             ;;
         *)
             echo -e "${RED}[!] Unsupported distribution. Please install Python 3.8+ manually.${NC}"
@@ -626,4 +626,6 @@ echo -e "  ${BLUE}ℹ${NC}  Update anytime with: ${YELLOW}secV > update${NC}"
 echo -e "  ${BLUE}ℹ${NC}  Module help shows dependency status"
 echo -e "  ${BLUE}ℹ${NC}  Missing dependencies show install commands\n"
 
+echo -e "${GREEB}Final step! Compiling loader! ${NC}"
+go build -ldflags="-s -w" -o secV main.go  
 echo -e "${GREEN}Happy Hacking! 🔒${NC}\n"
