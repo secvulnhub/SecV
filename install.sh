@@ -108,6 +108,74 @@ else
     echo -e "    ${DIM}macOS: brew install python3${NC}"
     exit 1
 fi
+
+# Ensure curl and unzip are available (needed for fallback installations)
+if ! command -v curl &> /dev/null || ! command -v unzip &> /dev/null; then
+    echo -e "${YELLOW}[!] Installing required utilities (curl, unzip)...${NC}"
+    case "$DISTRO" in
+        ubuntu|debian|kali|parrot|linuxmint|pop)
+            sudo apt-get install -y curl unzip
+            ;;
+        arch|archcraft|manjaro)
+            sudo pacman -S --noconfirm --needed curl unzip
+            ;;
+        fedora|rhel|centos|rocky|alma)
+            sudo dnf install -y curl unzip
+            ;;
+        alpine)
+            sudo apk add curl unzip
+            ;;
+        opensuse*|sles)
+            sudo zypper install -y curl unzip
+            ;;
+        *)
+            if ! command -v curl &> /dev/null; then
+                echo -e "${RED}[✗] curl not found - please install manually${NC}"
+                exit 1
+            fi
+            if ! command -v unzip &> /dev/null; then
+                echo -e "${RED}[✗] unzip not found - please install manually${NC}"
+                exit 1
+            fi
+            ;;
+    esac
+fi
+
+# Check for Java (required for Android RE tools)
+if ! command -v java &> /dev/null; then
+    echo -e "${YELLOW}[!] Java not found, installing...${NC}"
+    case "$DISTRO" in
+        ubuntu|debian|kali|parrot|linuxmint|pop)
+            sudo apt-get install -y default-jre
+            ;;
+        arch|archcraft|manjaro)
+            sudo pacman -S --noconfirm --needed jre-openjdk
+            ;;
+        fedora|rhel|centos|rocky|alma)
+            sudo dnf install -y java-latest-openjdk
+            ;;
+        alpine)
+            sudo apk add openjdk11-jre
+            ;;
+        opensuse*|sles)
+            sudo zypper install -y java-11-openjdk
+            ;;
+        *)
+            echo -e "${YELLOW}[!] Please install Java Runtime Environment manually${NC}"
+            ;;
+    esac
+    
+    if command -v java &> /dev/null; then
+        JAVA_VERSION=$(java -version 2>&1 | head -n 1 | awk -F '"' '{print $2}')
+        echo -e "${GREEN}[✓] Java ${JAVA_VERSION} installed${NC}"
+    else
+        echo -e "${YELLOW}[!] Java installation may be incomplete${NC}"
+    fi
+else
+    JAVA_VERSION=$(java -version 2>&1 | head -n 1 | awk -F '"' '{print $2}')
+    echo -e "${GREEN}[✓] Java ${JAVA_VERSION} detected${NC}"
+fi
+
 echo
 
 # ============================================================================
@@ -139,34 +207,181 @@ else
     echo -e "${YELLOW}[!] Missing tools: ${MISSING_TOOLS[*]}${NC}"
     echo -e "${CYAN}[*] Attempting to install Android RE tools...${NC}"
     
+    INSTALL_METHOD=""
+    
     case "$DISTRO" in
         arch|archcraft|manjaro)
-            sudo pacman -Sy --noconfirm --needed android-tools apktool jadx
+            INSTALL_METHOD="arch"
+            # Install jadx from official repos
+            if ! command -v jadx &> /dev/null; then
+                sudo pacman -Sy --noconfirm --needed jadx
+            fi
+            
+            # Check for AUR helper
+            AUR_HELPER=""
+            if command -v yay &> /dev/null; then
+                AUR_HELPER="yay"
+            elif command -v paru &> /dev/null; then
+                AUR_HELPER="paru"
+            elif command -v trizen &> /dev/null; then
+                AUR_HELPER="trizen"
+            fi
+            
+            if [ -n "$AUR_HELPER" ]; then
+                echo -e "${CYAN}[*] Using AUR helper: $AUR_HELPER${NC}"
+                
+                # Install apktool from AUR
+                if ! command -v apktool &> /dev/null; then
+                    $AUR_HELPER -S --noconfirm --needed android-apktool-bin
+                fi
+                
+                # Install aapt from AUR
+                if ! command -v aapt &> /dev/null; then
+                    $AUR_HELPER -S --noconfirm --needed android-sdk-build-tools
+                fi
+            else
+                echo -e "${RED}[✗] No AUR helper found (yay, paru, trizen)${NC}"
+                INSTALL_METHOD="fallback"
+            fi
             ;;
-        ubuntu|debian|kali|parrot)
+            
+        ubuntu|debian|kali|parrot|linuxmint|pop)
+            INSTALL_METHOD="debian"
             sudo apt-get update
-            sudo apt-get install -y aapt apktool jadx
+            sudo apt-get install -y aapt apktool jadx 2>/dev/null || INSTALL_METHOD="fallback"
             ;;
-        fedora|rhel|centos)
-            sudo dnf install -y android-tools apktool jadx
+            
+        alpine)
+            INSTALL_METHOD="alpine"
+            # Enable testing repo for android-apktool
+            if ! grep -q "testing" /etc/apk/repositories; then
+                echo "http://dl-cdn.alpinelinux.org/alpine/edge/testing" | sudo tee -a /etc/apk/repositories
+            fi
+            sudo apk update
+            sudo apk add android-tools android-apktool jadx 2>/dev/null || INSTALL_METHOD="fallback"
             ;;
+            
+        opensuse*|sles)
+            INSTALL_METHOD="opensuse"
+            # Try zypper first
+            sudo zypper refresh
+            sudo zypper install -y android-tools apktool jadx 2>/dev/null || INSTALL_METHOD="snap_fallback"
+            ;;
+            
+        fedora|rhel|centos|rocky|alma)
+            INSTALL_METHOD="redhat"
+            # Try EPEL first for RHEL-based
+            if [[ "$DISTRO" =~ ^(rhel|centos|rocky|alma)$ ]]; then
+                sudo dnf install -y epel-release 2>/dev/null || true
+            fi
+            sudo dnf install -y android-tools apktool jadx 2>/dev/null || INSTALL_METHOD="snap_fallback"
+            ;;
+            
+        gentoo)
+            INSTALL_METHOD="gentoo"
+            sudo emerge --ask=n dev-util/android-tools dev-util/apktool dev-java/jadx 2>/dev/null || INSTALL_METHOD="fallback"
+            ;;
+            
+        void)
+            INSTALL_METHOD="void"
+            sudo xbps-install -Sy android-tools apktool jadx 2>/dev/null || INSTALL_METHOD="fallback"
+            ;;
+            
         *)
-            echo -e "${RED}[✗] Cannot auto-install for $DISTRO${NC}"
-            echo -e "${YELLOW}[!] Install manually:${NC}"
-            echo -e "${DIM}    - aapt:    Android SDK build-tools${NC}"
-            echo -e "${DIM}    - apktool: https://apktool.org${NC}"
-            echo -e "${DIM}    - jadx:    https://github.com/skylot/jadx${NC}"
-            exit 1
+            INSTALL_METHOD="fallback"
             ;;
     esac
     
+    # Snap fallback for distros that support it
+    if [ "$INSTALL_METHOD" = "snap_fallback" ]; then
+        if command -v snap &> /dev/null; then
+            echo -e "${CYAN}[*] Trying Snap packages...${NC}"
+            if ! command -v apktool &> /dev/null; then
+                sudo snap install apktool 2>/dev/null || true
+            fi
+            if ! command -v jadx &> /dev/null; then
+                sudo snap install jadx 2>/dev/null || true
+            fi
+            # aapt not available as snap, will use fallback
+        fi
+        INSTALL_METHOD="fallback"
+    fi
+    
+    # Universal fallback - download pre-built binaries
+    if [ "$INSTALL_METHOD" = "fallback" ]; then
+        echo -e "${CYAN}[*] Using universal binary installation method...${NC}"
+        
+        TOOLS_BIN_DIR="$SCRIPT_DIR/tools/bin"
+        mkdir -p "$TOOLS_BIN_DIR"
+        
+        # Install apktool
+        if ! command -v apktool &> /dev/null; then
+            echo -e "${CYAN}[*] Downloading apktool...${NC}"
+            cd "$TOOLS_BIN_DIR"
+            curl -LO https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool
+            curl -LO https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_2.9.3.jar
+            mv apktool_2.9.3.jar apktool.jar
+            chmod +x apktool
+            sudo ln -sf "$TOOLS_BIN_DIR/apktool" /usr/local/bin/apktool
+            cd "$SCRIPT_DIR"
+        fi
+        
+        # Install jadx
+        if ! command -v jadx &> /dev/null; then
+            echo -e "${CYAN}[*] Downloading jadx...${NC}"
+            cd "$TOOLS_BIN_DIR"
+            JADX_VERSION="1.5.0"
+            curl -LO "https://github.com/skylot/jadx/releases/download/v${JADX_VERSION}/jadx-${JADX_VERSION}.zip"
+            unzip -q "jadx-${JADX_VERSION}.zip" -d jadx
+            chmod +x jadx/bin/jadx jadx/bin/jadx-gui
+            sudo ln -sf "$TOOLS_BIN_DIR/jadx/bin/jadx" /usr/local/bin/jadx
+            sudo ln -sf "$TOOLS_BIN_DIR/jadx/bin/jadx-gui" /usr/local/bin/jadx-gui
+            rm "jadx-${JADX_VERSION}.zip"
+            cd "$SCRIPT_DIR"
+        fi
+        
+        # Install aapt (from Android SDK build-tools)
+        if ! command -v aapt &> /dev/null; then
+            echo -e "${CYAN}[*] Downloading aapt...${NC}"
+            cd "$TOOLS_BIN_DIR"
+            AAPT_VERSION="35.0.2"
+            curl -LO "https://dl.google.com/android/repository/build-tools_r${AAPT_VERSION}-linux.zip"
+            unzip -q "build-tools_r${AAPT_VERSION}-linux.zip" -d build-tools
+            chmod +x build-tools/android-*/aapt
+            sudo ln -sf "$TOOLS_BIN_DIR/build-tools/android-"*/aapt /usr/local/bin/aapt
+            rm "build-tools_r${AAPT_VERSION}-linux.zip"
+            cd "$SCRIPT_DIR"
+        fi
+    fi
+    
     # Verify installation
-    if command -v aapt &> /dev/null && \
-       command -v apktool &> /dev/null && \
-       command -v jadx &> /dev/null; then
+    echo -e "${CYAN}[*] Verifying installation...${NC}"
+    INSTALL_SUCCESS=true
+    
+    if ! command -v aapt &> /dev/null; then
+        echo -e "${RED}[✗] aapt installation failed${NC}"
+        INSTALL_SUCCESS=false
+    fi
+    if ! command -v apktool &> /dev/null; then
+        echo -e "${RED}[✗] apktool installation failed${NC}"
+        INSTALL_SUCCESS=false
+    fi
+    if ! command -v jadx &> /dev/null; then
+        echo -e "${RED}[✗] jadx installation failed${NC}"
+        INSTALL_SUCCESS=false
+    fi
+    
+    if [ "$INSTALL_SUCCESS" = true ]; then
         echo -e "${GREEN}[✓] Android RE tools installed successfully${NC}"
+        if [ "$INSTALL_METHOD" = "fallback" ]; then
+            echo -e "${DIM}    Installed to: $TOOLS_BIN_DIR${NC}"
+        fi
     else
-        echo -e "${RED}[✗] Installation failed for some tools${NC}"
+        echo -e "${RED}[✗] Some tools failed to install${NC}"
+        echo -e "${YELLOW}[!] Manual installation required:${NC}"
+        echo -e "${DIM}    - aapt:    https://developer.android.com/studio/releases/build-tools${NC}"
+        echo -e "${DIM}    - apktool: https://apktool.org${NC}"
+        echo -e "${DIM}    - jadx:    https://github.com/skylot/jadx/releases${NC}"
         exit 1
     fi
 fi
