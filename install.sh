@@ -129,7 +129,7 @@ else
     echo -e "${DIM}    - macOS: brew install go${NC}"
     echo -e "${DIM}    - Or download from: https://go.dev/dl/${NC}"
     
-    read -p "$(echo -e ${YELLOW}Continue without Go? SecV won't be compiled. [y/N]: ${NC})" -n 1 -r
+    read -p "Continue without Go? SecV won't be compiled. [y/N]: " -n 1 -r
     echo
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
         exit 1
@@ -195,7 +195,7 @@ echo -e "  ${YELLOW}4)${NC} Elite     - Full + masscan"
 echo -e "     ${DIM}Dependencies: Full + masscan binary${NC}"
 echo
 
-read -p "$(echo -e ${YELLOW}Enter choice [1-4] \(default: 2\): ${NC})" TIER_CHOICE
+read -p "Enter choice [1-4] (default: 2): " TIER_CHOICE
 TIER_CHOICE=${TIER_CHOICE:-2}
 
 case "$TIER_CHOICE" in
@@ -401,7 +401,7 @@ echo
 
 echo -e "${YELLOW}[11/11] System-wide installation...${NC}"
 
-read -p "$(echo -e ${YELLOW}Install SecV system-wide to /usr/local/bin? [Y/n]: ${NC})" -n 1 -r
+read -p "Install SecV system-wide to /usr/local/bin? [Y/n]: " -n 1 -r
 echo
 
 if [[ ! $REPLY =~ ^[Nn]$ ]]; then
