@@ -1,23 +1,25 @@
 {
   "name": "mac_spoof",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "category": "network",
-  "description": "Automated MAC address spoofer with background daemon support and graceful state management",
-  "author": "0xb0rn3 (oxbv1) - Enhanced",
+  "description": "Connection-aware MAC spoofer with smart rotation modes to minimize disruption",
+  "author": "0xb0rn3 (oxbv1) - Connection-Preserving Edition",
   "executable": "python3 mac_spoof.py",
   
   "dependencies": [
     "python3"
   ],
   
-  "optional_dependencies": {},
+  "optional_dependencies": {
+    "psutil": "For connection tracking - pip3 install psutil --user --break-system-packages"
+  },
   
   "help": {
-    "description": "Automated MAC address spoofer that randomizes the last 3 octets while keeping a locally-administered OUI prefix (02:00:00). Launches background daemon per interface to change MAC at configurable intervals. Supports start/stop/status, all-up interfaces, and multi-interface lists. State is tracked in ~/.secv/mac_spoof/ for persistence.",
+    "description": "Enhanced MAC spoofer that tracks active TCP connections and intelligently rotates MAC addresses to minimize disruption. Features multiple spoofing modes: smart (changes only when idle), session (changes between connection sessions), periodic (timed with connection checks), and aggressive (rapid changes). Uses locally-administered OUI prefix (02:00:00) and includes graceful DHCP renewal.",
     
     "parameters": {
       "iface": {
-        "description": "Interface name or comma-separated list. Leave empty to prompt or use all_up",
+        "description": "Interface name or comma-separated list",
         "type": "string",
         "examples": ["wlan0", "eth0", "eth0,wlan0"],
         "required": false
@@ -29,63 +31,98 @@
         "default": "false"
       },
       "action": {
-        "description": "Operation to perform on the spoofer",
+        "description": "Operation to perform",
         "type": "string",
         "options": ["start", "stop", "status"],
-        "default": "start",
-        "examples": ["start", "stop", "status"]
+        "default": "start"
+      },
+      "mode": {
+        "description": "Spoofing mode strategy",
+        "type": "string",
+        "options": ["smart", "session", "periodic", "aggressive"],
+        "default": "smart",
+        "examples": [
+          "smart - Changes only when no active connections (safest)",
+          "session - Changes between connection sessions",
+          "periodic - Fixed intervals with connection checks",
+          "aggressive - Rapid changes (may break connections)"
+        ]
+      },
+      "interval": {
+        "description": "Seconds between MAC changes (increased default for stability)",
+        "type": "number",
+        "default": "30.0",
+        "range": "5.0-3600",
+        "examples": ["30.0", "60.0", "300.0"]
+      },
+      "preserve_connections": {
+        "description": "Protect active connections from disruption",
+        "type": "boolean",
+        "options": ["true", "false"],
+        "default": "true"
+      },
+      "wait_for_quiet": {
+        "description": "Wait for connections to close before changing MAC",
+        "type": "boolean",
+        "options": ["true", "false"],
+        "default": "true"
+      },
+      "max_wait": {
+        "description": "Maximum seconds to wait for quiet period",
+        "type": "integer",
+        "default": "30",
+        "range": "5-300"
       },
       "dry_run": {
-        "description": "If true, preview actions without making changes",
+        "description": "Preview actions without making changes",
         "type": "boolean",
         "options": ["true", "false"],
         "default": "false"
-      },
-      "interval": {
-        "description": "Seconds between MAC address changes",
-        "type": "number",
-        "default": "0.5",
-        "range": "0.1-60",
-        "examples": ["0.5", "1.0", "5.0"]
       }
     },
     
     "examples": [
       {
-        "description": "Start automated spoofing on wlan0",
+        "description": "Smart mode - safest for daily use",
         "commands": [
           "use mac_spoof",
           "set iface wlan0",
+          "set mode smart",
+          "set interval 60",
           "run target"
         ]
       },
       {
-        "description": "Start spoofing on multiple interfaces",
+        "description": "Session mode - good for web browsing",
+        "commands": [
+          "use mac_spoof",
+          "set iface wlan0",
+          "set mode session",
+          "run target"
+        ]
+      },
+      {
+        "description": "Periodic with long interval",
+        "commands": [
+          "use mac_spoof",
+          "set iface wlan0",
+          "set mode periodic",
+          "set interval 300",
+          "run target"
+        ]
+      },
+      {
+        "description": "Multiple interfaces with connection protection",
         "commands": [
           "use mac_spoof",
           "set iface eth0,wlan0",
+          "set mode smart",
+          "set preserve_connections true",
           "run target"
         ]
       },
       {
-        "description": "Start spoofing on all UP interfaces",
-        "commands": [
-          "use mac_spoof",
-          "set all_up true",
-          "run target"
-        ]
-      },
-      {
-        "description": "Stop spoofing on wlan0 (restores original MAC)",
-        "commands": [
-          "use mac_spoof",
-          "set iface wlan0",
-          "set action stop",
-          "run target"
-        ]
-      },
-      {
-        "description": "Check status of all running spoofers",
+        "description": "Check detailed status with connection info",
         "commands": [
           "use mac_spoof",
           "set action status",
@@ -94,53 +131,87 @@
         ]
       },
       {
-        "description": "Preview changes with dry run mode",
+        "description": "Stop spoofer and restore original MAC",
         "commands": [
           "use mac_spoof",
           "set iface wlan0",
-          "set dry_run true",
+          "set action stop",
           "run target"
         ]
       },
       {
-        "description": "Slower MAC rotation (every 5 seconds)",
+        "description": "Preview changes with dry run",
         "commands": [
           "use mac_spoof",
           "set iface wlan0",
-          "set interval 5.0",
+          "set mode smart",
+          "set dry_run true",
           "run target"
         ]
       }
     ],
     
     "features": [
-      "Per-interface background daemon (one process per interface)",
-      "Locally-administered OUI prefix (02:00:00) to reduce conflicts",
-      "Saves and restores original MAC addresses",
-      "Supports single interface, multiple interfaces, or all UP interfaces",
-      "Status tracking with persistent state files",
+      "Connection-aware MAC rotation (tracks active TCP connections)",
+      "Multiple spoofing modes: smart, session, periodic, aggressive",
+      "Graceful DHCP renewal after MAC changes",
+      "Configurable wait periods for connection closure",
+      "Active connection monitoring and counting",
+      "Session detection for intelligent timing",
+      "Change counter tracking total rotations",
+      "Locally-administered OUI prefix (02:00:00)",
+      "Per-interface background daemons",
+      "State persistence with detailed metrics",
       "Dry-run mode for safe testing",
-      "Configurable MAC rotation interval",
-      "Graceful daemon management with proper cleanup"
+      "Minimal connection disruption"
     ],
     
+    "modes_explained": {
+      "smart": {
+        "description": "Safest mode - only changes MAC when interface is idle",
+        "behavior": "Requires 3 consecutive quiet checks (15s total) before changing",
+        "use_case": "Daily use, active SSH/database sessions, file transfers",
+        "disruption": "None - waits for complete idle state"
+      },
+      "session": {
+        "description": "Changes MAC between connection sessions",
+        "behavior": "Waits 10 seconds after all connections close, then changes",
+        "use_case": "Web browsing, email checking, intermittent network use",
+        "disruption": "Minimal - only affects reconnection timing"
+      },
+      "periodic": {
+        "description": "Timed rotation with connection awareness",
+        "behavior": "Changes at fixed intervals but waits if connections active",
+        "use_case": "Moderate activity with predictable timing needs",
+        "disruption": "Low - respects preserve_connections setting"
+      },
+      "aggressive": {
+        "description": "Rapid rotation regardless of connections",
+        "behavior": "Changes every interval without waiting",
+        "use_case": "Lab testing only, maximum anonymity needs",
+        "disruption": "High - will break active connections"
+      }
+    },
+    
     "installation_tiers": {
-      "basic": "Full functionality - only requires Python 3 stdlib and iproute2",
-      "standard": "Same as basic - no additional dependencies needed",
-      "full": "Same as basic - no additional dependencies needed"
+      "basic": "Full functionality with psutil installed",
+      "standard": "Same as basic - no additional dependencies",
+      "full": "Same as basic - no additional dependencies"
     },
     
     "notes": [
-      "⚠ Requires root/sudo privileges for MAC address changes",
-      "⚠ Rapidly changing MACs will break active connections (DHCP, WiFi associations)",
-      "⚠ Use only in authorized lab environments or with proper authorization",
-      "⚠ Some network drivers may not handle frequent MAC changes well",
-      "⚠ Currently supports Linux only (using iproute2)",
-      "⚠ Each interface spoofer runs independently; stopping restores original MAC",
-      "⚠ State files stored in ~/.secv/mac_spoof/ for tracking daemons",
-      "💡 Use 'dry_run true' to preview actions before execution",
-      "💡 Use slower intervals (5+ seconds) for better driver compatibility",
-      "💡 Check status regularly to ensure daemons are running properly"
+      "⚠️  Requires root/sudo privileges for MAC address changes",
+      "⚠️  Requires psutil: pip3 install psutil --user --break-system-packages",
+      "⚠️  'smart' and 'session' modes recommended for active use",
+      "⚠️  'aggressive' mode will break active connections",
+      "⚠️  DHCP renewal may cause brief traffic interruption",
+      "⚠️  Use only in authorized lab environments",
+      "💡 Start with 'smart' mode and 60+ second intervals",
+      "💡 Monitor status to see active connections count",
+      "💡 Use dry_run to preview behavior before executing",
+      "💡 Longer intervals (300+) provide better stability",
+      "💡 Check 'total_changes' in status to track rotations",
+      "💡 Stop spoofer cleanly before system shutdown"
     ]
   },
   
@@ -163,17 +234,41 @@
       "required": false,
       "default": "start"
     },
-    "dry_run": {
-      "type": "boolean",
-      "description": "Preview mode without changes",
+    "mode": {
+      "type": "string",
+      "description": "Spoofing mode: smart, session, periodic, aggressive",
       "required": false,
-      "default": false
+      "default": "smart"
     },
     "interval": {
       "type": "number",
       "description": "Seconds between MAC changes",
       "required": false,
-      "default": 0.5
+      "default": 30.0
+    },
+    "preserve_connections": {
+      "type": "boolean",
+      "description": "Protect active connections",
+      "required": false,
+      "default": true
+    },
+    "wait_for_quiet": {
+      "type": "boolean",
+      "description": "Wait for idle period",
+      "required": false,
+      "default": true
+    },
+    "max_wait": {
+      "type": "integer",
+      "description": "Maximum wait time (seconds)",
+      "required": false,
+      "default": 30
+    },
+    "dry_run": {
+      "type": "boolean",
+      "description": "Preview mode without changes",
+      "required": false,
+      "default": false
     }
   },
   
@@ -182,9 +277,13 @@
       "type": "string",
       "description": "Action that was performed"
     },
+    "mode": {
+      "type": "string",
+      "description": "Spoofing mode used"
+    },
     "results": {
       "type": "object",
-      "description": "Per-interface operation results"
+      "description": "Per-interface operation results with connection info"
     },
     "dry_run": {
       "type": "boolean",
