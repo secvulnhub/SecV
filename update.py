@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SecV Enhanced Update System v4.0
+SecV Enhanced Update System v4.1
 Features:
 - First-run automatic update checking
 - Go binary recompilation support
@@ -10,6 +10,7 @@ Features:
 - Component-level update tracking
 - Rollback capability
 - Dependency conflict resolution
+- Git conflict resolution (stash/restore)
 """
 
 import os
@@ -66,7 +67,7 @@ VERSION_INFO = {
     "components": {
         "main.go": {"version": "2.4.0", "hash": None},
         "install.sh": {"version": "2.4.0", "hash": None},
-        "update.py": {"version": "4.0.0", "hash": None},
+        "update.py": {"version": "4.1.0", "hash": None},
         "dashboard.py": {"version": "1.0.0", "hash": None},
         "requirements.txt": {"version": "2.3.0", "hash": None},
         "secV": {"version": "2.4.0", "hash": None, "type": "binary"}
@@ -85,7 +86,7 @@ OBSOLETE_FILES_MAP = {
         "legacy_installer.sh"
     ],
     "2.4.0": [
-        "secV.py",  # Old Python version
+        "secV.py",
         ".cache/old_update_check"
     ]
 }
@@ -114,6 +115,133 @@ class Logger:
             if len(lines) > 100:
                 with open(UPDATE_LOG, 'w') as f:
                     f.writelines(lines[-100:])
+
+
+class GitManager:
+    """Manage Git operations with conflict resolution"""
+    
+    @staticmethod
+    def has_uncommitted_changes() -> Tuple[bool, List[str]]:
+        """Check for uncommitted changes"""
+        try:
+            result = subprocess.run(
+                ['git', 'status', '--porcelain'],
+                cwd=SECV_HOME,
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            
+            if result.stdout.strip():
+                changed_files = []
+                for line in result.stdout.strip().split('\n'):
+                    if line.strip():
+                        file = line[3:].strip()
+                        changed_files.append(file)
+                return True, changed_files
+            return False, []
+        except:
+            return False, []
+    
+    @staticmethod
+    def stash_changes() -> bool:
+        """Stash uncommitted changes"""
+        try:
+            print(f"{YELLOW}Stashing local changes...{NC}")
+            result = subprocess.run(
+                ['git', 'stash', 'push', '-m', f'SecV auto-stash {datetime.now().isoformat()}'],
+                cwd=SECV_HOME,
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            Logger.log("Local changes stashed")
+            print(f"{GREEN}{CHECK} Local changes stashed{NC}")
+            return True
+        except subprocess.CalledProcessError as e:
+            Logger.log(f"Git stash failed: {e.stderr}", "ERROR")
+            print(f"{RED}{CROSS} Failed to stash changes: {e.stderr}{NC}")
+            return False
+    
+    @staticmethod
+    def pop_stash() -> bool:
+        """Pop the most recent stash"""
+        try:
+            print(f"{YELLOW}Restoring local changes...{NC}")
+            result = subprocess.run(
+                ['git', 'stash', 'pop'],
+                cwd=SECV_HOME,
+                capture_output=True,
+                text=True,
+                check=False
+            )
+            
+            if result.returncode == 0:
+                Logger.log("Stashed changes restored successfully")
+                print(f"{GREEN}{CHECK} Local changes restored{NC}")
+                return True
+            else:
+                if "CONFLICT" in result.stdout or "CONFLICT" in result.stderr:
+                    Logger.log("Merge conflicts after stash pop", "WARNING")
+                    print(f"{YELLOW}{WARNING} Merge conflicts detected after restore{NC}")
+                    print(f"{DIM}Your changes are preserved but need manual merge{NC}")
+                    print(f"{DIM}Run 'git status' to see conflicts{NC}")
+                return False
+        except Exception as e:
+            Logger.log(f"Git stash pop failed: {str(e)}", "ERROR")
+            print(f"{YELLOW}{WARNING} Could not restore changes: {str(e)}{NC}")
+            print(f"{DIM}Your changes are saved in git stash{NC}")
+            print(f"{DIM}Run 'git stash list' to see stashed changes{NC}")
+            return False
+    
+    @staticmethod
+    def list_stashes() -> List[str]:
+        """List all stashes"""
+        try:
+            result = subprocess.run(
+                ['git', 'stash', 'list'],
+                cwd=SECV_HOME,
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            return result.stdout.strip().split('\n') if result.stdout.strip() else []
+        except:
+            return []
+    
+    @staticmethod
+    def discard_local_changes(files: List[str]) -> bool:
+        """Discard local changes to specific files"""
+        try:
+            print(f"{YELLOW}Discarding local changes...{NC}")
+            for file in files:
+                subprocess.run(
+                    ['git', 'checkout', '--', file],
+                    cwd=SECV_HOME,
+                    capture_output=True,
+                    check=True
+                )
+            Logger.log(f"Discarded changes to {len(files)} files")
+            print(f"{GREEN}{CHECK} Local changes discarded{NC}")
+            return True
+        except Exception as e:
+            Logger.log(f"Git checkout failed: {str(e)}", "ERROR")
+            return False
+    
+    @staticmethod
+    def pull_with_rebase() -> Tuple[bool, str]:
+        """Pull with rebase strategy"""
+        try:
+            result = subprocess.run(
+                ['git', 'pull', '--rebase'],
+                cwd=SECV_HOME,
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            return True, result.stdout
+        except subprocess.CalledProcessError as e:
+            return False, e.stderr
 
 
 class VersionManager:
@@ -230,6 +358,9 @@ class BackupManager:
                     dest = SECV_HOME / rel_path
                     dest.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(item, dest)
+                    
+                    if dest.suffix == '' and dest.name in ['secV', 'install.sh']:
+                        os.chmod(dest, 0o755)
             
             Logger.log(f"Restored backup: {backup_path}")
             print(f"{GREEN}{CHECK} Restored from backup: {backup_path.name}{NC}")
@@ -278,7 +409,6 @@ class GoBinaryManager:
         print(f"{YELLOW}[*] Compiling Go binary...{NC}")
         
         try:
-            # Compile with optimizations
             result = subprocess.run(
                 ['go', 'build', '-ldflags=-s -w', '-o', 'secV', 'main.go'],
                 cwd=SECV_HOME,
@@ -288,11 +418,9 @@ class GoBinaryManager:
             )
             
             if result.returncode == 0:
-                # Make executable
                 os.chmod(SECV_BINARY, 0o755)
                 
-                # Get binary size
-                size = SECV_BINARY.stat().st_size / 1024  # KB
+                size = SECV_BINARY.stat().st_size / 1024
                 print(f"{GREEN}{CHECK} Binary compiled successfully ({size:.1f} KB){NC}")
                 Logger.log(f"Go binary compiled: {size:.1f} KB")
                 return True
@@ -315,7 +443,6 @@ class GoBinaryManager:
         if not SECV_BINARY.exists():
             return True
         
-        # Check if main.go changed
         if VersionManager.check_component_changed("main.go", MAIN_GO, version_info):
             return True
         
@@ -563,8 +690,10 @@ def perform_update(current_version: str, new_version: str) -> bool:
     
     Logger.log(f"Starting update: {current_version} -> {new_version}")
     
+    stashed_changes = False
+    
     # Step 1: Create backup
-    print(f"{YELLOW}[1/7] Creating backup...{NC}")
+    print(f"{YELLOW}[1/8] Creating backup...{NC}")
     critical_files = [
         SECV_BINARY,
         MAIN_GO,
@@ -580,8 +709,46 @@ def perform_update(current_version: str, new_version: str) -> bool:
         print(f"{RED}{CROSS} Backup failed. Aborting update.{NC}")
         return False
     
-    # Step 2: Pull updates
-    print(f"\n{YELLOW}[2/7] Pulling latest changes...{NC}")
+    # Step 2: Handle local changes
+    print(f"\n{YELLOW}[2/8] Checking for local changes...{NC}")
+    has_changes, changed_files = GitManager.has_uncommitted_changes()
+    
+    if has_changes:
+        print(f"{YELLOW}{WARNING} Found {len(changed_files)} modified file(s):{NC}")
+        for file in changed_files[:5]:
+            print(f"  {DIM}{BULLET} {file}{NC}")
+        if len(changed_files) > 5:
+            print(f"  {DIM}{BULLET} ... and {len(changed_files) - 5} more{NC}")
+        
+        print(f"\n{BOLD}Options:{NC}")
+        print(f"  {GREEN}1{NC} - Stash changes (recommended - you can restore later)")
+        print(f"  {YELLOW}2{NC} - Discard changes (⚠ permanent!)")
+        print(f"  {RED}3{NC} - Cancel update")
+        
+        choice = input(f"\n{YELLOW}Choose option [1-3]: {NC}").strip()
+        
+        if choice == '1':
+            if not GitManager.stash_changes():
+                print(f"{RED}{CROSS} Failed to stash changes. Aborting.{NC}")
+                return False
+            stashed_changes = True
+        elif choice == '2':
+            confirm = input(f"{RED}Are you sure? This cannot be undone! [yes/NO]: {NC}").strip().lower()
+            if confirm == 'yes':
+                if not GitManager.discard_local_changes(changed_files):
+                    print(f"{RED}{CROSS} Failed to discard changes. Aborting.{NC}")
+                    return False
+            else:
+                print(f"{CYAN}Update cancelled{NC}")
+                return False
+        else:
+            print(f"{CYAN}Update cancelled by user{NC}")
+            return False
+    else:
+        print(f"{GREEN}{CHECK} No local changes detected{NC}")
+    
+    # Step 3: Pull updates
+    print(f"\n{YELLOW}[3/8] Pulling latest changes...{NC}")
     try:
         result = run_command(['git', 'pull'], capture=False)
         print(f"{GREEN}{CHECK} Git pull successful{NC}")
@@ -593,10 +760,20 @@ def perform_update(current_version: str, new_version: str) -> bool:
         response = input(f"\n{YELLOW}Restore from backup? [Y/n]: {NC}").strip().lower()
         if not response or response == 'y':
             BackupManager.restore_backup(backup_path)
+            if stashed_changes:
+                GitManager.pop_stash()
         return False
     
-    # Step 3: Clean obsolete files
-    print(f"\n{YELLOW}[3/7] Cleaning obsolete files...{NC}")
+    # Step 4: Restore stashed changes
+    if stashed_changes:
+        print(f"\n{YELLOW}[4/8] Restoring your changes...{NC}")
+        GitManager.pop_stash()
+    else:
+        print(f"\n{YELLOW}[4/8] No changes to restore{NC}")
+        print(f"{GREEN}{CHECK} Skipped{NC}")
+    
+    # Step 5: Clean obsolete files
+    print(f"\n{YELLOW}[5/8] Cleaning obsolete files...{NC}")
     obsolete_files = ObsoleteFilesCleaner.find_obsolete_files(current_version, new_version)
     
     if obsolete_files:
@@ -613,8 +790,8 @@ def perform_update(current_version: str, new_version: str) -> bool:
     else:
         print(f"{GREEN}{CHECK} No obsolete files found{NC}")
     
-    # Step 4: Recompile Go binary
-    print(f"\n{YELLOW}[4/7] Recompiling Go binary...{NC}")
+    # Step 6: Recompile Go binary
+    print(f"\n{YELLOW}[6/8] Recompiling Go binary...{NC}")
     
     version_info = VersionManager.load_version_info()
     
@@ -625,8 +802,8 @@ def perform_update(current_version: str, new_version: str) -> bool:
     else:
         print(f"{GREEN}{CHECK} Binary is up to date{NC}")
     
-    # Step 5: Update dependencies
-    print(f"\n{YELLOW}[5/7] Updating dependencies...{NC}")
+    # Step 7: Update dependencies
+    print(f"\n{YELLOW}[7/8] Updating dependencies...{NC}")
     
     requirements_path = SECV_HOME / REQUIREMENTS_FILE
     old_hash = get_file_hash(requirements_path)
@@ -640,8 +817,8 @@ def perform_update(current_version: str, new_version: str) -> bool:
     else:
         print(f"{GREEN}{CHECK} No dependency changes{NC}")
     
-    # Step 6: Update version info
-    print(f"\n{YELLOW}[6/7] Updating version information...{NC}")
+    # Step 8: Update version info
+    print(f"\n{YELLOW}[8/8] Updating version information...{NC}")
     
     version_info["current_version"] = new_version
     version_info["last_update"] = datetime.now().isoformat()
@@ -663,8 +840,8 @@ def perform_update(current_version: str, new_version: str) -> bool:
     VersionManager.save_version_info(version_info)
     print(f"{GREEN}{CHECK} Version info updated{NC}")
     
-    # Step 7: Cleanup
-    print(f"\n{YELLOW}[7/7] Cleaning up...{NC}")
+    # Cleanup
+    print(f"\n{YELLOW}Cleaning up...{NC}")
     BackupManager.cleanup_old_backups(keep=5)
     Logger.cleanup_old_logs()
     print(f"{GREEN}{CHECK} Cleanup complete{NC}")
@@ -682,16 +859,23 @@ def show_update_summary(current_version: str, new_version: str):
     print(f"  {BOLD}Current Version:{NC} {RED}{current_version}{NC}")
     print(f"  {BOLD}New Version:{NC}     {GREEN}{new_version}{NC}")
     
+    # Check for local changes
+    has_changes, changed_files = GitManager.has_uncommitted_changes()
+    if has_changes:
+        print(f"\n  {YELLOW}{WARNING} You have {len(changed_files)} uncommitted change(s){NC}")
+        print(f"  {DIM}These will be automatically stashed during update{NC}")
+    
     obsolete_files = ObsoleteFilesCleaner.find_obsolete_files(current_version, new_version)
     if obsolete_files:
         print(f"\n  {YELLOW}{WARNING} Will clean {len(obsolete_files)} obsolete file(s){NC}")
     
     print(f"\n  {DIM}This update will:{NC}")
+    print(f"    {BULLET} Create a backup of critical files")
+    print(f"    {BULLET} Stash any local changes (can be restored)")
     print(f"    {BULLET} Pull latest changes from repository")
     print(f"    {BULLET} Recompile Go binary if main.go changed")
     print(f"    {BULLET} Clean obsolete files")
     print(f"    {BULLET} Update dependencies if needed")
-    print(f"    {BULLET} Create backup before updating")
     print()
 
 
@@ -729,7 +913,6 @@ def first_run_check(silent: bool = True) -> bool:
         print(f"{BOLD}{GREEN}║              Update Complete! {CHECK} Please Restart SecV              ║{NC}")
         print(f"{BOLD}{GREEN}╚═══════════════════════════════════════════════════════════════════╝{NC}\n")
         print(f"{YELLOW}Please restart SecV to use the updated version.{NC}\n")
-        # Exit code 2 signals Go loader that update was performed
         sys.exit(2)
     
     return False
@@ -738,7 +921,7 @@ def first_run_check(silent: bool = True) -> bool:
 def main():
     """Main update process"""
     print(f"\n{CYAN}╔═══════════════════════════════════════════════════════════════════╗{NC}")
-    print(f"{CYAN}║                      SecV Update System v4.0                      ║{NC}")
+    print(f"{CYAN}║                      SecV Update System v4.1                      ║{NC}")
     print(f"{CYAN}╚═══════════════════════════════════════════════════════════════════╝{NC}\n")
     
     Logger.log("Update check initiated")
@@ -786,9 +969,15 @@ def main():
         backups = BackupManager.list_backups()
         if backups:
             print(f"{MAGENTA}{INFO} Backup available at: {backups[0].name}{NC}")
-            print(f"{DIM}  Use 'python3 update.py --rollback' to restore if needed{NC}\n")
+            print(f"{DIM}  Use 'python3 update.py --rollback' to restore if needed{NC}")
         
-        # Exit code 2 signals restart required
+        stashes = GitManager.list_stashes()
+        if stashes:
+            print(f"\n{MAGENTA}{INFO} Your changes are stashed{NC}")
+            print(f"{DIM}  Run 'git stash list' to see stashed changes{NC}")
+            print(f"{DIM}  Run 'git stash pop' to restore them{NC}")
+        
+        print()
         sys.exit(2)
     else:
         print(f"\n{RED}{CROSS} Update failed. Check {UPDATE_LOG} for details.{NC}\n")
@@ -814,6 +1003,16 @@ def show_component_status():
             print(f"  {BOLD}Last Update:{NC} {last_update_dt.strftime('%Y-%m-%d %H:%M:%S')}")
         except:
             pass
+    
+    # Check for uncommitted changes
+    has_changes, changed_files = GitManager.has_uncommitted_changes()
+    if has_changes:
+        print(f"  {BOLD}Local Changes:{NC} {YELLOW}{len(changed_files)} file(s) modified{NC}")
+    
+    # Check for stashes
+    stashes = GitManager.list_stashes()
+    if stashes:
+        print(f"  {BOLD}Git Stashes:{NC} {CYAN}{len(stashes)} stash(es) available{NC}")
     
     print(f"\n  {BOLD}Components:{NC}")
     print(f"  {DIM}{'─' * 65}{NC}")
@@ -1083,7 +1282,7 @@ if __name__ == '__main__':
     import argparse
     
     parser = argparse.ArgumentParser(
-        description="SecV Update System v4.0 - Go Loader Edition",
+        description="SecV Update System v4.1 - Enhanced Git Conflict Resolution",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -1095,6 +1294,7 @@ Examples:
   python3 update.py --repair           # Repair installation
   python3 update.py --rollback         # Rollback to backup
   python3 update.py --list-backups     # List available backups
+  python3 update.py --list-stashes     # List git stashes
         """
     )
     
@@ -1104,6 +1304,8 @@ Examples:
                        help='Rollback to previous backup')
     parser.add_argument('--list-backups', action='store_true',
                        help='List available backups')
+    parser.add_argument('--list-stashes', action='store_true',
+                       help='List git stashes')
     parser.add_argument('--force', action='store_true',
                        help='Force update check (ignore interval)')
     parser.add_argument('--status', action='store_true',
@@ -1117,7 +1319,6 @@ Examples:
     
     try:
         if args.first_run:
-            # Silent first-run check called by Go loader
             first_run_check(silent=True)
         elif args.status:
             show_component_status()
@@ -1137,8 +1338,16 @@ Examples:
                 print()
             else:
                 print(f"{YELLOW}{WARNING} No backups available{NC}")
+        elif args.list_stashes:
+            stashes = GitManager.list_stashes()
+            if stashes:
+                print(f"\n{BOLD}Git Stashes:{NC}")
+                for stash in stashes:
+                    print(f"  {BULLET} {stash}")
+                print()
+            else:
+                print(f"{YELLOW}{WARNING} No stashes available{NC}")
         else:
-            # Normal update process
             main()
     except KeyboardInterrupt:
         print(f"\n\n{YELLOW}Operation cancelled by user{NC}\n")
