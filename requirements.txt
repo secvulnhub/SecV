@@ -19,6 +19,7 @@
 cmd2>=2.4.3                    # Interactive shell framework
 rich>=13.0.0                   # Terminal formatting and output
 argcomplete>=3.0.0             # Shell completion support
+psutil
 
 # ============================================================================
 # STANDARD TIER - Recommended (scanning & pentesting)
