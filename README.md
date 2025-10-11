@@ -1599,8 +1599,6 @@ Bug reports
 </td>
 <td align="center" width="25%">
 
-### 📧
-**[Email](mailto:security@secvulnhub.io)**
 
 Direct support
 
