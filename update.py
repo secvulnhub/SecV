@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 SecV Enhanced Update System v4.0
 Features:
@@ -47,6 +48,14 @@ MAGENTA = '\033[0;35m'
 BOLD = '\033[1m'
 DIM = '\033[2m'
 NC = '\033[0m'
+
+# --- Symbols ---
+CHECK = "✓"
+CROSS = "✗"
+BULLET = "•"
+WARNING = "⚠"
+GEAR = "⚙"
+INFO = "ℹ"
 
 # --- Version Info Structure ---
 VERSION_INFO = {
@@ -197,11 +206,11 @@ class BackupManager:
                     shutil.copy2(file, dest)
             
             Logger.log(f"Created backup: {backup_path}")
-            print(f"{GREEN}âœ" Backup created: {backup_path.name}{NC}")
+            print(f"{GREEN}{CHECK} Backup created: {backup_path.name}{NC}")
             return backup_path
         except Exception as e:
             Logger.log(f"Backup failed: {str(e)}", "ERROR")
-            print(f"{RED}âœ— Backup failed: {str(e)}{NC}")
+            print(f"{RED}{CROSS} Backup failed: {str(e)}{NC}")
             return None
     
     @staticmethod
@@ -223,11 +232,11 @@ class BackupManager:
                     shutil.copy2(item, dest)
             
             Logger.log(f"Restored backup: {backup_path}")
-            print(f"{GREEN}âœ" Restored from backup: {backup_path.name}{NC}")
+            print(f"{GREEN}{CHECK} Restored from backup: {backup_path.name}{NC}")
             return True
         except Exception as e:
             Logger.log(f"Restore failed: {str(e)}", "ERROR")
-            print(f"{RED}âœ— Restore failed: {str(e)}{NC}")
+            print(f"{RED}{CROSS} Restore failed: {str(e)}{NC}")
             return False
     
     @staticmethod
@@ -259,11 +268,11 @@ class GoBinaryManager:
     def compile_binary() -> bool:
         """Compile Go binary"""
         if not MAIN_GO.exists():
-            print(f"{RED}âœ— main.go not found{NC}")
+            print(f"{RED}{CROSS} main.go not found{NC}")
             return False
         
         if not GoBinaryManager.check_go_available():
-            print(f"{RED}âœ— Go compiler not available{NC}")
+            print(f"{RED}{CROSS} Go compiler not available{NC}")
             return False
         
         print(f"{YELLOW}[*] Compiling Go binary...{NC}")
@@ -284,20 +293,20 @@ class GoBinaryManager:
                 
                 # Get binary size
                 size = SECV_BINARY.stat().st_size / 1024  # KB
-                print(f"{GREEN}âœ" Binary compiled successfully ({size:.1f} KB){NC}")
+                print(f"{GREEN}{CHECK} Binary compiled successfully ({size:.1f} KB){NC}")
                 Logger.log(f"Go binary compiled: {size:.1f} KB")
                 return True
             else:
-                print(f"{RED}âœ— Compilation failed:{NC}")
+                print(f"{RED}{CROSS} Compilation failed:{NC}")
                 print(f"{DIM}{result.stderr}{NC}")
                 Logger.log(f"Compilation failed: {result.stderr}", "ERROR")
                 return False
                 
         except subprocess.TimeoutExpired:
-            print(f"{RED}âœ— Compilation timed out{NC}")
+            print(f"{RED}{CROSS} Compilation timed out{NC}")
             return False
         except Exception as e:
-            print(f"{RED}âœ— Compilation error: {str(e)}{NC}")
+            print(f"{RED}{CROSS} Compilation error: {str(e)}{NC}")
             return False
     
     @staticmethod
@@ -393,11 +402,11 @@ def run_command(command: list, capture: bool = True, check: bool = True):
             cwd=SECV_HOME
         )
     except FileNotFoundError:
-        print(f"{RED}âœ— Error: Command '{command[0]}' not found.{NC}")
+        print(f"{RED}{CROSS} Error: Command '{command[0]}' not found.{NC}")
         sys.exit(1)
     except subprocess.CalledProcessError as e:
         if check:
-            print(f"{RED}âœ— Error executing command: {' '.join(command)}{NC}")
+            print(f"{RED}{CROSS} Error executing command: {' '.join(command)}{NC}")
             if e.stderr:
                 print(f"{RED}{e.stderr}{NC}")
             sys.exit(1)
@@ -474,7 +483,7 @@ def check_for_updates(force: bool = False, silent: bool = False) -> Tuple[bool, 
     
     if not check_git_repository():
         if not silent:
-            print(f"{RED}âœ— Not a git repository. Cannot check for updates.{NC}")
+            print(f"{RED}{CROSS} Not a git repository. Cannot check for updates.{NC}")
         return False, version_info["current_version"], None
     
     try:
@@ -497,7 +506,7 @@ def check_for_updates(force: bool = False, silent: bool = False) -> Tuple[bool, 
     except Exception as e:
         Logger.log(f"Update check failed: {str(e)}", "ERROR")
         if not silent:
-            print(f"{RED}âœ— Failed to check for updates: {str(e)}{NC}")
+            print(f"{RED}{CROSS} Failed to check for updates: {str(e)}{NC}")
     
     return False, version_info["current_version"], None
 
@@ -507,7 +516,7 @@ def install_dependencies() -> bool:
     requirements_path = SECV_HOME / REQUIREMENTS_FILE
     
     if not requirements_path.exists():
-        print(f"{RED}âœ— {REQUIREMENTS_FILE} not found!{NC}")
+        print(f"{RED}{CROSS} {REQUIREMENTS_FILE} not found!{NC}")
         return False
     
     print(f"\n{YELLOW}Installing/updating dependencies...{NC}")
@@ -524,33 +533,33 @@ def install_dependencies() -> bool:
         try:
             result = subprocess.run(pip_command, check=False, capture_output=True, cwd=SECV_HOME)
             if result.returncode == 0:
-                print(f"{GREEN}âœ" Dependencies installed successfully!{NC}")
+                print(f"{GREEN}{CHECK} Dependencies installed successfully!{NC}")
                 Logger.log("Dependencies installed successfully")
                 return True
         except Exception:
             continue
     
-    print(f"{YELLOW}âš  Attempting installation with sudo...{NC}")
+    print(f"{YELLOW}{WARNING} Attempting installation with sudo...{NC}")
     sudo_command = ['sudo', sys.executable, '-m', 'pip', 'install', '--break-system-packages', '-r', str(requirements_path)]
     try:
         result = subprocess.run(sudo_command, check=False, capture_output=False, cwd=SECV_HOME)
         if result.returncode == 0:
-            print(f"{GREEN}âœ" Dependencies installed with sudo!{NC}")
+            print(f"{GREEN}{CHECK} Dependencies installed with sudo!{NC}")
             Logger.log("Dependencies installed with sudo")
             return True
     except Exception:
         pass
     
-    print(f"{RED}âœ— Failed to install dependencies{NC}")
+    print(f"{RED}{CROSS} Failed to install dependencies{NC}")
     Logger.log("Dependency installation failed", "ERROR")
     return False
 
 
 def perform_update(current_version: str, new_version: str) -> bool:
     """Perform the actual update"""
-    print(f"\n{BOLD}{CYAN}â•"â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—{NC}")
-    print(f"{BOLD}{CYAN}â•'                    Performing SecV Update                         â•'{NC}")
-    print(f"{BOLD}{CYAN}â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•{NC}\n")
+    print(f"\n{BOLD}{CYAN}╔═══════════════════════════════════════════════════════════════════╗{NC}")
+    print(f"{BOLD}{CYAN}║                    Performing SecV Update                         ║{NC}")
+    print(f"{BOLD}{CYAN}╚═══════════════════════════════════════════════════════════════════╝{NC}\n")
     
     Logger.log(f"Starting update: {current_version} -> {new_version}")
     
@@ -568,17 +577,17 @@ def perform_update(current_version: str, new_version: str) -> bool:
     
     backup_path = BackupManager.create_backup(critical_files)
     if not backup_path:
-        print(f"{RED}âœ— Backup failed. Aborting update.{NC}")
+        print(f"{RED}{CROSS} Backup failed. Aborting update.{NC}")
         return False
     
     # Step 2: Pull updates
     print(f"\n{YELLOW}[2/7] Pulling latest changes...{NC}")
     try:
         result = run_command(['git', 'pull'], capture=False)
-        print(f"{GREEN}âœ" Git pull successful{NC}")
+        print(f"{GREEN}{CHECK} Git pull successful{NC}")
         Logger.log("Git pull successful")
     except Exception as e:
-        print(f"{RED}âœ— Git pull failed: {str(e)}{NC}")
+        print(f"{RED}{CROSS} Git pull failed: {str(e)}{NC}")
         Logger.log(f"Git pull failed: {str(e)}", "ERROR")
         
         response = input(f"\n{YELLOW}Restore from backup? [Y/n]: {NC}").strip().lower()
@@ -593,16 +602,16 @@ def perform_update(current_version: str, new_version: str) -> bool:
     if obsolete_files:
         print(f"{DIM}Found {len(obsolete_files)} obsolete file(s){NC}")
         for file in obsolete_files:
-            print(f"  {DIM}â€¢ {file}{NC}")
+            print(f"  {DIM}{BULLET} {file}{NC}")
         
         response = input(f"\n{YELLOW}Remove obsolete files? [Y/n]: {NC}").strip().lower()
         if not response or response == 'y':
             removed, failed = ObsoleteFilesCleaner.clean_obsolete_files(obsolete_files)
-            print(f"{GREEN}âœ" Removed {removed} file(s){NC}")
+            print(f"{GREEN}{CHECK} Removed {removed} file(s){NC}")
             if failed > 0:
-                print(f"{YELLOW}âš  Failed to remove {failed} file(s){NC}")
+                print(f"{YELLOW}{WARNING} Failed to remove {failed} file(s){NC}")
     else:
-        print(f"{GREEN}âœ" No obsolete files found{NC}")
+        print(f"{GREEN}{CHECK} No obsolete files found{NC}")
     
     # Step 4: Recompile Go binary
     print(f"\n{YELLOW}[4/7] Recompiling Go binary...{NC}")
@@ -612,9 +621,9 @@ def perform_update(current_version: str, new_version: str) -> bool:
     if GoBinaryManager.needs_recompilation(version_info):
         print(f"{CYAN}main.go has changed, recompiling...{NC}")
         if not GoBinaryManager.compile_binary():
-            print(f"{YELLOW}âš  Binary compilation failed, but continuing...{NC}")
+            print(f"{YELLOW}{WARNING} Binary compilation failed, but continuing...{NC}")
     else:
-        print(f"{GREEN}âœ" Binary is up to date{NC}")
+        print(f"{GREEN}{CHECK} Binary is up to date{NC}")
     
     # Step 5: Update dependencies
     print(f"\n{YELLOW}[5/7] Updating dependencies...{NC}")
@@ -627,9 +636,9 @@ def perform_update(current_version: str, new_version: str) -> bool:
     if old_hash != stored_hash:
         print(f"{CYAN}requirements.txt has changed{NC}")
         if not install_dependencies():
-            print(f"{YELLOW}âš  Dependency update failed, but continuing...{NC}")
+            print(f"{YELLOW}{WARNING} Dependency update failed, but continuing...{NC}")
     else:
-        print(f"{GREEN}âœ" No dependency changes{NC}")
+        print(f"{GREEN}{CHECK} No dependency changes{NC}")
     
     # Step 6: Update version info
     print(f"\n{YELLOW}[6/7] Updating version information...{NC}")
@@ -652,13 +661,13 @@ def perform_update(current_version: str, new_version: str) -> bool:
         VersionManager.update_component_hash(comp_name, comp_path, version_info)
     
     VersionManager.save_version_info(version_info)
-    print(f"{GREEN}âœ" Version info updated{NC}")
+    print(f"{GREEN}{CHECK} Version info updated{NC}")
     
     # Step 7: Cleanup
     print(f"\n{YELLOW}[7/7] Cleaning up...{NC}")
     BackupManager.cleanup_old_backups(keep=5)
     Logger.cleanup_old_logs()
-    print(f"{GREEN}âœ" Cleanup complete{NC}")
+    print(f"{GREEN}{CHECK} Cleanup complete{NC}")
     
     Logger.log(f"Update completed successfully: {new_version}")
     return True
@@ -666,23 +675,23 @@ def perform_update(current_version: str, new_version: str) -> bool:
 
 def show_update_summary(current_version: str, new_version: str):
     """Display update summary"""
-    print(f"\n{BOLD}{CYAN}â•"â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—{NC}")
-    print(f"{BOLD}{CYAN}â•'                    Update Available!                              â•'{NC}")
-    print(f"{BOLD}{CYAN}â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•{NC}\n")
+    print(f"\n{BOLD}{CYAN}╔═══════════════════════════════════════════════════════════════════╗{NC}")
+    print(f"{BOLD}{CYAN}║                    Update Available!                              ║{NC}")
+    print(f"{BOLD}{CYAN}╚═══════════════════════════════════════════════════════════════════╝{NC}\n")
     
     print(f"  {BOLD}Current Version:{NC} {RED}{current_version}{NC}")
     print(f"  {BOLD}New Version:{NC}     {GREEN}{new_version}{NC}")
     
     obsolete_files = ObsoleteFilesCleaner.find_obsolete_files(current_version, new_version)
     if obsolete_files:
-        print(f"\n  {YELLOW}âš  Will clean {len(obsolete_files)} obsolete file(s){NC}")
+        print(f"\n  {YELLOW}{WARNING} Will clean {len(obsolete_files)} obsolete file(s){NC}")
     
     print(f"\n  {DIM}This update will:{NC}")
-    print(f"    â€¢ Pull latest changes from repository")
-    print(f"    â€¢ Recompile Go binary if main.go changed")
-    print(f"    â€¢ Clean obsolete files")
-    print(f"    â€¢ Update dependencies if needed")
-    print(f"    â€¢ Create backup before updating")
+    print(f"    {BULLET} Pull latest changes from repository")
+    print(f"    {BULLET} Recompile Go binary if main.go changed")
+    print(f"    {BULLET} Clean obsolete files")
+    print(f"    {BULLET} Update dependencies if needed")
+    print(f"    {BULLET} Create backup before updating")
     print()
 
 
@@ -697,15 +706,15 @@ def first_run_check(silent: bool = True) -> bool:
     
     if not has_update:
         if not silent:
-            print(f"{GREEN}âœ" SecV is up to date ({current_version}){NC}")
+            print(f"{GREEN}{CHECK} SecV is up to date ({current_version}){NC}")
         return False
     
     if not silent:
-        print(f"\n{CYAN}â•"â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—{NC}")
-        print(f"{CYAN}â•'          Update Available - v{new_version}                         â•'{NC}")
-        print(f"{CYAN}â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•{NC}\n")
+        print(f"\n{CYAN}╔═══════════════════════════════════════════════════════════════════╗{NC}")
+        print(f"{CYAN}║          Update Available - v{new_version}                         ║{NC}")
+        print(f"{CYAN}╚═══════════════════════════════════════════════════════════════════╝{NC}\n")
         print(f"{YELLOW}An update is available for SecV.{NC}")
-        print(f"Current: {RED}{current_version}{NC} â†' New: {GREEN}{new_version}{NC}\n")
+        print(f"Current: {RED}{current_version}{NC} → New: {GREEN}{new_version}{NC}\n")
         
         response = input(f"{YELLOW}Would you like to update now? [Y/n]: {NC}").strip().lower()
         if response and response != 'y':
@@ -716,27 +725,28 @@ def first_run_check(silent: bool = True) -> bool:
     success = perform_update(current_version, new_version or "unknown")
     
     if success:
-        print(f"\n{BOLD}{GREEN}â•"â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—{NC}")
-        print(f"{BOLD}{GREEN}â•'              Update Complete! âœ" Please Restart SecV              â•'{NC}")
-        print(f"{BOLD}{GREEN}â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•{NC}\n")
+        print(f"\n{BOLD}{GREEN}╔═══════════════════════════════════════════════════════════════════╗{NC}")
+        print(f"{BOLD}{GREEN}║              Update Complete! {CHECK} Please Restart SecV              ║{NC}")
+        print(f"{BOLD}{GREEN}╚═══════════════════════════════════════════════════════════════════╝{NC}\n")
         print(f"{YELLOW}Please restart SecV to use the updated version.{NC}\n")
-        return True
+        # Exit code 2 signals Go loader that update was performed
+        sys.exit(2)
     
     return False
 
 
 def main():
     """Main update process"""
-    print(f"\n{CYAN}â•"â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—{NC}")
-    print(f"{CYAN}â•'                      SecV Update System v4.0                      â•'{NC}")
-    print(f"{CYAN}â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•{NC}\n")
+    print(f"\n{CYAN}╔═══════════════════════════════════════════════════════════════════╗{NC}")
+    print(f"{CYAN}║                      SecV Update System v4.0                      ║{NC}")
+    print(f"{CYAN}╚═══════════════════════════════════════════════════════════════════╝{NC}\n")
     
     Logger.log("Update check initiated")
     
     has_update, current_version, new_version = check_for_updates(force=True)
     
     if not has_update:
-        print(f"{GREEN}âœ" You're already on the latest version!{NC}")
+        print(f"{GREEN}{CHECK} You're already on the latest version!{NC}")
         print(f"  {BOLD}Current Version:{NC} {GREEN}{current_version}{NC}\n")
         
         version_info = VersionManager.load_version_info()
@@ -762,11 +772,11 @@ def main():
     success = perform_update(current_version, new_version or "unknown")
     
     if success:
-        print(f"\n{BOLD}{GREEN}â•"â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—{NC}")
-        print(f"{BOLD}{GREEN}â•'                    Update Complete! âœ"                             â•'{NC}")
-        print(f"{BOLD}{GREEN}â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•{NC}\n")
+        print(f"\n{BOLD}{GREEN}╔═══════════════════════════════════════════════════════════════════╗{NC}")
+        print(f"{BOLD}{GREEN}║                    Update Complete! {CHECK}                             ║{NC}")
+        print(f"{BOLD}{GREEN}╚═══════════════════════════════════════════════════════════════════╝{NC}\n")
         
-        print(f"{BOLD}{GREEN}âœ" SecV has been updated successfully!{NC}\n")
+        print(f"{BOLD}{GREEN}{CHECK} SecV has been updated successfully!{NC}\n")
         
         print(f"{BLUE}Next Steps:{NC}")
         print(f"  1. {YELLOW}Restart SecV{NC} to load updated components")
@@ -775,19 +785,22 @@ def main():
         
         backups = BackupManager.list_backups()
         if backups:
-            print(f"{MAGENTA}â„¹ Backup available at: {backups[0].name}{NC}")
+            print(f"{MAGENTA}{INFO} Backup available at: {backups[0].name}{NC}")
             print(f"{DIM}  Use 'python3 update.py --rollback' to restore if needed{NC}\n")
+        
+        # Exit code 2 signals restart required
+        sys.exit(2)
     else:
-        print(f"\n{RED}âœ— Update failed. Check {UPDATE_LOG} for details.{NC}\n")
+        print(f"\n{RED}{CROSS} Update failed. Check {UPDATE_LOG} for details.{NC}\n")
         Logger.log("Update failed", "ERROR")
         sys.exit(1)
 
 
 def show_component_status():
     """Show status of all SecV components"""
-    print(f"\n{BOLD}{CYAN}â•"â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—{NC}")
-    print(f"{BOLD}{CYAN}â•'                    SecV Component Status                          â•'{NC}")
-    print(f"{BOLD}{CYAN}â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•{NC}\n")
+    print(f"\n{BOLD}{CYAN}╔═══════════════════════════════════════════════════════════════════╗{NC}")
+    print(f"{BOLD}{CYAN}║                    SecV Component Status                          ║{NC}")
+    print(f"{BOLD}{CYAN}╚═══════════════════════════════════════════════════════════════════╝{NC}\n")
     
     version_info = VersionManager.load_version_info()
     
@@ -833,9 +846,9 @@ def show_component_status():
 
 def verify_installation():
     """Verify SecV installation integrity"""
-    print(f"\n{BOLD}{CYAN}â•"â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—{NC}")
-    print(f"{BOLD}{CYAN}â•'                    Verifying Installation                         â•'{NC}")
-    print(f"{BOLD}{CYAN}â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•{NC}\n")
+    print(f"\n{BOLD}{CYAN}╔═══════════════════════════════════════════════════════════════════╗{NC}")
+    print(f"{BOLD}{CYAN}║                    Verifying Installation                         ║{NC}")
+    print(f"{BOLD}{CYAN}╚═══════════════════════════════════════════════════════════════════╝{NC}\n")
     
     issues = []
     
@@ -852,14 +865,14 @@ def verify_installation():
         if path.exists():
             if name == "secV (binary)":
                 if os.access(path, os.X_OK):
-                    print(f"    {GREEN}âœ"{NC} {name} (executable)")
+                    print(f"    {GREEN}{CHECK}{NC} {name} (executable)")
                 else:
-                    print(f"    {YELLOW}âš {NC} {name} (not executable)")
+                    print(f"    {YELLOW}{WARNING}{NC} {name} (not executable)")
                     issues.append(f"{name} not executable")
             else:
-                print(f"    {GREEN}âœ"{NC} {name}")
+                print(f"    {GREEN}{CHECK}{NC} {name}")
         else:
-            print(f"    {RED}âœ—{NC} {name} {DIM}(missing){NC}")
+            print(f"    {RED}{CROSS}{NC} {name} {DIM}(missing){NC}")
             issues.append(f"Missing critical file: {name}")
     
     print(f"\n  {BOLD}Checking directories...{NC}")
@@ -870,9 +883,9 @@ def verify_installation():
     
     for name, path in critical_dirs.items():
         if path.exists() and path.is_dir():
-            print(f"    {GREEN}âœ"{NC} {name}/")
+            print(f"    {GREEN}{CHECK}{NC} {name}/")
         else:
-            print(f"    {YELLOW}âš {NC} {name}/ {DIM}(will be created){NC}")
+            print(f"    {YELLOW}{WARNING}{NC} {name}/ {DIM}(will be created){NC}")
             path.mkdir(parents=True, exist_ok=True)
     
     print(f"\n  {BOLD}Checking Python dependencies...{NC}")
@@ -881,9 +894,9 @@ def verify_installation():
     for package in required_packages:
         try:
             __import__(package)
-            print(f"    {GREEN}âœ"{NC} {package}")
+            print(f"    {GREEN}{CHECK}{NC} {package}")
         except ImportError:
-            print(f"    {RED}âœ—{NC} {package} {DIM}(not installed){NC}")
+            print(f"    {RED}{CROSS}{NC} {package} {DIM}(not installed){NC}")
             issues.append(f"Missing Python package: {package}")
     
     print(f"\n  {BOLD}Checking Go installation...{NC}")
@@ -891,48 +904,48 @@ def verify_installation():
         try:
             result = subprocess.run(['go', 'version'], capture_output=True, text=True)
             version = result.stdout.split()[2] if result.returncode == 0 else "unknown"
-            print(f"    {GREEN}âœ"{NC} Go compiler ({version})")
+            print(f"    {GREEN}{CHECK}{NC} Go compiler ({version})")
         except:
-            print(f"    {GREEN}âœ"{NC} Go compiler (available)")
+            print(f"    {GREEN}{CHECK}{NC} Go compiler (available)")
     else:
-        print(f"    {YELLOW}âš {NC} Go compiler not available")
+        print(f"    {YELLOW}{WARNING}{NC} Go compiler not available")
         print(f"    {DIM}    Binary can't be recompiled without Go{NC}")
     
     print(f"\n  {BOLD}Checking git repository...{NC}")
     if check_git_repository():
-        print(f"    {GREEN}âœ"{NC} Git repository initialized")
+        print(f"    {GREEN}{CHECK}{NC} Git repository initialized")
         
         try:
             result = run_command(['git', 'remote', '-v'], check=False)
             if result.returncode == 0 and result.stdout:
-                print(f"    {GREEN}âœ"{NC} Remote configured")
+                print(f"    {GREEN}{CHECK}{NC} Remote configured")
             else:
-                print(f"    {YELLOW}âš {NC} No remote configured")
+                print(f"    {YELLOW}{WARNING}{NC} No remote configured")
                 issues.append("Git remote not configured")
         except:
             pass
     else:
-        print(f"    {RED}âœ—{NC} Not a git repository")
+        print(f"    {RED}{CROSS}{NC} Not a git repository")
         issues.append("Not a git repository - updates disabled")
     
     print(f"\n  {BOLD}{'─' * 65}{NC}")
     
     if issues:
-        print(f"\n  {YELLOW}âš  Found {len(issues)} issue(s):{NC}")
+        print(f"\n  {YELLOW}{WARNING} Found {len(issues)} issue(s):{NC}")
         for issue in issues:
-            print(f"    â€¢ {issue}")
+            print(f"    {BULLET} {issue}")
         print(f"\n  {DIM}Run './install.sh' to fix installation issues{NC}\n")
         return False
     else:
-        print(f"\n  {GREEN}âœ" Installation verified - all checks passed!{NC}\n")
+        print(f"\n  {GREEN}{CHECK} Installation verified - all checks passed!{NC}\n")
         return True
 
 
 def repair_installation():
     """Attempt to repair common installation issues"""
-    print(f"\n{BOLD}{CYAN}â•"â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—{NC}")
-    print(f"{BOLD}{CYAN}â•'                    Repairing Installation                         â•'{NC}")
-    print(f"{BOLD}{CYAN}â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•{NC}\n")
+    print(f"\n{BOLD}{CYAN}╔═══════════════════════════════════════════════════════════════════╗{NC}")
+    print(f"{BOLD}{CYAN}║                    Repairing Installation                         ║{NC}")
+    print(f"{BOLD}{CYAN}╚═══════════════════════════════════════════════════════════════════╝{NC}\n")
     
     repaired = []
     failed = []
@@ -947,7 +960,7 @@ def repair_installation():
             failed.append(f"Failed to create {dir_path.name}: {str(e)}")
     
     if repaired:
-        print(f"{GREEN}âœ" Created {len(repaired)} directories{NC}")
+        print(f"{GREEN}{CHECK} Created {len(repaired)} directories{NC}")
     
     print(f"\n{YELLOW}[2/4] Checking version information...{NC}")
     version_info = VersionManager.load_version_info()
@@ -968,7 +981,7 @@ def repair_installation():
     version_info["go_compiled"] = SECV_BINARY.exists() and os.access(SECV_BINARY, os.X_OK)
     VersionManager.save_version_info(version_info)
     repaired.append("Updated version information")
-    print(f"{GREEN}âœ" Version info updated{NC}")
+    print(f"{GREEN}{CHECK} Version info updated{NC}")
     
     print(f"\n{YELLOW}[3/4] Checking file permissions...{NC}")
     executable_files = [SECV_BINARY, SECV_HOME / "install.sh"]
@@ -981,7 +994,7 @@ def repair_installation():
             except Exception as e:
                 failed.append(f"Failed to fix permissions on {file.name}: {str(e)}")
     
-    print(f"{GREEN}âœ" Permissions checked{NC}")
+    print(f"{GREEN}{CHECK} Permissions checked{NC}")
     
     print(f"\n{YELLOW}[4/4] Checking Go binary...{NC}")
     if MAIN_GO.exists() and not SECV_BINARY.exists():
@@ -995,31 +1008,75 @@ def repair_installation():
         try:
             os.chmod(SECV_BINARY, 0o755)
             repaired.append("Made binary executable")
-            print(f"{GREEN}âœ" Binary is now executable{NC}")
+            print(f"{GREEN}{CHECK} Binary is now executable{NC}")
         except Exception as e:
             failed.append(f"Failed to make binary executable: {str(e)}")
     else:
-        print(f"{GREEN}âœ" Binary OK{NC}")
+        print(f"{GREEN}{CHECK} Binary OK{NC}")
     
     print(f"\n{BOLD}{'─' * 67}{NC}")
     print(f"\n{BOLD}Repair Summary:{NC}")
-    print(f"  {GREEN}âœ" Repaired: {len(repaired)}{NC}")
+    print(f"  {GREEN}{CHECK} Repaired: {len(repaired)}{NC}")
     if failed:
-        print(f"  {RED}âœ— Failed: {len(failed)}{NC}")
+        print(f"  {RED}{CROSS} Failed: {len(failed)}{NC}")
     
     if repaired:
         print(f"\n{DIM}Repaired items:{NC}")
         for item in repaired[:5]:
-            print(f"    â€¢ {item}")
+            print(f"    {BULLET} {item}")
     
     if failed:
         print(f"\n{YELLOW}Failed items:{NC}")
         for item in failed:
-            print(f"    â€¢ {item}")
+            print(f"    {BULLET} {item}")
     
     print()
     
     return len(failed) == 0
+
+
+def handle_rollback():
+    """Handle rollback operation"""
+    backups = BackupManager.list_backups()
+    
+    if not backups:
+        print(f"{YELLOW}{WARNING} No backups available{NC}")
+        return
+    
+    print(f"\n{BOLD}{CYAN}╔═══════════════════════════════════════════════════════════════════╗{NC}")
+    print(f"{BOLD}{CYAN}║                    Available Backups                              ║{NC}")
+    print(f"{BOLD}{CYAN}╚═══════════════════════════════════════════════════════════════════╝{NC}\n")
+    
+    for i, backup in enumerate(backups, 1):
+        backup_time = datetime.strptime(backup.name, "%Y%m%d_%H%M%S")
+        print(f"  {i}. {backup.name} ({backup_time.strftime('%Y-%m-%d %H:%M:%S')})")
+    
+    print()
+    try:
+        choice = input(f"{YELLOW}Select backup to restore (1-{len(backups)}) or 'q' to quit: {NC}").strip()
+        
+        if choice.lower() == 'q':
+            print(f"{CYAN}Rollback cancelled{NC}")
+            return
+        
+        idx = int(choice) - 1
+        if 0 <= idx < len(backups):
+            backup_path = backups[idx]
+            print(f"\n{YELLOW}Restoring backup: {backup_path.name}{NC}")
+            
+            confirm = input(f"{RED}This will overwrite current files. Continue? [y/N]: {NC}").strip().lower()
+            if confirm == 'y':
+                if BackupManager.restore_backup(backup_path):
+                    print(f"\n{GREEN}{CHECK} Rollback successful!{NC}")
+                    print(f"{YELLOW}Please restart SecV to use the restored version.{NC}\n")
+                else:
+                    print(f"\n{RED}{CROSS} Rollback failed{NC}\n")
+            else:
+                print(f"{CYAN}Rollback cancelled{NC}")
+        else:
+            print(f"{RED}{CROSS} Invalid selection{NC}")
+    except (ValueError, KeyboardInterrupt):
+        print(f"\n{CYAN}Rollback cancelled{NC}")
 
 
 if __name__ == '__main__':
@@ -1051,4 +1108,42 @@ Examples:
                        help='Force update check (ignore interval)')
     parser.add_argument('--status', action='store_true',
                        help='Show component status')
-    parser.add_argument('--verify', action
+    parser.add_argument('--verify', action='store_true',
+                       help='Verify installation integrity')
+    parser.add_argument('--repair', action='store_true',
+                       help='Repair common installation issues')
+    
+    args = parser.parse_args()
+    
+    try:
+        if args.first_run:
+            # Silent first-run check called by Go loader
+            first_run_check(silent=True)
+        elif args.status:
+            show_component_status()
+        elif args.verify:
+            verify_installation()
+        elif args.repair:
+            repair_installation()
+        elif args.rollback:
+            handle_rollback()
+        elif args.list_backups:
+            backups = BackupManager.list_backups()
+            if backups:
+                print(f"\n{BOLD}Available Backups:{NC}")
+                for backup in backups:
+                    backup_time = datetime.strptime(backup.name, "%Y%m%d_%H%M%S")
+                    print(f"  {BULLET} {backup.name} ({backup_time.strftime('%Y-%m-%d %H:%M:%S')})")
+                print()
+            else:
+                print(f"{YELLOW}{WARNING} No backups available{NC}")
+        else:
+            # Normal update process
+            main()
+    except KeyboardInterrupt:
+        print(f"\n\n{YELLOW}Operation cancelled by user{NC}\n")
+        sys.exit(130)
+    except Exception as e:
+        print(f"\n{RED}{CROSS} Unexpected error: {str(e)}{NC}\n")
+        Logger.log(f"Unexpected error: {str(e)}", "ERROR")
+        sys.exit(1)
