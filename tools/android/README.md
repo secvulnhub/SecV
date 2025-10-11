@@ -1,7 +1,7 @@
 # Android Penetration Testing Module for SecV
 **Category:** Mobile Security  
 **Version:** 1.0.0  
-**Author:** SecVulnHub Team | Enhanced by 0xb0rn3  
+**Author:** 0xb0rn3  
 **License:** MIT
 
 Complete Android security testing suite combining device reconnaissance, static/dynamic analysis, vulnerability scanning, exploitation testing, network interception, forensics, and advanced features from droidB and HacknDroid.
