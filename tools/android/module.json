@@ -1,0 +1,545 @@
+{
+  "name": "android_pentest",
+  "version": "1.0.0",
+  "category": "mobile",
+  "description": "Complete Android penetration testing suite with device reconnaissance, app analysis, vulnerability scanning, exploitation, network capture, and forensics",
+  "author": "SecVulnHub Team | Enhanced by 0xb0rn3",
+  "executable": "python3 android_pentest.py",
+  
+  "dependencies": [
+    "python3",
+    "android-tools-adb"
+  ],
+  
+  "optional_dependencies": {
+    "aapt": "For APK analysis - apt install aapt",
+    "apktool": "For APK decompilation - apt install apktool",
+    "jadx": "For DEX to Java decompilation - apt install jadx",
+    "keytool": "For certificate analysis - included with JDK",
+    "frida": "For runtime instrumentation - pip3 install frida-tools",
+    "objection": "For Frida automation - pip3 install objection",
+    "requests": "For network operations - pip3 install requests",
+    "cryptography": "For certificate parsing - pip3 install cryptography"
+  },
+  
+  "help": {
+    "description": "Professional Android penetration testing framework combining device fingerprinting, static/dynamic app analysis, vulnerability scanning, exploitation testing, network traffic interception, and forensics. Detects 50+ vulnerability types including SQL injection, insecure storage, cleartext traffic, exported components, and more. Includes automated exploitation chains for common Android vulnerabilities.",
+    
+    "parameters": {
+      "operation": {
+        "description": "Penetration testing operation to perform",
+        "type": "string",
+        "options": ["recon", "app_scan", "vuln_scan", "exploit", "network", "forensics", "full"],
+        "default": "recon",
+        "examples": [
+          "recon - Device reconnaissance and security posture",
+          "app_scan - Application security analysis",
+          "vuln_scan - Vulnerability scanning",
+          "exploit - Exploitation testing (ethical)",
+          "network - Network traffic analysis",
+          "forensics - Data extraction and forensics",
+          "full - Complete penetration test"
+        ]
+      },
+      "device": {
+        "description": "Android device serial number (auto-detected if not specified)",
+        "type": "string",
+        "required": false,
+        "examples": ["emulator-5554", "192.168.1.100:5555", "device_serial_number"]
+      },
+      "package": {
+        "description": "Target package name for app-specific operations",
+        "type": "string",
+        "required": false,
+        "examples": ["com.example.app", "com.target.vulnerable"]
+      },
+      "frida": {
+        "description": "Enable Frida instrumentation and hooks",
+        "type": "boolean",
+        "default": false,
+        "requires": "frida-server running on device"
+      },
+      "proxy": {
+        "description": "Setup HTTP proxy on device",
+        "type": "boolean",
+        "default": false
+      },
+      "proxy_host": {
+        "description": "Proxy server IP (auto-detected if not specified)",
+        "type": "string",
+        "required": false,
+        "examples": ["192.168.1.100", "10.0.0.1"]
+      },
+      "proxy_port": {
+        "description": "Proxy server port",
+        "type": "integer",
+        "default": 8080
+      },
+      "bypass_ssl": {
+        "description": "Attempt SSL certificate pinning bypass",
+        "type": "boolean",
+        "default": false,
+        "methods": ["frida", "objection"]
+      },
+      "backup": {
+        "description": "Create full backup of app/device",
+        "type": "boolean",
+        "default": false
+      },
+      "search_secrets": {
+        "description": "Advanced secret search in decompiled code",
+        "type": "boolean",
+        "default": true,
+        "patterns": [
+          "AWS keys",
+          "API keys",
+          "Passwords",
+          "Tokens",
+          "Private keys",
+          "JWT tokens",
+          "Credit cards",
+          "Email addresses",
+          "Phone numbers",
+          "URLs",
+          "IP addresses"
+        ]
+      },
+      "mirror": {
+        "description": "Enable screen mirroring and recording",
+        "type": "boolean",
+        "default": false
+      },
+      "record": {
+        "description": "Record screen video (30 seconds)",
+        "type": "boolean",
+        "default": false
+      }
+    },
+    
+    "examples": [
+      {
+        "description": "Device security reconnaissance",
+        "commands": [
+          "use android_pentest",
+          "set operation recon",
+          "run device"
+        ]
+      },
+      {
+        "description": "Scan specific application for vulnerabilities",
+        "commands": [
+          "use android_pentest",
+          "set operation app_scan",
+          "set package com.example.app",
+          "run device"
+        ]
+      },
+      {
+        "description": "Full vulnerability assessment",
+        "commands": [
+          "use android_pentest",
+          "set operation vuln_scan",
+          "run device"
+        ]
+      },
+      {
+        "description": "Test application for exploitable vulnerabilities",
+        "commands": [
+          "use android_pentest",
+          "set operation exploit",
+          "set package com.target.app",
+          "run device"
+        ]
+      },
+      {
+        "description": "Capture and analyze network traffic",
+        "commands": [
+          "use android_pentest",
+          "set operation network",
+          "set package com.target.app",
+          "run device"
+        ]
+      },
+      {
+        "description": "Extract forensics data",
+        "commands": [
+          "use android_pentest",
+          "set operation forensics",
+          "set package com.target.app",
+          "run device"
+        ]
+      },
+      {
+        "description": "Complete penetration test",
+        "commands": [
+          "use android_pentest",
+          "set operation full",
+          "set package com.target.app",
+          "run device"
+        ]
+      }
+    ],
+    
+    "features": [
+      "Device fingerprinting and reconnaissance",
+      "Root and bootloader detection",
+      "SELinux status analysis",
+      "Security patch level verification",
+      "Static APK analysis with AAPT/APKTool",
+      "AndroidManifest.xml security audit",
+      "Permission analysis (50+ dangerous permissions)",
+      "Component exposure detection",
+      "Code vulnerability scanning",
+      "Certificate validation and analysis",
+      "Security score calculation (0-100)",
+      "SQL injection testing in Content Providers",
+      "Intent injection vulnerability testing",
+      "Path traversal exploitation",
+      "Exported component enumeration and testing",
+      "Network traffic capture (requires root)",
+      "Insecure connection detection",
+      "Data leakage identification",
+      "Database extraction and analysis",
+      "SharedPreferences security audit",
+      "System log extraction and analysis",
+      "SMS/Contacts extraction (requires root)",
+      "Hardcoded credentials detection",
+      "Insecure cryptography identification",
+      "WebView vulnerability detection",
+      "Debuggable application detection",
+      "Backup enabled detection",
+      "Cleartext traffic detection",
+      "Known vulnerable app identification",
+      "ADB over network detection",
+      "World-readable file detection",
+      "Automated exploitation chains",
+      "Comprehensive security reporting"
+    ],
+    
+    "operations": {
+      "recon": {
+        "description": "Device reconnaissance and security posture assessment",
+        "checks": [
+          "Device model and manufacturer",
+          "Android version and SDK level",
+          "Architecture (ARM/x86)",
+          "Root status detection",
+          "Bootloader lock status",
+          "SELinux enforcement mode",
+          "Device encryption status",
+          "Screen lock configuration",
+          "Developer mode status",
+          "USB debugging status",
+          "ADB over network detection",
+          "Battery level and uptime",
+          "Kernel version",
+          "Build ID and security patch level"
+        ],
+        "output": "Comprehensive device security profile"
+      },
+      "app_scan": {
+        "description": "Application security analysis",
+        "checks": [
+          "APK static analysis",
+          "Manifest security flags",
+          "Permission analysis",
+          "Component exposure",
+          "Code vulnerability patterns",
+          "Certificate validation",
+          "Native library detection",
+          "Obfuscation detection",
+          "Runtime analysis",
+          "Security score calculation"
+        ],
+        "detects": [
+          "Debuggable apps",
+          "Backup enabled",
+          "Cleartext traffic allowed",
+          "Excessive permissions",
+          "Exported components",
+          "Debug certificates",
+          "Outdated SDK versions",
+          "SQL injection vectors",
+          "Hardcoded secrets",
+          "Insecure crypto usage",
+          "WebView vulnerabilities",
+          "Intent hijacking risks"
+        ],
+        "output": "Detailed application security profile with risk assessment"
+      },
+      "vuln_scan": {
+        "description": "Comprehensive vulnerability scanning",
+        "scans": [
+          "Device configuration vulnerabilities",
+          "Application security issues",
+          "Known vulnerable applications",
+          "Exposed network services",
+          "Insecure system settings",
+          "World-readable files",
+          "ADB security issues"
+        ],
+        "severity_levels": ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"],
+        "output": "Prioritized vulnerability report with remediation advice"
+      },
+      "exploit": {
+        "description": "Ethical exploitation testing",
+        "tests": [
+          "Intent injection attacks",
+          "SQL injection in Content Providers",
+          "Path traversal exploitation",
+          "Exported component manipulation",
+          "Service hijacking",
+          "Activity launching attacks"
+        ],
+        "note": "All tests are non-destructive and ethical",
+        "output": "Exploitation proof-of-concepts and success indicators"
+      },
+      "network": {
+        "description": "Network traffic analysis and interception",
+        "capabilities": [
+          "Packet capture (tcpdump)",
+          "Protocol analysis",
+          "HTTP/HTTPS detection",
+          "DNS query monitoring",
+          "Insecure connection identification",
+          "Data leakage detection",
+          "Certificate validation"
+        ],
+        "requires": "Root access for packet capture",
+        "output": "Network traffic report with security findings"
+      },
+      "forensics": {
+        "description": "Data extraction and forensics analysis",
+        "extracts": [
+          "System configuration files",
+          "Application databases",
+          "SharedPreferences",
+          "System logs (main, system, crash)",
+          "SMS database (requires root)",
+          "Contacts database (requires root)",
+          "Call logs (requires root)",
+          "Application cache"
+        ],
+        "analyzes": [
+          "Sensitive data in logs",
+          "Credentials in preferences",
+          "Unencrypted databases",
+          "PII exposure"
+        ],
+        "output": "Forensics artifacts and sensitive data report"
+      },
+      "full": {
+        "description": "Complete penetration test",
+        "includes": [
+          "All recon checks",
+          "All app_scan checks",
+          "All vuln_scan checks",
+          "Exploitation testing",
+          "Network analysis",
+          "Forensics extraction"
+        ],
+        "output": "Comprehensive security assessment report"
+      }
+    },
+    
+    "vulnerability_database": {
+      "sql_injection": {
+        "severity": "CRITICAL",
+        "description": "SQL injection in Content Providers",
+        "impact": "Database manipulation, data exfiltration",
+        "remediation": "Use parameterized queries, validate input"
+      },
+      "hardcoded_secrets": {
+        "severity": "HIGH",
+        "description": "Hardcoded passwords, API keys, or tokens",
+        "impact": "Credential compromise, unauthorized access",
+        "remediation": "Store secrets in Android Keystore, use environment variables"
+      },
+      "insecure_crypto": {
+        "severity": "HIGH",
+        "description": "Weak cryptographic algorithms (DES, MD5, SHA1, ECB)",
+        "impact": "Data decryption, integrity compromise",
+        "remediation": "Use AES-256, SHA-256+, secure cipher modes"
+      },
+      "debuggable": {
+        "severity": "HIGH",
+        "description": "Application is debuggable in production",
+        "impact": "Memory inspection, code manipulation",
+        "remediation": "Set android:debuggable='false' in release builds"
+      },
+      "backup_enabled": {
+        "severity": "MEDIUM",
+        "description": "Backup is allowed via ADB",
+        "impact": "Data extraction via ADB backup",
+        "remediation": "Set android:allowBackup='false' for sensitive apps"
+      },
+      "cleartext_traffic": {
+        "severity": "HIGH",
+        "description": "Cleartext (HTTP) traffic is allowed",
+        "impact": "Man-in-the-middle attacks, data interception",
+        "remediation": "Enforce HTTPS, implement certificate pinning"
+      },
+      "exported_components": {
+        "severity": "MEDIUM",
+        "description": "Components exported without permission protection",
+        "impact": "Unauthorized access, intent hijacking",
+        "remediation": "Add permission requirements, validate inputs"
+      },
+      "webview_vulns": {
+        "severity": "HIGH",
+        "description": "WebView with JavaScript interface exposed",
+        "impact": "Code execution, XSS attacks",
+        "remediation": "Disable JavaScript when not needed, validate URLs"
+      },
+      "intent_hijacking": {
+        "severity": "MEDIUM",
+        "description": "Intent data not validated",
+        "impact": "Data injection, privilege escalation",
+        "remediation": "Validate all intent data, use explicit intents"
+      },
+      "path_traversal": {
+        "severity": "HIGH",
+        "description": "Path traversal in file operations",
+        "impact": "Unauthorized file access",
+        "remediation": "Validate and sanitize file paths"
+      },
+      "excessive_permissions": {
+        "severity": "MEDIUM",
+        "description": "App requests unnecessary dangerous permissions",
+        "impact": "Privacy concerns, attack surface increase",
+        "remediation": "Request only required permissions"
+      },
+      "debug_certificate": {
+        "severity": "HIGH",
+        "description": "Application signed with debug certificate",
+        "impact": "Identity spoofing, malicious updates",
+        "remediation": "Sign releases with production certificate"
+      },
+      "outdated_sdk": {
+        "severity": "MEDIUM",
+        "description": "Target SDK version is outdated",
+        "impact": "Missing security features",
+        "remediation": "Update to latest Android API level"
+      },
+      "root_detection": {
+        "severity": "INFO",
+        "description": "Device is rooted",
+        "impact": "All security controls can be bypassed",
+        "remediation": "Implement root detection and anti-tampering"
+      },
+      "adb_network": {
+        "severity": "CRITICAL",
+        "description": "ADB over network is enabled",
+        "impact": "Remote device access",
+        "remediation": "Disable ADB over network"
+      },
+      "world_readable": {
+        "severity": "MEDIUM",
+        "description": "World-readable files detected",
+        "impact": "Information disclosure",
+        "remediation": "Set proper file permissions"
+      }
+    },
+    
+    "installation_tiers": {
+      "basic": "Device recon and basic app analysis (stdlib + adb)",
+      "standard": "+ Static APK analysis (aapt, keytool)",
+      "advanced": "+ Code analysis (apktool, jadx)",
+      "full": "+ Runtime instrumentation (frida, objection)"
+    },
+    
+    "requirements": {
+      "basic": [
+        "Python 3.8+",
+        "android-tools-adb"
+      ],
+      "standard": [
+        "aapt (Android Asset Packaging Tool)",
+        "keytool (Java Key and Certificate Management)"
+      ],
+      "advanced": [
+        "apktool (APK decompilation)",
+        "jadx (DEX to Java decompiler)"
+      ],
+      "full": [
+        "frida-tools (Runtime instrumentation)",
+        "objection (Frida automation)",
+        "requests (HTTP client)",
+        "cryptography (Certificate parsing)"
+      ]
+    },
+    
+    "notes": [
+      "⚠️  AUTHORIZATION REQUIRED - Only test devices you own or have permission to test",
+      "⚠️  Some operations require root access (network capture, forensics)",
+      "⚠️  Exploitation testing is non-destructive and ethical only",
+      "⚠️  Respect privacy laws and data protection regulations",
+      "⚠️  Follow responsible disclosure practices",
+      "💡 Start with 'recon' operation to understand device security posture",
+      "💡 Use 'app_scan' for comprehensive application security analysis",
+      "💡 'vuln_scan' provides prioritized vulnerability assessment",
+      "💡 'exploit' operation tests for real-world exploitability",
+      "💡 'network' operation requires root for packet capture",
+      "💡 'forensics' extracts maximum data with root access",
+      "💡 'full' operation combines all testing methods",
+      "💡 Connect device via USB or ADB over network",
+      "💡 Enable USB debugging in Developer Options",
+      "💡 Accept ADB authorization prompt on device",
+      "💡 Results saved to temporary directory with full details",
+      "💡 Combine with other SecV modules for complete assessment"
+    ],
+    
+    "legal_disclaimer": "This tool is designed exclusively for authorized security testing and research. Users must obtain explicit written permission before testing any Android devices or applications they do not own. Unauthorized access to mobile devices may violate computer fraud and abuse laws in your jurisdiction. The authors and contributors assume no liability for misuse. Always follow ethical hacking guidelines and responsible disclosure practices."
+  },
+  
+  "inputs": {
+    "operation": {
+      "type": "string",
+      "description": "Penetration testing operation: recon, app_scan, vuln_scan, exploit, network, forensics, full",
+      "required": false,
+      "default": "recon"
+    },
+    "device": {
+      "type": "string",
+      "description": "Android device serial (auto-detected if not specified)",
+      "required": false,
+      "default": ""
+    },
+    "package": {
+      "type": "string",
+      "description": "Target package name for app-specific operations",
+      "required": false,
+      "default": ""
+    }
+  },
+  
+  "outputs": {
+    "operation": {
+      "type": "string",
+      "description": "Operation that was performed"
+    },
+    "device": {
+      "type": "object",
+      "description": "Complete device information and security profile"
+    },
+    "applications": {
+      "type": "array",
+      "description": "Array of analyzed application security profiles"
+    },
+    "vulnerabilities": {
+      "type": "array",
+      "description": "All detected vulnerabilities with severity and remediation"
+    },
+    "findings": {
+      "type": "array",
+      "description": "Security findings and observations"
+    },
+    "summary": {
+      "type": "object",
+      "description": "Executive summary with statistics and risk metrics"
+    }
+  },
+  
+  "timeout": 600,
+  "concurrent": false
+}
