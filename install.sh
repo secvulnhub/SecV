@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# SecV Installation Script v2.4 - Go Loader Edition
+# SecV Installation Script v2.4
 # Complete installation with Go binary compilation
 #
 set -e
@@ -54,7 +54,7 @@ cat << "EOF"
 ║   ███████║███████╗╚██████╗ ╚████╔╝                              ║
 ║   ╚══════╝╚══════╝ ╚═════╝  ╚═══╝                               ║
 ║                                                                   ║
-║   SecV Installer v2.4 - Go Loader Edition                        ║
+║   SecV Installer v2.4                                            ║
 ║                                                                   ║
 ╚═══════════════════════════════════════════════════════════════════╝
 EOF
@@ -66,7 +66,7 @@ echo -e "${BLUE}[*] Starting SecV installation...${NC}\n"
 # Detect System Information
 # ============================================================================
 
-echo -e "${YELLOW}[1/11] Detecting system information...${NC}"
+echo -e "${YELLOW}[1/12] Detecting system information...${NC}"
 DISTRO=$(detect_distro)
 echo -e "${GREEN}[✓] Detected distribution: ${DISTRO}${NC}"
 
@@ -86,7 +86,7 @@ echo
 # Check Python 3.8+
 # ============================================================================
 
-echo -e "${YELLOW}[2/11] Checking Python installation...${NC}"
+echo -e "${YELLOW}[2/12] Checking Python installation...${NC}"
 
 if command -v python3 &> /dev/null; then
     PYTHON_VERSION=$(python3 --version 2>&1 | awk '{print $2}')
@@ -111,10 +111,72 @@ fi
 echo
 
 # ============================================================================
+# Check/Install Android RE Tools
+# ============================================================================
+
+echo -e "${YELLOW}[3/12] Checking Android RE tools...${NC}"
+
+MISSING_TOOLS=()
+
+if ! command -v aapt &> /dev/null; then
+    MISSING_TOOLS+=("aapt")
+fi
+
+if ! command -v apktool &> /dev/null; then
+    MISSING_TOOLS+=("apktool")
+fi
+
+if ! command -v jadx &> /dev/null; then
+    MISSING_TOOLS+=("jadx")
+fi
+
+if [ ${#MISSING_TOOLS[@]} -eq 0 ]; then
+    echo -e "${GREEN}[✓] All Android RE tools installed${NC}"
+    echo -e "${DIM}    aapt:    $(command -v aapt)${NC}"
+    echo -e "${DIM}    apktool: $(command -v apktool)${NC}"
+    echo -e "${DIM}    jadx:    $(command -v jadx)${NC}"
+else
+    echo -e "${YELLOW}[!] Missing tools: ${MISSING_TOOLS[*]}${NC}"
+    echo -e "${CYAN}[*] Attempting to install Android RE tools...${NC}"
+    
+    case "$DISTRO" in
+        arch|archcraft|manjaro)
+            sudo pacman -Sy --noconfirm --needed android-tools apktool jadx
+            ;;
+        ubuntu|debian|kali|parrot)
+            sudo apt-get update
+            sudo apt-get install -y aapt apktool jadx
+            ;;
+        fedora|rhel|centos)
+            sudo dnf install -y android-tools apktool jadx
+            ;;
+        *)
+            echo -e "${RED}[✗] Cannot auto-install for $DISTRO${NC}"
+            echo -e "${YELLOW}[!] Install manually:${NC}"
+            echo -e "${DIM}    - aapt:    Android SDK build-tools${NC}"
+            echo -e "${DIM}    - apktool: https://apktool.org${NC}"
+            echo -e "${DIM}    - jadx:    https://github.com/skylot/jadx${NC}"
+            exit 1
+            ;;
+    esac
+    
+    # Verify installation
+    if command -v aapt &> /dev/null && \
+       command -v apktool &> /dev/null && \
+       command -v jadx &> /dev/null; then
+        echo -e "${GREEN}[✓] Android RE tools installed successfully${NC}"
+    else
+        echo -e "${RED}[✗] Installation failed for some tools${NC}"
+        exit 1
+    fi
+fi
+echo
+
+# ============================================================================
 # Check Go Compiler
 # ============================================================================
 
-echo -e "${YELLOW}[3/11] Checking Go compiler...${NC}"
+echo -e "${YELLOW}[4/12] Checking Go compiler...${NC}"
 
 if command -v go &> /dev/null; then
     GO_VERSION=$(go version | awk '{print $3}')
@@ -142,7 +204,7 @@ echo
 # Check/Install pip
 # ============================================================================
 
-echo -e "${YELLOW}[4/11] Checking pip installation...${NC}"
+echo -e "${YELLOW}[5/12] Checking pip installation...${NC}"
 
 if ! python3 -m pip --version &> /dev/null; then
     echo -e "${YELLOW}[!] pip not found, attempting to install...${NC}"
@@ -176,83 +238,27 @@ fi
 echo
 
 # ============================================================================
-# Select Installation Tier
+# Installation Configuration
 # ============================================================================
 
-echo -e "${YELLOW}[5/11] Select installation tier...${NC}"
-echo
-echo -e "${BOLD}Choose your installation tier:${NC}"
-echo -e "  ${GREEN}1)${NC} Basic     - Core only (~5MB)"
-echo -e "     ${DIM}Dependencies: cmd2, rich${NC}"
-echo
-echo -e "  ${CYAN}2)${NC} Standard  - Core + scanning (~50MB) ${BOLD}[Recommended]${NC}"
-echo -e "     ${DIM}Dependencies: Basic + scapy, python-nmap${NC}"
-echo
-echo -e "  ${MAGENTA}3)${NC} Full      - All features (~100MB)"
-echo -e "     ${DIM}Dependencies: Everything in requirements.txt${NC}"
-echo
-echo -e "  ${YELLOW}4)${NC} Elite     - Full + masscan"
-echo -e "     ${DIM}Dependencies: Full + masscan binary${NC}"
-echo
-
-read -p "Enter choice [1-4] (default: 2): " TIER_CHOICE
-TIER_CHOICE=${TIER_CHOICE:-2}
-
-case "$TIER_CHOICE" in
-    1)
-        INSTALL_TIER="basic"
-        echo -e "${GREEN}[✓] Selected: Basic tier${NC}"
-        ;;
-    2)
-        INSTALL_TIER="standard"
-        echo -e "${GREEN}[✓] Selected: Standard tier (Recommended)${NC}"
-        ;;
-    3)
-        INSTALL_TIER="full"
-        echo -e "${GREEN}[✓] Selected: Full tier${NC}"
-        ;;
-    4)
-        INSTALL_TIER="elite"
-        echo -e "${GREEN}[✓] Selected: Elite tier${NC}"
-        ;;
-    *)
-        echo -e "${YELLOW}[!] Invalid choice, defaulting to Standard${NC}"
-        INSTALL_TIER="standard"
-        ;;
-esac
+echo -e "${YELLOW}[6/12] Configuring installation...${NC}"
+echo -e "${GREEN}[✓] Installing full suite with all dependencies${NC}"
 echo
 
 # ============================================================================
 # Install Python Dependencies
 # ============================================================================
 
-echo -e "${YELLOW}[6/11] Installing Python dependencies...${NC}"
+echo -e "${YELLOW}[7/12] Installing Python dependencies...${NC}"
 
 if [ ! -f "$REQUIREMENTS_FILE" ]; then
     echo -e "${RED}[✗] requirements.txt not found!${NC}"
     exit 1
 fi
 
-# Create temporary requirements file based on tier
+# Use full requirements file
 TEMP_REQ=$(mktemp)
-
-case "$INSTALL_TIER" in
-    basic)
-        echo "cmd2>=2.4.3" >> "$TEMP_REQ"
-        echo "rich>=13.0.0" >> "$TEMP_REQ"
-        echo "argcomplete>=3.0.0" >> "$TEMP_REQ"
-        ;;
-    standard)
-        echo "cmd2>=2.4.3" >> "$TEMP_REQ"
-        echo "rich>=13.0.0" >> "$TEMP_REQ"
-        echo "argcomplete>=3.0.0" >> "$TEMP_REQ"
-        echo "scapy>=2.5.0" >> "$TEMP_REQ"
-        echo "python-nmap>=0.7.1" >> "$TEMP_REQ"
-        ;;
-    full|elite)
-        cp "$REQUIREMENTS_FILE" "$TEMP_REQ"
-        ;;
-esac
+cp "$REQUIREMENTS_FILE" "$TEMP_REQ"
 
 # Try different pip installation methods
 PIP_SUCCESS=false
@@ -297,51 +303,45 @@ fi
 echo
 
 # ============================================================================
-# Install Elite Tier Components
+# Install Elite Components (masscan)
 # ============================================================================
 
-if [ "$INSTALL_TIER" = "elite" ]; then
-    echo -e "${YELLOW}[7/11] Installing Elite tier components...${NC}"
+echo -e "${YELLOW}[8/12] Installing masscan...${NC}"
+
+if command -v masscan &> /dev/null; then
+    echo -e "${GREEN}[✓] masscan already installed${NC}"
+else
+    echo -e "${CYAN}[*] Installing masscan...${NC}"
+    
+    case "$DISTRO" in
+        ubuntu|debian|kali|parrot)
+            sudo apt-get install -y masscan
+            ;;
+        arch|archcraft|manjaro)
+            sudo pacman -S --noconfirm masscan
+            ;;
+        fedora|rhel|centos)
+            sudo dnf install -y masscan
+            ;;
+        *)
+            echo -e "${YELLOW}[!] Cannot auto-install masscan for $DISTRO${NC}"
+            echo -e "${DIM}    Install manually: https://github.com/robertdavidgraham/masscan${NC}"
+            ;;
+    esac
     
     if command -v masscan &> /dev/null; then
-        echo -e "${GREEN}[✓] masscan already installed${NC}"
+        echo -e "${GREEN}[✓] masscan installed${NC}"
     else
-        echo -e "${CYAN}[*] Installing masscan...${NC}"
-        
-        case "$DISTRO" in
-            ubuntu|debian|kali|parrot)
-                sudo apt-get install -y masscan
-                ;;
-            arch|archcraft|manjaro)
-                sudo pacman -S --noconfirm masscan
-                ;;
-            fedora|rhel|centos)
-                sudo dnf install -y masscan
-                ;;
-            *)
-                echo -e "${YELLOW}[!] Cannot auto-install masscan for $DISTRO${NC}"
-                echo -e "${DIM}    Install manually: https://github.com/robertdavidgraham/masscan${NC}"
-                ;;
-        esac
-        
-        if command -v masscan &> /dev/null; then
-            echo -e "${GREEN}[✓] masscan installed${NC}"
-        else
-            echo -e "${YELLOW}[!] masscan installation failed (optional)${NC}"
-        fi
+        echo -e "${YELLOW}[!] masscan installation failed (optional)${NC}"
     fi
-    echo
-else
-    echo -e "${YELLOW}[7/11] Skipping Elite tier components...${NC}"
-    echo -e "${DIM}    Selected tier: $INSTALL_TIER${NC}"
-    echo
 fi
+echo
 
 # ============================================================================
 # Compile Go Binary
 # ============================================================================
 
-echo -e "${YELLOW}[8/11] Compiling SecV binary...${NC}"
+echo -e "${YELLOW}[9/12] Compiling SecV binary...${NC}"
 
 if [ "$HAS_GO" = true ]; then
     if [ ! -f "$MAIN_GO" ]; then
@@ -370,7 +370,7 @@ echo
 # Create Tools Directory
 # ============================================================================
 
-echo -e "${YELLOW}[9/11] Setting up directory structure...${NC}"
+echo -e "${YELLOW}[10/12] Setting up directory structure...${NC}"
 
 TOOLS_DIR="$SCRIPT_DIR/tools"
 CACHE_DIR="$SCRIPT_DIR/.cache"
@@ -385,7 +385,7 @@ echo
 # Set Permissions
 # ============================================================================
 
-echo -e "${YELLOW}[10/11] Setting permissions...${NC}"
+echo -e "${YELLOW}[11/12] Setting permissions...${NC}"
 
 chmod +x "$SCRIPT_DIR/secV" 2>/dev/null || true
 chmod +x "$SCRIPT_DIR/install.sh" 2>/dev/null || true
@@ -399,22 +399,25 @@ echo
 # System-Wide Installation (Optional)
 # ============================================================================
 
-echo -e "${YELLOW}[11/11] System-wide installation...${NC}"
+echo -e "${YELLOW}[12/12] System-wide installation...${NC}"
 
-read -p "Install SecV system-wide to /usr/local/bin? [Y/n]: " -n 1 -r
+read -p "Install SecV system-wide to /usr/local/bin? [y/N]: " -n 1 -r
 echo
 
-if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+if [[ $REPLY =~ ^[Yy]$ ]]; then
     if [ -f "$SECV_BIN" ]; then
         sudo ln -sf "$SECV_BIN" /usr/local/bin/secV
         echo -e "${GREEN}[✓] SecV installed to /usr/local/bin/secV${NC}"
         echo -e "${DIM}    You can now run 'secV' from anywhere${NC}"
+        SYSTEM_WIDE=true
     else
         echo -e "${YELLOW}[!] Binary not found, skipping system-wide install${NC}"
+        SYSTEM_WIDE=false
     fi
 else
     echo -e "${CYAN}[*] Skipped system-wide installation${NC}"
     echo -e "${DIM}    Run with: ./secV${NC}"
+    SYSTEM_WIDE=false
 fi
 echo
 
@@ -427,15 +430,14 @@ echo -e "${BOLD}${GREEN}║                   Installation Complete! ✓        
 echo -e "${BOLD}${GREEN}╚═══════════════════════════════════════════════════════════════════╝${NC}"
 echo
 
-echo -e "${BOLD}SecV v${VERSION} - Go Loader Edition${NC}"
-echo -e "${DIM}Installation tier: ${INSTALL_TIER}${NC}"
+echo -e "${BOLD}SecV v${VERSION}${NC}"
 echo
 
 echo -e "${CYAN}${BOLD}Quick Start:${NC}"
-if [ -L "/usr/local/bin/secV" ]; then
-    echo -e "  ${GREEN}secV${NC}                    # Start SecV (system-wide)"
+if [ "$SYSTEM_WIDE" = true ]; then
+    echo -e "  ${GREEN}secV${NC}                    # Start SecV"
 else
-    echo -e "  ${GREEN}./secV${NC}                  # Start SecV (local)"
+    echo -e "  ${GREEN}./secV${NC}                  # Start SecV"
 fi
 echo -e "  ${GREEN}secV > help${NC}              # Show commands"
 echo -e "  ${GREEN}secV > show modules${NC}      # List all modules"
@@ -459,7 +461,7 @@ echo -e "${DIM}Always obtain proper authorization before testing.${NC}"
 echo
 
 echo -e "${BOLD}${CYAN}Ready to hack! Start SecV now:${NC}"
-if [ -L "/usr/local/bin/secV" ]; then
+if [ "$SYSTEM_WIDE" = true ]; then
     echo -e "  ${GREEN}${BOLD}secV${NC}"
 else
     echo -e "  ${GREEN}${BOLD}./secV${NC}"
