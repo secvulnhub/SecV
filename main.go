@@ -40,29 +40,29 @@ const (
 
 // Module represents a SecV module
 type Module struct {
-	Name        string                 `json:"name"`
-	Version     string                 `json:"version"`
-	Category    string                 `json:"category"`
-	Description string                 `json:"description"`
-	Author      string                 `json:"author"`
-	Executable  string                 `json:"executable"`
-	Dependencies []string              `json:"dependencies"`
-	OptionalDeps map[string]string     `json:"optional_dependencies"`
-	Help        *ModuleHelp            `json:"help"`
-	Inputs      map[string]interface{} `json:"inputs"`
-	Outputs     map[string]interface{} `json:"outputs"`
-	Timeout     int                    `json:"timeout"`
-	Path        string                 `json:"-"`
+	Name         string                 `json:"name"`
+	Version      string                 `json:"version"`
+	Category     string                 `json:"category"`
+	Description  string                 `json:"description"`
+	Author       string                 `json:"author"`
+	Executable   string                 `json:"executable"`
+	Dependencies []string               `json:"dependencies"`
+	OptionalDeps map[string]string      `json:"optional_dependencies"`
+	Help         *ModuleHelp            `json:"help"`
+	Inputs       map[string]interface{} `json:"inputs"`
+	Outputs      map[string]interface{} `json:"outputs"`
+	Timeout      int                    `json:"timeout"`
+	Path         string                 `json:"-"`
 }
 
 // ModuleHelp contains help documentation
 type ModuleHelp struct {
-	Description      string                       `json:"description"`
-	Parameters       map[string]ParameterHelp     `json:"parameters"`
-	Examples         []ExampleHelp                `json:"examples"`
-	Features         []string                     `json:"features"`
-	InstallationTiers map[string]string            `json:"installation_tiers"`
-	Notes            []string                     `json:"notes"`
+	Description       string                   `json:"description"`
+	Parameters        map[string]ParameterHelp `json:"parameters"`
+	Examples          []ExampleHelp            `json:"examples"`
+	Features          []string                 `json:"features"`
+	InstallationTiers map[string]string        `json:"installation_tiers"`
+	Notes             []string                 `json:"notes"`
 }
 
 // ParameterHelp contains parameter documentation
@@ -83,30 +83,30 @@ type ExampleHelp struct {
 
 // SecV represents the main application state
 type SecV struct {
-	modules        []*Module
-	currentModule  *Module
-	params         map[string]string
-	secvHome       string
-	toolsDir       string
-	cacheDir       string
+	modules       []*Module
+	currentModule *Module
+	params        map[string]string
+	secvHome      string
+	toolsDir      string
+	cacheDir      string
 }
 
 // NewSecV creates a new SecV instance
 func NewSecV() *SecV {
 	home, _ := os.Getwd()
 	return &SecV{
-		modules:   []*Module{},
-		params:    make(map[string]string),
-		secvHome:  home,
-		toolsDir:  filepath.Join(home, "tools"),
-		cacheDir:  filepath.Join(home, ".cache"),
+		modules:  []*Module{},
+		params:   make(map[string]string),
+		secvHome: home,
+		toolsDir: filepath.Join(home, "tools"),
+		cacheDir: filepath.Join(home, ".cache"),
 	}
 }
 
 // ScanModules discovers all modules in tools directory
 func (s *SecV) ScanModules() error {
 	s.modules = []*Module{}
-	
+
 	if _, err := os.Stat(s.toolsDir); os.IsNotExist(err) {
 		return fmt.Errorf("tools directory not found: %s", s.toolsDir)
 	}
@@ -115,7 +115,7 @@ func (s *SecV) ScanModules() error {
 		if err != nil {
 			return nil
 		}
-		
+
 		if info.Name() == "module.json" {
 			module, err := s.loadModule(filepath.Dir(path))
 			if err == nil {
@@ -475,7 +475,7 @@ func (s *SecV) ShowModuleHelp() {
 	cmd := exec.Command("bash", "-c", s.currentModule.Executable+" --help")
 	cmd.Dir = s.currentModule.Path
 	output, err := cmd.Output()
-	
+
 	if err == nil && strings.Contains(string(output), "╔") {
 		fmt.Print(string(output))
 		return
@@ -495,7 +495,7 @@ func (s *SecV) ShowModuleHelp() {
 	fmt.Printf("%s%s║%s %s%s%s - Help%s%s║%s\n",
 		BOLD, CYAN, RESET, BOLD, WHITE, strings.ToUpper(name), RESET,
 		strings.Repeat(" ", 67-len(name)-8), BOLD+CYAN, RESET)
-	fmt.Printf("%s%s╚%s╝%s\n\n", BOLD, CYAN, strings.Repeat("═", 67), RESET)
+	fmt.Printf("%s%s╚%s═%s\n\n", BOLD, CYAN, strings.Repeat("═", 67), RESET)
 
 	// Description
 	if help.Description != "" {
@@ -602,6 +602,34 @@ func (s *SecV) Search(query string) {
 	fmt.Println()
 }
 
+// CheckForUpdates checks for updates on first run
+func (s *SecV) CheckForUpdates() {
+	// Check if update.py exists
+	updateScript := filepath.Join(s.secvHome, "update.py")
+	if _, err := os.Stat(updateScript); os.IsNotExist(err) {
+		return // No updater available
+	}
+
+	// Run first-run update check
+	cmd := exec.Command("python3", updateScript, "--first-run")
+	cmd.Dir = s.secvHome
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	err := cmd.Run()
+
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			// Exit code 2 means update was performed, restart required
+			if exitErr.ExitCode() == 2 {
+				fmt.Printf("\n%s%s⚠️  SecV has been updated. Please restart to apply changes.%s\n", YELLOW, BOLD, RESET)
+				fmt.Printf("%sRun: %s./secV%s or %ssecV%s (if installed globally)%s\n\n", DIM, CYAN, DIM, CYAN, DIM, RESET)
+				os.Exit(0)
+			}
+		}
+		// Silently ignore other errors (e.g., no git repo, no internet)
+	}
+}
+
 // Utility functions
 
 func printHeader(title string) {
@@ -610,7 +638,7 @@ func printHeader(title string) {
 		BOLD, CYAN, RESET, title,
 		strings.Repeat(" ", 67-len(title)-1),
 		BOLD+CYAN, RESET)
-	fmt.Printf("%s%s╚%s╝%s\n", BOLD, CYAN, strings.Repeat("═", 67), RESET)
+	fmt.Printf("%s%s╚%s═%s\n", BOLD, CYAN, strings.Repeat("═", 67), RESET)
 }
 
 func printSection(title string) {
@@ -640,6 +668,9 @@ func main() {
 
 	// Initialize SecV
 	secv := NewSecV()
+
+	// CHECK FOR UPDATES - First run automatic check
+	secv.CheckForUpdates()
 
 	// Scan modules
 	fmt.Printf("%sScanning modules...%s\n", DIM, RESET)
@@ -748,6 +779,26 @@ func main() {
 				fmt.Printf("%s%s Error: %v%s\n", RED, CROSS, err, RESET)
 			}
 			fmt.Printf("%s%s Loaded %d modules%s\n", GREEN, CHECK, len(secv.modules), RESET)
+
+		case "update":
+			updateScript := filepath.Join(secv.secvHome, "update.py")
+			if _, err := os.Stat(updateScript); os.IsNotExist(err) {
+				fmt.Printf("%s%s Update script not found%s\n", RED, CROSS, RESET)
+				break
+			}
+			fmt.Printf("%sChecking for updates...%s\n", DIM, RESET)
+			cmd := exec.Command("python3", updateScript)
+			cmd.Dir = secv.secvHome
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			err := cmd.Run()
+			if err != nil {
+				if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 2 {
+					fmt.Printf("\n%s%s⚠️  SecV has been updated. Please restart to apply changes.%s\n", YELLOW, BOLD, RESET)
+					fmt.Printf("%sRun: %s./secV%s or %ssecV%s (if installed globally)%s\n\n", DIM, CYAN, DIM, CYAN, DIM, RESET)
+					return
+				}
+			}
 
 		case "clear":
 			fmt.Print("\033[H\033[2J")
