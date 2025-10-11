@@ -110,6 +110,33 @@ else
 fi
 echo
 
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+DIM='\033[2m'
+NC='\033[0m'
+
+echo -e "${YELLOW}[*] Checking Android RE tools...${NC}"
+
+# Check if all tools are present
+if command -v aapt &> /dev/null && \
+   command -v apktool &> /dev/null && \
+   command -v jadx &> /dev/null; then
+    echo -e "${GREEN}[✓] All Android RE tools installed${NC}"
+    echo -e "${DIM}    aapt:    $(command -v aapt)${NC}"
+    echo -e "${DIM}    apktool: $(command -v apktool)${NC}"
+    echo -e "${DIM}    jadx:    $(command -v jadx)${NC}"
+else
+    echo -e "${RED}[✗] Missing Android RE tools${NC}"
+    echo -e "${YELLOW}[!] Installation required:${NC}"
+    echo -e "${DIM}    - Arch:          sudo pacman -S aapt apktool jadx${NC}"
+    echo -e "${DIM}    - Ubuntu/Debian: sudo apt install aapt apktool jadx${NC}"
+    echo -e "${DIM}    - macOS:         brew install aapt apktool jadx${NC}"
+    exit 1
+fi
+
 # ============================================================================
 # Check Go Compiler
 # ============================================================================
