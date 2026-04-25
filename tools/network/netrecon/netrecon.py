@@ -182,27 +182,27 @@ def lookup_mac_vendor(mac: str) -> str:
 
 CVE_DB: Dict[str, List[Dict]] = {
     'ssh': [
-        {'id': 'CVE-2023-38408', 'cvss': 9.8, 'desc': 'openssh-agent remote code execution'},
-        {'id': 'CVE-2021-41617', 'cvss': 7.0, 'desc': 'sshd privilege escalation'},
-        {'id': 'CVE-2018-15473', 'cvss': 5.3, 'desc': 'OpenSSH username enumeration'},
-        {'id': 'CVE-2016-20012', 'cvss': 5.3, 'desc': 'OpenSSH username enumeration < 8.9'},
+        {'id': 'CVE-2023-38408', 'cvss': 9.8, 'desc': 'openssh-agent remote code execution',  'affects_max': '9.3p1'},
+        {'id': 'CVE-2021-41617', 'cvss': 7.0, 'desc': 'sshd privilege escalation',            'affects_max': '8.7'},
+        {'id': 'CVE-2018-15473', 'cvss': 5.3, 'desc': 'OpenSSH username enumeration',         'affects_max': '7.6'},
+        {'id': 'CVE-2016-20012', 'cvss': 5.3, 'desc': 'OpenSSH username enumeration < 8.9',   'affects_max': '8.8'},
     ],
     'openssh': [
-        {'id': 'CVE-2023-38408', 'cvss': 9.8, 'desc': 'ssh-agent remote code execution'},
-        {'id': 'CVE-2021-41617', 'cvss': 7.0, 'desc': 'Privilege escalation in sshd'},
-        {'id': 'CVE-2018-15473', 'cvss': 5.3, 'desc': 'Username enumeration side-channel'},
+        {'id': 'CVE-2023-38408', 'cvss': 9.8, 'desc': 'ssh-agent remote code execution',      'affects_max': '9.3p1'},
+        {'id': 'CVE-2021-41617', 'cvss': 7.0, 'desc': 'Privilege escalation in sshd',         'affects_max': '8.7'},
+        {'id': 'CVE-2018-15473', 'cvss': 5.3, 'desc': 'Username enumeration side-channel',    'affects_max': '7.6'},
     ],
     'apache': [
-        {'id': 'CVE-2021-41773', 'cvss': 9.8, 'desc': 'Path traversal + RCE (2.4.49)'},
-        {'id': 'CVE-2021-42013', 'cvss': 9.8, 'desc': 'Path traversal + RCE (2.4.49-2.4.50)'},
-        {'id': 'CVE-2022-31813', 'cvss': 9.8, 'desc': 'mod_proxy header smuggling'},
-        {'id': 'CVE-2021-40438', 'cvss': 9.0, 'desc': 'mod_proxy SSRF'},
-        {'id': 'CVE-2017-7679', 'cvss': 9.8, 'desc': 'mod_mime buffer overread'},
+        {'id': 'CVE-2021-41773', 'cvss': 9.8, 'desc': 'Path traversal + RCE (2.4.49)',         'affects_min': '2.4.49', 'affects_max': '2.4.49'},
+        {'id': 'CVE-2021-42013', 'cvss': 9.8, 'desc': 'Path traversal + RCE (2.4.49-2.4.50)', 'affects_min': '2.4.49', 'affects_max': '2.4.50'},
+        {'id': 'CVE-2022-31813', 'cvss': 9.8, 'desc': 'mod_proxy header smuggling',            'affects_max': '2.4.54'},
+        {'id': 'CVE-2021-40438', 'cvss': 9.0, 'desc': 'mod_proxy SSRF',                        'affects_max': '2.4.48'},
+        {'id': 'CVE-2017-7679',  'cvss': 9.8, 'desc': 'mod_mime buffer overread',              'affects_max': '2.4.25'},
     ],
     'nginx': [
-        {'id': 'CVE-2021-23017', 'cvss': 7.7, 'desc': 'One-byte overwrite in DNS resolver'},
-        {'id': 'CVE-2019-9511', 'cvss': 7.5, 'desc': 'HTTP/2 Data Dribble DoS'},
-        {'id': 'CVE-2013-4547', 'cvss': 7.5, 'desc': 'Null byte in URI processing'},
+        {'id': 'CVE-2021-23017', 'cvss': 7.7, 'desc': 'One-byte overwrite in DNS resolver',   'affects_max': '1.21.0'},
+        {'id': 'CVE-2019-9511',  'cvss': 7.5, 'desc': 'HTTP/2 Data Dribble DoS',              'affects_max': '1.17.2'},
+        {'id': 'CVE-2013-4547',  'cvss': 7.5, 'desc': 'Null byte in URI processing',          'affects_max': '1.5.6'},
     ],
     'http': [
         {'id': 'CVE-2021-41773', 'cvss': 9.8, 'desc': 'Apache 2.4.49 path traversal (if Apache)'},
@@ -212,19 +212,19 @@ CVE_DB: Dict[str, List[Dict]] = {
         {'id': 'CVE-2022-0778', 'cvss': 7.5, 'desc': 'OpenSSL BN_mod_sqrt() infinite loop'},
     ],
     'mysql': [
-        {'id': 'CVE-2012-2122', 'cvss': 7.5, 'desc': 'Authentication bypass via timing'},
-        {'id': 'CVE-2021-2471', 'cvss': 7.5, 'desc': 'Multiple MySQL < 8.0.27 vulns'},
-        {'id': 'CVE-2020-14765', 'cvss': 6.5, 'desc': 'InnoDB denial of service'},
+        {'id': 'CVE-2012-2122',  'cvss': 7.5, 'desc': 'Authentication bypass via timing',     'affects_max': '5.5.23'},
+        {'id': 'CVE-2021-2471',  'cvss': 7.5, 'desc': 'Multiple MySQL < 8.0.27 vulns',        'affects_max': '8.0.26'},
+        {'id': 'CVE-2020-14765', 'cvss': 6.5, 'desc': 'InnoDB denial of service',             'affects_max': '8.0.20'},
     ],
     'postgresql': [
-        {'id': 'CVE-2019-10164', 'cvss': 8.8, 'desc': 'Stack overflow via security-definer'},
-        {'id': 'CVE-2022-1552', 'cvss': 8.8, 'desc': 'Autovacuum privilege escalation'},
-        {'id': 'CVE-2023-2454', 'cvss': 7.2, 'desc': 'Row security policy bypass'},
+        {'id': 'CVE-2019-10164', 'cvss': 8.8, 'desc': 'Stack overflow via security-definer',  'affects_max': '11.2'},
+        {'id': 'CVE-2022-1552',  'cvss': 8.8, 'desc': 'Autovacuum privilege escalation',      'affects_max': '14.2'},
+        {'id': 'CVE-2023-2454',  'cvss': 7.2, 'desc': 'Row security policy bypass',           'affects_max': '15.2'},
     ],
     'redis': [
-        {'id': 'CVE-2022-0543', 'cvss': 10.0, 'desc': 'Lua sandbox escape (Debian/Ubuntu)'},
-        {'id': 'CVE-2021-32625', 'cvss': 7.5, 'desc': 'Integer overflow in GETDEL'},
-        {'id': 'CVE-2020-14147', 'cvss': 7.5, 'desc': 'Integer overflow in ziplistResize'},
+        {'id': 'CVE-2022-0543',  'cvss': 10.0, 'desc': 'Lua sandbox escape (Debian/Ubuntu)',  'affects_max': '6.0.16'},
+        {'id': 'CVE-2021-32625', 'cvss': 7.5,  'desc': 'Integer overflow in GETDEL',          'affects_max': '6.2.4'},
+        {'id': 'CVE-2020-14147', 'cvss': 7.5,  'desc': 'Integer overflow in ziplistResize',   'affects_max': '6.0.11'},
     ],
     'mongodb': [
         {'id': 'CVE-2021-32030', 'cvss': 7.5, 'desc': 'Improper authentication in SCRAM'},
@@ -235,8 +235,8 @@ CVE_DB: Dict[str, List[Dict]] = {
         {'id': 'CVE-2020-7020', 'cvss': 7.5, 'desc': 'Improper URL validation'},
     ],
     'ftp': [
-        {'id': 'CVE-2015-3306', 'cvss': 10.0, 'desc': 'ProFTPD mod_copy arbitrary cmd exec'},
-        {'id': 'CVE-2011-2523', 'cvss': 10.0, 'desc': 'vsftpd 2.3.4 backdoor'},
+        {'id': 'CVE-2015-3306', 'cvss': 10.0, 'desc': 'ProFTPD mod_copy arbitrary cmd exec',  'affects_max': '1.3.5'},
+        {'id': 'CVE-2011-2523', 'cvss': 10.0, 'desc': 'vsftpd 2.3.4 backdoor',               'affects_min': '2.3.4', 'affects_max': '2.3.4'},
     ],
     'smb': [
         {'id': 'CVE-2017-0144', 'cvss': 9.3, 'desc': 'EternalBlue SMB RCE (WannaCry)'},
@@ -321,11 +321,9 @@ VERSIONED_CVE_DB: Dict[str, List[str]] = {
     'apache 2.4.50':  ['CVE-2021-41524', 'CVE-2021-42013'],
     'apache 2.4.53':  ['CVE-2022-22719', 'CVE-2022-22721'],
     'apache 2.4.54':  ['CVE-2022-26377', 'CVE-2022-28330', 'CVE-2022-28614'],
-    'openssh 7.8':    ['CVE-2018-15473'],
     'openssh 7.9':    ['CVE-2019-6110', 'CVE-2019-6111'],
     'openssh 8.5':    ['CVE-2021-28041'],
     'openssh 9.2':    ['CVE-2023-25136'],
-    'openssh 9.3':    ['CVE-2023-38408'],
     'nginx 1.6.1':    ['CVE-2014-3556'],
     'nginx 1.6.2':    ['CVE-2014-3616'],
     'nginx 1.9.10':   ['CVE-2016-0742', 'CVE-2016-0746'],
@@ -386,26 +384,66 @@ SERVICE_TO_CPE: Dict[str, Dict[str, str]] = {
 }
 
 
+def _parse_ver(v: str) -> tuple:
+    """Parse version string to comparable numeric tuple. '9.3p2' → (9,3,2)."""
+    v = re.sub(r'p(\d+)', r'.\1', v.strip().lower())
+    parts = []
+    for seg in re.split(r'[.\-_]', v):
+        m = re.match(r'^(\d+)', seg)
+        if m:
+            parts.append(int(m.group(1)))
+    return tuple(parts) if parts else (0,)
+
+
+def _ver_in_range(detected: str, affects_min: str = '', affects_max: str = '') -> bool:
+    """Return True if detected version falls within [affects_min, affects_max] (inclusive).
+    Unknown detected version conservatively returns True (assume affected)."""
+    if not detected:
+        return True
+    d = _parse_ver(detected)
+    if affects_min:
+        m = _parse_ver(affects_min)
+        maxl = max(len(d), len(m))
+        if (d + (0,) * (maxl - len(d))) < (m + (0,) * (maxl - len(m))):
+            return False  # detected < affects_min
+    if affects_max:
+        m = _parse_ver(affects_max)
+        maxl = max(len(d), len(m))
+        if (d + (0,) * (maxl - len(d))) > (m + (0,) * (maxl - len(m))):
+            return False  # detected > affects_max (patched)
+    return True
+
+
 def correlate_cves(service: str, product: str = '', version: str = '') -> List[Dict]:
-    """Map detected service/product/version to relevant CVEs, deduped by CVE ID"""
+    """Map detected service/product/version to relevant CVEs, deduped by CVE ID.
+    Version range fields affects_min/affects_max prevent false positives on patched versions."""
     seen_ids: Set[str] = set()
     findings: List[Dict] = []
     lookup_str = (service + ' ' + product).lower()
 
-    # Service-based lookup (broad)
+    # Service-based lookup with version-range filtering
     for key, cves in CVE_DB.items():
         if key in lookup_str:
             for cve in cves:
                 cve_id = cve.get('id', '')
-                if cve_id and cve_id not in seen_ids:
-                    seen_ids.add(cve_id)
-                    findings.append(cve)
+                if not cve_id or cve_id in seen_ids:
+                    continue
+                if version and (cve.get('affects_max') or cve.get('affects_min')):
+                    if not _ver_in_range(version, cve.get('affects_min', ''), cve.get('affects_max', '')):
+                        continue
+                seen_ids.add(cve_id)
+                findings.append(cve)
 
-    # Version-specific lookup (precise, adds extra CVEs)
+    # Version-specific lookup — exact prefix match on "product version" key
     if version:
         ver_key = f'{(product or service).lower()} {version.lower()}'
+        # Normalize: convert p-suffix so 'openssh 9.3p2' becomes 'openssh 9.3.2'
+        ver_key_norm = re.sub(r'p(\d+)', r'.\1', ver_key)
         for pattern, cve_ids in VERSIONED_CVE_DB.items():
-            if ver_key.startswith(pattern) or pattern in ver_key:
+            pat_norm = re.sub(r'p(\d+)', r'.\1', pattern)
+            # Match only if the version component starts with the pattern version
+            # and the next char (if any) is a separator — prevents '9.3' matching '9.31'
+            if re.match(r'^' + re.escape(pat_norm) + r'([.\-_ ]|$)', ver_key_norm):
                 for cve_id in cve_ids:
                     if cve_id not in seen_ids:
                         seen_ids.add(cve_id)
@@ -1523,7 +1561,11 @@ class NetRecon:
     def __init__(self, context: Dict):
         self.target  = context.get('target', '')
         self.params  = context.get('params', {})
-        self.mode    = self.params.get('mode', 'normal').lower()
+        # Parse comma/plus/pipe-separated modes for concurrent feature chaining
+        raw_mode = self.params.get('mode', 'normal').lower()
+        self.modes: Set[str] = set(re.split(r'[,+|]', raw_mode))
+        self.mode  = raw_mode  # kept for display and backward compat
+
         self.ports   = self.params.get('ports', 'top-1000')
         self.threads = int(self.params.get('threads', 20))
         self.rate    = int(self.params.get('rate', 1000))
@@ -1553,22 +1595,28 @@ class NetRecon:
         self.do_searchsploit = self._bool(self.params.get('searchsploit', False))
         self.output_dir    = self.params.get('output_dir', '')
 
-        # Mode overrides
-        if self.mode == 'quick':
+        # Union all mode feature flags — each mode layer stacks onto the others
+        # 'full' = all features: deep + stealth + evasion
+        if 'quick' in self.modes:
             self.ports = self.params.get('ports', 'quick')
-        elif self.mode == 'deep':
+        if 'deep' in self.modes or 'full' in self.modes:
             self.scripts = True
             self.os_det  = True
-            self.ports   = self.params.get('ports', 'top-1000')
-        elif self.mode == 'stealth':
+            if 'ports' not in self.params:
+                self.ports = 'top-1000'
+        if 'stealth' in self.modes or 'full' in self.modes:
             self.rate    = min(self.rate, 200)
             self.timeout = max(self.timeout, 10)
-        elif self.mode == 'evasion':
+        if 'evasion' in self.modes or 'full' in self.modes:
             self.evasion = True
             self.rate    = min(self.rate, 100)
             self.timeout = max(self.timeout, 15)
             if not self.nse_profile:
                 self.nse_profile = 'banner,firewalk'
+        if 'full' in self.modes:
+            self.scripts = True
+            self.os_det  = True
+            self.web_enum = True
 
         self.shodan  = ShodanClient(self.shodan_key)
         self.errors: List[str] = []
@@ -1587,7 +1635,7 @@ class NetRecon:
             needs_root.append('arp-scan (ARP host discovery)')
         if self.os_det:
             needs_root.append('nmap OS detection (-O flag)')
-        if self.mode in ('syn', 'stealth'):
+        if self.modes & {'syn', 'stealth', 'full'}:
             needs_root.append(f'mode={self.mode} (raw SYN packets)')
         if needs_root:
             print('[!] WARNING: not running as root — some features will be degraded or skipped:',
@@ -2554,7 +2602,12 @@ class NetRecon:
         return str(v).lower() in ('true', '1', 'yes', 'on')
 
     def _t(self, phase: str) -> int:
-        return _TIMEOUT_TABLE.get(self.mode, _TIMEOUT_TABLE['normal']).get(phase, 60)
+        # For chained modes, use the most permissive timeout (max across all active modes)
+        base = max(
+            (_TIMEOUT_TABLE.get(m, _TIMEOUT_TABLE['normal']).get(phase, 60) for m in self.modes),
+            default=60
+        )
+        return base
 
 
 # ============================================================================
@@ -2575,8 +2628,14 @@ SCAN MODES:
   quick    Fast, top ports only, minimal service detection
   normal   Balanced, top-1000 ports, full service/HTTP detection  [default]
   deep     All ports, vuln scripts, OS fingerprinting
-  stealth  Low-rate scanning for IDS evasion
+  stealth  Low-rate scanning for IDS evasion (rate≤200, timeout≥10)
   evasion  Full IDS/FW bypass: packet frags, decoys, source-port spoof
+  full     Everything: deep + stealth + evasion + web enum
+
+  Modes can be chained with comma/plus for feature union:
+    mode=deep,stealth   → deep port scan at stealth rate
+    mode=full           → all features combined
+    mode=evasion+stealth → double-layer evasion
 
 TOOLS (all concurrent):
   nmap          Service/version/OS/script detection
@@ -2601,7 +2660,8 @@ IoT / DEVICE DETECTION (automatic):
   surveillance  Flock Safety / LPR camera MAC OUI fingerprinting
 
 PARAMETERS:
-  mode            quick | normal | deep | stealth | evasion  (default: normal)
+  mode            quick | normal | deep | stealth | evasion | full  (default: normal)
+                  Chain modes with comma/plus: deep,stealth or full
   ports           quick | top-20 | top-100 | top-1000 | web | database | common
                   iot | camera | router | nas | ics | device | all
                   or custom: 80,443,8080-8090                (default: top-1000)
