@@ -54,6 +54,7 @@ CAPS: Dict[str, Any] = {
     'gobuster':     bool(shutil.which('gobuster')),
     'ffuf':         bool(shutil.which('ffuf')),
     'whatweb':      bool(shutil.which('whatweb')),
+    'nikto':        bool(shutil.which('nikto')),
     'searchsploit': bool(shutil.which('searchsploit')),
     'xsltproc':     bool(shutil.which('xsltproc')),
     'proxychains4': bool(shutil.which('proxychains4')),
@@ -61,6 +62,7 @@ CAPS: Dict[str, Any] = {
     'enum4linux':   bool(shutil.which('enum4linux')),
     'smbclient':    bool(shutil.which('smbclient')),
     'snmpwalk':     bool(shutil.which('snmpwalk')),
+    'curl':         bool(shutil.which('curl')),
 }
 
 try:
@@ -1257,6 +1259,7 @@ class WhatwebRunner:
 
     @staticmethod
     def scan(url: str, timeout: int = 30,
+             evasion: bool = False,
              proxy_prefix: Optional[List[str]] = None) -> Dict:
         """Run whatweb against a URL, return parsed tech/plugin data"""
         if not WhatwebRunner.available():
@@ -1265,6 +1268,8 @@ class WhatwebRunner:
             cmd = (proxy_prefix or []) + [
                 'whatweb', '--log-json=-', '--no-errors', '-q', url
             ]
+            if evasion:
+                cmd += ['--user-agent', _pick_ua(), '--throttle', '500']
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
             results: Dict = {'url': url, 'technologies': [], 'plugins': {}}
             for line in proc.stdout.strip().splitlines():
@@ -1320,12 +1325,15 @@ class GobusterRunner:
 
     @staticmethod
     def scan(url: str, wordlist: str = '', threads: int = 50,
-             timeout: int = 120, proxy_prefix: Optional[List[str]] = None,
+             timeout: int = 120, evasion: bool = False,
+             proxy_prefix: Optional[List[str]] = None,
              output_file: str = '') -> List[str]:
         """Directory brute-force, returns list of found paths"""
         wl = _find_wordlist(wordlist)
         if not GobusterRunner.available() or not wl:
             return []
+        if evasion:
+            threads = min(threads, 5)   # slow down to avoid detection
         try:
             cmd = (proxy_prefix or []) + [
                 'gobuster', 'dir',
@@ -1335,6 +1343,8 @@ class GobusterRunner:
                 '-k', '-q',
                 '--no-error',
             ]
+            if evasion:
+                cmd += ['--useragent', _pick_ua(), '--delay', '500ms']
             if output_file:
                 cmd += ['-o', output_file]
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
@@ -1356,12 +1366,15 @@ class FfufRunner:
 
     @staticmethod
     def scan(url: str, wordlist: str = '', threads: int = 50,
-             timeout: int = 120, proxy_prefix: Optional[List[str]] = None,
+             timeout: int = 120, evasion: bool = False,
+             proxy_prefix: Optional[List[str]] = None,
              output_file: str = '') -> List[str]:
         """ffuf directory brute-force, returns list of found paths"""
         wl = _find_wordlist(wordlist)
         if not FfufRunner.available() or not wl:
             return []
+        if evasion:
+            threads = min(threads, 5)
         fuzz_url = url.rstrip('/') + '/FUZZ'
         try:
             cmd = (proxy_prefix or []) + [
@@ -1373,6 +1386,8 @@ class FfufRunner:
                 '-fc', '404',
                 '-s',
             ]
+            if evasion:
+                cmd += ['-H', f'User-Agent: {_pick_ua()}', '-p', '0.5']
             if output_file:
                 cmd += ['-o', output_file, '-of', 'json']
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
@@ -1387,6 +1402,87 @@ class FfufRunner:
             return found
         except Exception:
             return []
+
+
+# ============================================================================
+# NIKTO RUNNER
+# ============================================================================
+
+# Evasion technique numbers for nikto -evasion flag
+_NIKTO_EVASION_TECHNIQUES = '1,2,5,7'   # encoding + path tricks; avoids 6/8 (break responses)
+
+# Shared list of generic browser UAs — used by all web tools in evasion mode
+_EVASION_USER_AGENTS = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15',
+    'Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko/20100101 Firefox/125.0',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/124.0.0.0 Safari/537.36',
+]
+
+def _pick_ua() -> str:
+    import random
+    return random.choice(_EVASION_USER_AGENTS)
+
+
+class NiktoRunner:
+
+    @staticmethod
+    def available() -> bool:
+        return CAPS.get('nikto', False)
+
+    @staticmethod
+    def scan(url: str, timeout: int = 120,
+             evasion: bool = False,
+             proxy_prefix: Optional[List[str]] = None,
+             output_file: str = '') -> Dict:
+        """
+        Run nikto web vulnerability scanner against url.
+        Returns dict with 'findings' (list of dicts) and 'raw' output.
+        """
+        if not NiktoRunner.available():
+            return {}
+        try:
+            cmd = (proxy_prefix or []) + [
+                'nikto', '-host', url, '-nointeractive', '-Format', 'csv',
+                '-output', '-',
+            ]
+            if evasion:
+                cmd += [
+                    '-evasion', _NIKTO_EVASION_TECHNIQUES,
+                    '-useragent', _pick_ua(),
+                ]
+                # Add proxy if proxychains not wrapping (nikto -useproxy)
+                # Rate limit via nikto's own -Pause flag
+                cmd += ['-Pause', '1']
+            if output_file:
+                cmd += ['-output', output_file, '-Format', 'csv']
+
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            findings: List[Dict] = []
+            for line in proc.stdout.splitlines():
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                # CSV: hostname,ip,port,nikto_id,osvdb,method,uri,message
+                parts = line.split(',', 7)
+                if len(parts) >= 8:
+                    findings.append({
+                        'host':    parts[0],
+                        'ip':      parts[1],
+                        'port':    parts[2],
+                        'id':      parts[3],
+                        'osvdb':   parts[4],
+                        'method':  parts[5],
+                        'uri':     parts[6],
+                        'message': parts[7],
+                    })
+                elif len(parts) >= 4 and 'OSVDB' in line:
+                    findings.append({'message': line})
+            return {'findings': findings, 'raw': proc.stdout[:4096]}
+        except subprocess.TimeoutExpired:
+            return {'findings': [], 'raw': 'timeout'}
+        except Exception:
+            return {}
 
 
 # ============================================================================
@@ -1877,7 +1973,8 @@ class NetRecon:
             for port in list(web)[:4]:
                 scheme = 'https' if port in (443, 8443, 9443) else 'http'
                 url = f'{scheme}://{ip}:{port}/'
-                ww = WhatwebRunner.scan(url, timeout=20, proxy_prefix=pp)
+                ww = WhatwebRunner.scan(url, timeout=20, proxy_prefix=pp,
+                                        evasion=self.evasion)
                 if ww.get('technologies'):
                     svc = next((s for s in profile.services if s.port == port), None)
                     if svc:
@@ -1889,6 +1986,10 @@ class NetRecon:
 
         # Banner grab fallback if nmap gave nothing
         if not profile.services and initial_ports and not self.passive:
+            if self.evasion:
+                _BANNER_PROBES[554] = (
+                    f'OPTIONS * RTSP/1.0\r\nCSeq: 1\r\nUser-Agent: {_pick_ua()}\r\n\r\n'
+                ).encode()
             for port in sorted(initial_ports)[:20]:
                 bnr, ms = banner_grab(ip, port, float(self.timeout))
                 svc = ServiceInfo(port=port, state='open', banner=bnr, response_ms=ms,
@@ -2339,7 +2440,8 @@ class NetRecon:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             s.settimeout(3.0)
             s.connect((ip, port))
-            s.send(b'OPTIONS * RTSP/1.0\r\nCSeq: 1\r\nUser-Agent: secv-netrecon\r\n\r\n')
+            ua = _pick_ua() if self.evasion else 'secv-netrecon'
+            s.send(f'OPTIONS * RTSP/1.0\r\nCSeq: 1\r\nUser-Agent: {ua}\r\n\r\n'.encode())
             raw = s.recv(512)
             s.close()
             resp = raw.decode('utf-8', errors='replace')
@@ -2357,9 +2459,10 @@ class NetRecon:
     # ------------------------------------------------------------------
 
     def _run_web_enum(self, profiles: List[HostProfile]):
-        """Run gobuster/ffuf + whatweb on all discovered web services"""
+        """Run gobuster/ffuf + nikto + whatweb on all discovered web services"""
         pp = self._proxy_prefix()
         wl = self.web_wordlist
+        ev = self.evasion
 
         for host in profiles:
             for svc in host.services:
@@ -2378,12 +2481,14 @@ class NetRecon:
                 if GobusterRunner.available():
                     found = GobusterRunner.scan(
                         url, wl, threads=50, timeout=120,
+                        evasion=ev,
                         proxy_prefix=pp,
                         output_file=out_base + '_gobuster.txt' if out_base else '',
                     )
                 elif FfufRunner.available():
                     found = FfufRunner.scan(
                         url, wl, threads=50, timeout=120,
+                        evasion=ev,
                         proxy_prefix=pp,
                         output_file=out_base + '_ffuf.json' if out_base else '',
                     )
@@ -2393,6 +2498,26 @@ class NetRecon:
                         svc.__dict__['web_paths'] = found
                     if 'web_enum' not in svc.sources:
                         svc.sources.append('web_enum')
+
+                # Nikto vulnerability scan
+                if NiktoRunner.available() and not self.passive:
+                    nikto_out = out_base + '_nikto.txt' if out_base else ''
+                    nk = NiktoRunner.scan(url, timeout=300, evasion=ev,
+                                          proxy_prefix=pp, output_file=nikto_out)
+                    if nk.get('findings'):
+                        svc.__dict__.setdefault('nikto_findings', []).extend(nk['findings'])
+                        if 'nikto' not in svc.sources:
+                            svc.sources.append('nikto')
+
+                # WhatWeb fingerprint
+                if WhatwebRunner.available() and not self.passive:
+                    ww = WhatwebRunner.scan(url, timeout=20, proxy_prefix=pp, evasion=ev)
+                    if ww.get('technologies'):
+                        for tech in ww['technologies']:
+                            if tech not in svc.http_technologies:
+                                svc.http_technologies.append(tech)
+                        if 'whatweb' not in svc.sources:
+                            svc.sources.append('whatweb')
 
     # ------------------------------------------------------------------
     # SEARCHSPLOIT
