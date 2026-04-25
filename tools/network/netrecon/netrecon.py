@@ -2862,6 +2862,290 @@ REQUIREMENTS:
 
 
 # ============================================================================
+# REPORT FORMATTER
+# ============================================================================
+
+_R  = '\033[0m'
+_B  = '\033[1m'
+_DM = '\033[2m'
+_RD = '\033[91m'
+_YL = '\033[93m'
+_GR = '\033[92m'
+_CY = '\033[96m'
+_MG = '\033[95m'
+_WH = '\033[97m'
+
+_SEV_CLR = {'CRITICAL': _RD, 'HIGH': _RD, 'MEDIUM': _YL, 'LOW': _GR, 'INFO': _DM}
+_RISK_CLR = {'CRITICAL': _RD, 'HIGH': _RD, 'MEDIUM': _YL, 'LOW': _GR}
+
+def _w(s: str) -> int:
+    """Visible width of string (strips ANSI)."""
+    return len(re.sub(r'\033\[[0-9;]*m', '', s))
+
+def _rule(label: str = '', width: int = 70) -> str:
+    if not label:
+        return _DM + '─' * width + _R
+    pad = width - len(label) - 2
+    return _DM + '─' * max(1, pad) + ' ' + _B + label + _R + ' ' + _DM + '─' + _R
+
+def _sev_tag(cvss: float, severity: str = '') -> str:
+    if not severity:
+        if cvss >= 9.0: severity = 'CRITICAL'
+        elif cvss >= 7.0: severity = 'HIGH'
+        elif cvss >= 4.0: severity = 'MEDIUM'
+        else: severity = 'LOW'
+    c = _SEV_CLR.get(severity, _DM)
+    return f'{c}{severity:<8}{_R}'
+
+def _risk_tag(level: str, score: int) -> str:
+    c = _RISK_CLR.get(level, _DM)
+    return f'{c}{_B}RISK {level}{_R} {_DM}({score}){_R}'
+
+def _trunc(s: str, n: int = 60) -> str:
+    return (s[:n - 1] + '…') if len(s) > n else s
+
+def _fmt_duration(sec: float) -> str:
+    m, s = divmod(int(sec), 60)
+    return f'{m}m {s}s' if m else f'{s}s'
+
+def _fmt_host_line(h: dict) -> str:
+    ip   = f'{_B}{_WH}{h["ip"]:<17}{_R}'
+    os_  = f'{h.get("os_family","") or ""}'
+    osv  = f'{h.get("os_version","") or ""}'
+    os_s = f'{_CY}{os_} {osv}{_R}'.strip() if os_ else f'{_DM}OS unknown{_R}'
+    hn   = h.get('hostname') or h.get('reverse_dns') or ''
+    hn_s = f'  {_DM}{hn}{_R}' if hn else ''
+    mac  = h.get('mac') or ''
+    vnd  = h.get('mac_vendor') or ''
+    dt   = h.get('device_type') or ''
+    id_s = '  '.join(filter(None, [mac, vnd or dt]))
+    id_s = f'  {_DM}{id_s}{_R}' if id_s else ''
+    rl   = _risk_tag(h.get('risk_level','LOW'), h.get('risk_score', 0))
+    return f'  {ip}{os_s}{hn_s}{id_s}  {rl}'
+
+def _fmt_service(svc: dict, indent: str = '    ') -> List[str]:
+    lines = []
+    port  = svc.get('port', 0)
+    proto = svc.get('protocol', 'tcp')
+    sname = svc.get('service') or ''
+    prod  = svc.get('product') or ''
+    ver   = svc.get('version') or ''
+    banner= svc.get('banner') or ''
+    htitle= svc.get('http_title') or ''
+    hstat = svc.get('http_status') or 0
+    hsvr  = svc.get('http_server') or ''
+    techs = svc.get('http_technologies') or []
+    miss  = svc.get('http_missing_headers') or []
+    tls_s = svc.get('tls_subject') or ''
+    tls_e = svc.get('tls_expiry') or ''
+    cves  = svc.get('cves') or []
+    paths = svc.get('web_paths') or []
+    snmp  = svc.get('snmp_community') or ''
+    smb   = svc.get('smb_shares') or []
+    mqtt  = svc.get('mqtt_no_auth') or False
+    nikto = svc.get('nikto_findings') or []
+
+    port_s  = f'{_YL}{port}/{proto}{_R}'
+    sname_s = f'{_B}{sname}{_R}' if sname else f'{_DM}unknown{_R}'
+    ver_s   = ''
+    if prod or ver:
+        ver_s = '  ' + _trunc(f'{prod} {ver}'.strip(), 40)
+    if banner and banner not in ('tcpwrapped',) and not ver_s:
+        ver_s = f'  {_DM}{_trunc(banner, 35)}{_R}'
+
+    svc_line = f'{indent}{port_s}  {sname_s}{ver_s}'
+
+    # HTTP enrichment inline
+    http_extras = []
+    if hstat:
+        sc = _GR if hstat < 300 else (_YL if hstat < 400 else _RD)
+        http_extras.append(f'{sc}{hstat}{_R}')
+    if htitle:
+        http_extras.append(f'"{_trunc(htitle, 40)}"')
+    if hsvr:
+        http_extras.append(f'server:{hsvr}')
+    if http_extras:
+        svc_line += f'  {_DM}[{" · ".join(http_extras)}]{_R}'
+
+    lines.append(svc_line)
+
+    if techs:
+        lines.append(f'{indent}   {_DM}tech    {_R}{_CY}{", ".join(techs[:6])}{_R}')
+    if tls_s:
+        tls_line = f'tls  {tls_s}'
+        if tls_e:
+            tls_line += f'  expires {tls_e}'
+        lines.append(f'{indent}   {_DM}{tls_line}{_R}')
+    if miss:
+        lines.append(f'{indent}   {_DM}missing {_R}{_YL}{", ".join(miss[:4])}{_R}')
+    if snmp:
+        lines.append(f'{indent}   {_YL}SNMP community: {snmp}{_R}')
+    if mqtt:
+        lines.append(f'{indent}   {_YL}MQTT: no authentication{_R}')
+    if smb:
+        for sh in smb[:4]:
+            lines.append(f'{indent}   {_DM}smb share  {_R}{sh}')
+    if paths:
+        shown = paths[:8]
+        more  = len(paths) - len(shown)
+        lines.append(f'{indent}   {_DM}dirs    {_R}{_GR}{" ".join(shown)}{_R}'
+                     + (f' {_DM}+{more} more{_R}' if more else ''))
+    if nikto:
+        for nf in nikto[:4]:
+            msg = nf if isinstance(nf, str) else nf.get('desc', str(nf))
+            lines.append(f'{indent}   {_YL}nikto   {_R}{_trunc(msg, 60)}')
+
+    for cve in cves:
+        cid   = cve.get('id', '')
+        cvss  = float(cve.get('cvss', 0))
+        desc  = cve.get('desc', '')
+        sev   = cve.get('severity', '')
+        tag   = _sev_tag(cvss, sev)
+        cs    = f'{_B}{cid:<18}{_R}' if cid.startswith('CVE') else f'{_RD}{cid:<18}{_R}'
+        cvss_s= f'{_YL if cvss >= 7 else _DM}{cvss:.1f}{_R}'
+        lines.append(f'{indent}   {cs} {tag} {cvss_s}  {_DM}{_trunc(desc, 55)}{_R}')
+
+    return lines
+
+def print_report(result: dict) -> None:
+    if not result.get('success'):
+        errs = result.get('errors', ['unknown error'])
+        print(f'\n{_RD}  FAILED:{_R} {"; ".join(errs)}\n')
+        return
+
+    data    = result.get('data', {})
+    target  = data.get('target', '?')
+    dur     = _fmt_duration(data.get('scan_duration', 0))
+    hosts   = data.get('hosts', [])
+    summary = data.get('summary', {})
+    engines = ', '.join(data.get('engines_used', []))
+    n_alive = summary.get('hosts_alive', len(hosts))
+    n_ports = summary.get('total_open_ports', 0)
+    vuln_s  = summary.get('vulnerabilities', {})
+    n_crit  = vuln_s.get('critical', 0)
+    n_high  = vuln_s.get('high', 0)
+    n_med   = vuln_s.get('medium', 0)
+    n_vuln  = vuln_s.get('total', 0)
+    hi_risk = summary.get('high_risk_hosts', [])
+    outputs = data.get('outputs', {})
+
+    W = 70
+    print()
+    print(f'  {_B}{_WH}NETRECON{_R}  {_CY}{target}{_R}  ·  {n_alive} hosts  ·  {dur}')
+    print(_DM + '═' * W + _R)
+    print(f'  {_DM}engines  {_R}{engines}    {_DM}ports found  {_R}{n_ports}')
+    if outputs.get('html_report'):
+        print(f'  {_DM}report   {_R}{outputs["html_report"]}')
+    print()
+
+    # ── Vulnerability summary ────────────────────────────────────────
+    if n_vuln:
+        print(_rule('VULNERABILITIES', W))
+        crit_s = f'{_RD}{n_crit} critical{_R}' if n_crit else f'{_DM}0 critical{_R}'
+        high_s = f'{_RD}{n_high} high{_R}'     if n_high else f'{_DM}0 high{_R}'
+        med_s  = f'{_YL}{n_med} medium{_R}'    if n_med  else f'{_DM}0 medium{_R}'
+        print(f'  {crit_s}  {high_s}  {med_s}  {_DM}·  {n_vuln} total{_R}')
+        top = vuln_s.get('top_cves', [])[:5]
+        if top:
+            print(f'  {_DM}top: {_R}{_YL}{" · ".join(top)}{_R}')
+        print()
+
+    # ── Partition hosts ──────────────────────────────────────────────
+    # minimal = only tcpwrapped/port 179 or no open ports
+    def _is_minimal(h: dict) -> bool:
+        svcs = h.get('services', [])
+        if not svcs:
+            return True
+        for s in svcs:
+            if s.get('service') or s.get('product') or \
+               s.get('http_status') or s.get('cves') or \
+               (s.get('banner') and s['banner'] != 'tcpwrapped'):
+                return False
+        return True
+
+    high_hosts    = [h for h in hosts if h.get('risk_level') in ('HIGH', 'CRITICAL')]
+    regular_hosts = [h for h in hosts if h.get('risk_level') not in ('HIGH', 'CRITICAL')
+                     and not _is_minimal(h)]
+    minimal_hosts = [h for h in hosts if h.get('risk_level') not in ('HIGH', 'CRITICAL')
+                     and _is_minimal(h)]
+
+    # ── High / Critical risk ─────────────────────────────────────────
+    if high_hosts:
+        print(_rule('HIGH RISK ▲', W))
+        for h in sorted(high_hosts, key=lambda x: -x.get('risk_score', 0)):
+            print(_fmt_host_line(h))
+            for svc in h.get('services', []):
+                for ln in _fmt_service(svc):
+                    print(ln)
+            vulns = h.get('vulnerabilities', [])
+            for v in vulns:
+                desc = v.get('description', v.get('desc', ''))
+                vid  = v.get('id', v.get('type', ''))
+                if desc or vid:
+                    print(f'    {_RD}▲ {vid}: {_trunc(desc, 55)}{_R}')
+            print()
+
+    # ── Regular hosts ────────────────────────────────────────────────
+    if regular_hosts:
+        print(_rule(f'HOSTS ({len(regular_hosts)})', W))
+        for h in sorted(regular_hosts, key=lambda x: -x.get('risk_score', 0)):
+            print(_fmt_host_line(h))
+            for svc in h.get('services', []):
+                for ln in _fmt_service(svc):
+                    print(ln)
+            vulns = h.get('vulnerabilities', [])
+            for v in vulns:
+                desc = v.get('description', v.get('desc', ''))
+                vid  = v.get('id', v.get('type', ''))
+                if desc or vid:
+                    print(f'    {_YL}! {vid}: {_trunc(desc, 55)}{_R}')
+            print()
+
+    # ── Minimal footprint ────────────────────────────────────────────
+    if minimal_hosts:
+        print(_rule(f'LOW FOOTPRINT ({len(minimal_hosts)})', W))
+        # group by what little info they do have
+        no_svc  = [h for h in minimal_hosts if not h.get('services')]
+        has_svc = [h for h in minimal_hosts if h.get('services')]
+
+        if no_svc:
+            print(f'  {_DM}no open ports{_R}')
+            ips = [h['ip'] for h in no_svc]
+            # 5 per row
+            for i in range(0, len(ips), 5):
+                row = ips[i:i+5]
+                print(f'  {_DM}{"  ".join(f"{ip:<17}" for ip in row)}{_R}')
+            if has_svc:
+                print()
+
+        if has_svc:
+            # Group by port pattern
+            by_port: dict = {}
+            for h in has_svc:
+                ports_key = ','.join(str(s['port']) for s in h.get('services', []))
+                by_port.setdefault(ports_key, []).append(h)
+            for ports_key, grp in by_port.items():
+                svcs_desc = ', '.join(
+                    f"{s['port']}/{s.get('protocol','tcp')} {s.get('banner','tcpwrapped')}"
+                    for s in grp[0].get('services', [])
+                )
+                print(f'  {_DM}port {ports_key}  {svcs_desc}{_R}')
+                ips = [h['ip'] for h in grp]
+                for i in range(0, len(ips), 5):
+                    row = ips[i:i+5]
+                    print(f'  {_DM}{"  ".join(f"{ip:<17}" for ip in row)}{_R}')
+        print()
+
+    # ── Footer ───────────────────────────────────────────────────────
+    print(_DM + '─' * W + _R)
+    vuln_foot = f'{n_crit+n_high} high-sev CVEs' if (n_crit + n_high) else 'no high-sev CVEs'
+    print(f'  {_GR}✓{_R}  {n_alive} hosts  ·  {n_ports} ports  ·  {_YL}{n_vuln} CVEs{_R}  ·  {vuln_foot}')
+    if hi_risk:
+        print(f'  {_RD}▲  high-risk:{_R} {", ".join(hi_risk)}')
+    print()
+
+
+# ============================================================================
 # ENTRY POINT
 # ============================================================================
 
@@ -2869,10 +3153,14 @@ def main():
     if len(sys.argv) > 1 and sys.argv[1] in ('--help', '-h', 'help'):
         show_help()
         sys.exit(0)
+    raw_json = '--json' in sys.argv
     try:
         data = json.loads(sys.stdin.read())
         result = NetRecon(data).execute()
-        print(json.dumps(result, indent=2, default=str))
+        if raw_json:
+            print(json.dumps(result, indent=2, default=str))
+        else:
+            print_report(result)
     except json.JSONDecodeError as e:
         print(json.dumps({'success': False, 'errors': [f'Invalid JSON input: {e}']}))
         sys.exit(1)

