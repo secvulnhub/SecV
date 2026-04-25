@@ -1576,10 +1576,31 @@ class NetRecon:
 
     # ------------------------------------------------------------------
 
+    def _warn_sudo(self) -> None:
+        """Print warnings to stderr when root is needed but not present."""
+        if CAPS['root']:
+            return
+        needs_root = []
+        if MasscanRunner.available():
+            needs_root.append('masscan (SYN scan)')
+        if CAPS['arp_scan']:
+            needs_root.append('arp-scan (ARP host discovery)')
+        if self.os_det:
+            needs_root.append('nmap OS detection (-O flag)')
+        if self.mode in ('syn', 'stealth'):
+            needs_root.append(f'mode={self.mode} (raw SYN packets)')
+        if needs_root:
+            print('[!] WARNING: not running as root — some features will be degraded or skipped:',
+                  file=sys.stderr)
+            for item in needs_root:
+                print(f'    - {item}', file=sys.stderr)
+            print('[!] Re-run with sudo for full capability.', file=sys.stderr)
+
     def execute(self) -> Dict:
         if not self.target:
             return {'success': False, 'errors': ['No target specified']}
 
+        self._warn_sudo()
         t0 = time.time()
         engines: List[str] = []
 

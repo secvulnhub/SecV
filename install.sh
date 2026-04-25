@@ -615,22 +615,32 @@ echo
 
 echo -e "${YELLOW}[12/12] System-wide installation...${NC}"
 
-read -p "Install SecV system-wide to /usr/local/bin? [y/N]: " -n 1 -r
+read -p "Install SecV system-wide to /usr/local/bin? [Y/n]: " -n 1 -r
 echo
 
-if [[ $REPLY =~ ^[Yy]$ ]]; then
+# Default to yes if user just presses Enter (empty reply)
+if [[ -z "$REPLY" || $REPLY =~ ^[Yy]$ ]]; then
     if [ -f "$SECV_BIN" ]; then
         sudo ln -sf "$SECV_BIN" /usr/local/bin/secV
         echo -e "${GREEN}[✓] SecV installed to /usr/local/bin/secV${NC}"
-        echo -e "${DIM}    You can now run 'secV' from anywhere${NC}"
+        echo -e "${DIM}    Run 'secV' from any directory${NC}"
+        # Also ensure update.py can find the repo by storing the install path
+        echo "$SCRIPT_DIR" | sudo tee /usr/local/lib/secv_home > /dev/null 2>&1 || true
         SYSTEM_WIDE=true
     else
-        echo -e "${YELLOW}[!] Binary not found, skipping system-wide install${NC}"
-        SYSTEM_WIDE=false
+        echo -e "${YELLOW}[!] Binary not found at $SECV_BIN — trying to build first...${NC}"
+        if command -v go &> /dev/null; then
+            (cd "$SCRIPT_DIR" && go build -o secV . && sudo ln -sf "$SCRIPT_DIR/secV" /usr/local/bin/secV)
+            echo -e "${GREEN}[✓] Built and installed to /usr/local/bin/secV${NC}"
+            SYSTEM_WIDE=true
+        else
+            echo -e "${RED}[✗] Go not found — cannot build binary. Install Go and re-run.${NC}"
+            SYSTEM_WIDE=false
+        fi
     fi
 else
     echo -e "${CYAN}[*] Skipped system-wide installation${NC}"
-    echo -e "${DIM}    Run with: ./secV${NC}"
+    echo -e "${DIM}    Run with: $SCRIPT_DIR/secV${NC}"
     SYSTEM_WIDE=false
 fi
 echo

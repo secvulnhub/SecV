@@ -266,6 +266,7 @@ type SecV struct {
 	secvHome      string
 	toolsDir      string
 	cacheDir      string
+	workDir       string
 	distro        distroInfo
 	msfToken      string        // authenticated MSF RPC token
 	msfCfg        *msfRPCConfig // loaded from ~/.secv/msf_rpc.json
@@ -279,6 +280,7 @@ func NewSecV() *SecV {
 		secvHome: home,
 		toolsDir: filepath.Join(home, "tools"),
 		cacheDir: filepath.Join(home, ".cache"),
+		workDir:  home,
 		distro:   detectDistro(),
 	}
 }
@@ -460,39 +462,102 @@ func (s *SecV) ShowOptions() {
 		fmt.Printf("%s%s no module loaded%s\n", YELLOW, WARNING, RESET)
 		return
 	}
-	printHeader(s.currentModule.Name + " options")
+	m := s.currentModule
+	printHeader(m.Name + " · options")
+	fmt.Printf("\n  %s%s%s\n", DIM, m.Description, RESET)
+	if m.Author != "" {
+		fmt.Printf("  %sauthor%s  %s%s%s\n", DIM, RESET, MAGENTA, m.Author, RESET)
+	}
+	fmt.Printf("  %sversion%s %s%s%s\n\n", DIM, RESET, CYAN, m.Version, RESET)
 
-	fmt.Printf("\n%s%s%s\n", DIM, s.currentModule.Description, RESET)
+	if m.Help != nil && len(m.Help.Parameters) > 0 {
+		printSection("parameters")
+		fmt.Printf("  %s%-22s %-10s %-5s %s%s\n", BOLD, "PARAM", "TYPE", "REQ", "CURRENT VALUE", RESET)
+		fmt.Printf("  %s%s%s\n", DIM, strings.Repeat("─", 70), RESET)
+		for pname, pi := range m.Help.Parameters {
+			val, isSet := s.params[pname]
 
-	printSection("params")
-	if len(s.params) == 0 {
-		fmt.Printf("%s(none set)%s\n", DIM, RESET)
+			reqStr := "no"
+			reqColor := DIM
+			if pi.Required {
+				if isSet {
+					reqStr = "YES"
+					reqColor = GREEN
+				} else {
+					reqStr = "YES"
+					reqColor = RED
+				}
+			}
+
+			var valStr string
+			if isSet {
+				valStr = fmt.Sprintf("%s%s%s", CYAN, val, RESET)
+			} else if pi.Default != nil && fmt.Sprintf("%v", pi.Default) != "" && fmt.Sprintf("%v", pi.Default) != "false" && fmt.Sprintf("%v", pi.Default) != "<nil>" {
+				valStr = fmt.Sprintf("%s(default: %v)%s", DIM, pi.Default, RESET)
+			} else {
+				valStr = fmt.Sprintf("%snot set%s", DIM, RESET)
+			}
+
+			nameStr := fmt.Sprintf("%s%s%s", BOLD, pname, RESET)
+			fmt.Printf("  %-30s %-10s %s%-5s%s %s\n",
+				nameStr, pi.Type, reqColor, reqStr, RESET, valStr)
+			if pi.Description != "" {
+				fmt.Printf("    %s%s%s\n", DIM, pi.Description, RESET)
+			}
+			if len(pi.Options) > 0 {
+				fmt.Printf("    %soptions: %s%s\n", DIM, strings.Join(pi.Options, " | "), RESET)
+			}
+			if len(pi.Examples) > 0 {
+				ex := make([]string, 0, len(pi.Examples))
+				for _, e := range pi.Examples {
+					ex = append(ex, fmt.Sprintf("%v", e))
+				}
+				fmt.Printf("    %se.g. %s%s\n", DIM, strings.Join(ex, ", "), RESET)
+			}
+		}
+	} else if len(m.Inputs) > 0 {
+		printSection("inputs")
+		for name, info := range m.Inputs {
+			inf, ok := info.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			ptype, _ := inf["type"].(string)
+			desc, _ := inf["description"].(string)
+			req := ""
+			if r, _ := inf["required"].(bool); r {
+				req = fmt.Sprintf(" %s*%s", RED, RESET)
+			}
+			val, isSet := s.params[name]
+			valStr := fmt.Sprintf("%snot set%s", DIM, RESET)
+			if isSet {
+				valStr = fmt.Sprintf("%s%s%s", CYAN, val, RESET)
+			}
+			fmt.Printf("  %s%s%s%s  %s(%s)%s  →  %s\n", BOLD, name, req, RESET, DIM, ptype, RESET, valStr)
+			if desc != "" {
+				fmt.Printf("    %s%s%s\n", DIM, desc, RESET)
+			}
+		}
 	} else {
+		printSection("params set")
+		if len(s.params) == 0 {
+			fmt.Printf("  %s(none)%s\n", DIM, RESET)
+		} else {
+			for k, v := range s.params {
+				fmt.Printf("  %s%-20s%s %s%s%s\n", BOLD, k, RESET, CYAN, v, RESET)
+			}
+		}
+	}
+
+	// Always summarise what's currently set
+	if len(s.params) > 0 {
+		printSection("set")
 		for k, v := range s.params {
 			fmt.Printf("  %s%-20s%s %s%s%s\n", BOLD, k, RESET, CYAN, v, RESET)
 		}
 	}
 
-	if len(s.currentModule.Inputs) > 0 {
-		printSection("available")
-		for name, info := range s.currentModule.Inputs {
-			m, ok := info.(map[string]interface{})
-			if !ok {
-				continue
-			}
-			ptype, _ := m["type"].(string)
-			desc, _ := m["description"].(string)
-			req := ""
-			if r, _ := m["required"].(bool); r {
-				req = " *"
-			}
-			fmt.Printf("  %s%s%s%s  %s(%s)%s\n", BOLD, name, req, RESET, DIM, ptype, RESET)
-			if desc != "" {
-				fmt.Printf("    %s%s%s\n", DIM, desc, RESET)
-			}
-		}
-	}
-	fmt.Println()
+	fmt.Printf("\n%s  set <param> <value>  ·  run <target>  ·  help module%s\n\n", DIM, RESET)
 }
 
 func (s *SecV) ShowInfo(moduleName string) {
@@ -548,35 +613,48 @@ func (s *SecV) ShowHelp(topic string) {
 		cmds  [][]string
 	}{
 		{"modules", [][]string{
-			{"use <module>", "load a module"},
-			{"back", "unload current module"},
-			{"reload", "rescan modules directory"},
+			{"use <module>", "load a module by name"},
+			{"back  /  cd ..", "unload current module (cd .. = back)"},
+			{"reload", "rescan tools directory for modules"},
 		}},
 		{"config", [][]string{
-			{"set <param> <value>", "set a parameter"},
+			{"set <param> <value>", "set a module parameter"},
 			{"unset <param>", "clear a parameter"},
-			{"show options", "list parameters"},
+			{"show options", "list all params (required marked in red)"},
 		}},
 		{"run", [][]string{
-			{"run <target>", "execute loaded module"},
+			{"run <target>", "execute the loaded module against target"},
 		}},
 		{"info", [][]string{
-			{"show modules", "list all modules"},
-			{"info [module]", "module details + dep status"},
-			{"search <keyword>", "search modules"},
-			{"help module", "module-specific help"},
+			{"show modules", "list all available modules by category"},
+			{"info [module]", "module details and dependency status"},
+			{"search <keyword>", "search modules by name/description"},
+			{"help module", "full help for the loaded module"},
+		}},
+		{"navigation", [][]string{
+			{"cd <dir>", "change working directory"},
+			{"cd ..  /  cd ../", "go up one directory (or back from module)"},
+			{"pwd", "print current working directory"},
+			{"ls [path]", "list directory contents"},
+			{"mkdir <dir>", "create directory"},
+			{"mv <src> <dst>", "move / rename file"},
+			{"cp <src> <dst>", "copy file"},
+			{"rm <file>", "remove file"},
+			{"cat <file>", "print file contents"},
+			{"find / grep / chmod", "standard Linux commands — all pass through"},
 		}},
 		{"system", [][]string{
-			{"update", "pull latest from git"},
-			{"clear", "clear screen"},
-			{"exit", "quit"},
+			{"sessions [list|interact|kill]", "manage Meterpreter sessions"},
+			{"update", "pull latest version from git"},
+			{"clear", "clear the terminal"},
+			{"exit / quit", "exit secV"},
 		}},
 	}
 
 	for _, sec := range sections {
 		fmt.Printf("\n%s%s%s%s\n", BOLD, YELLOW, sec.title, RESET)
 		for _, c := range sec.cmds {
-			pad := 22 - len(c[0])
+			pad := 32 - len(c[0])
 			if pad < 1 {
 				pad = 1
 			}
@@ -584,7 +662,7 @@ func (s *SecV) ShowHelp(topic string) {
 				strings.Repeat(" ", pad), c[1])
 		}
 	}
-	fmt.Printf("\n%stab completion is active — press Tab to see options%s\n\n", DIM, RESET)
+	fmt.Printf("\n%stab completion active — press Tab | any Linux command works natively%s\n\n", DIM, RESET)
 }
 
 func (s *SecV) ShowModuleHelp() {
@@ -816,11 +894,76 @@ func CAPS_HAS(tool string) bool {
 }
 
 // ============================================================================
+// Linux shell passthrough
+// ============================================================================
+
+var shellPassthroughCmds = map[string]bool{
+	"ls": true, "ll": true, "la": true, "dir": true,
+	"mkdir": true, "rmdir": true, "mv": true, "cp": true, "rm": true,
+	"cat": true, "less": true, "more": true, "head": true, "tail": true,
+	"echo": true, "touch": true, "pwd": true,
+	"find": true, "grep": true, "egrep": true, "rg": true,
+	"chmod": true, "chown": true, "ln": true,
+	"whoami": true, "id": true, "which": true, "whereis": true,
+	"file": true, "stat": true, "df": true, "du": true,
+	"ps": true, "kill": true, "killall": true,
+	"sort": true, "wc": true, "uniq": true, "diff": true,
+	"tar": true, "gzip": true, "unzip": true,
+	"curl": true, "wget": true,
+	"python3": true, "python": true, "bash": true, "sh": true,
+	"git": true, "nano": true, "vim": true, "vi": true,
+	"env": true, "export": true, "printenv": true,
+	"uname": true, "hostname": true, "uptime": true, "date": true,
+}
+
+func (s *SecV) execShellCmd(line string) {
+	cmd := exec.Command("bash", "-c", line)
+	cmd.Dir = s.workDir
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	_ = cmd.Run()
+}
+
+func (s *SecV) changeDir(target string) {
+	var newDir string
+	switch target {
+	case "", "~":
+		home, _ := os.UserHomeDir()
+		newDir = home
+	case "-":
+		// Go to previous dir — just stay if no history
+		newDir = s.workDir
+	default:
+		if filepath.IsAbs(target) {
+			newDir = target
+		} else {
+			newDir = filepath.Join(s.workDir, target)
+		}
+	}
+	// Resolve symlinks / clean path
+	resolved, err := filepath.EvalSymlinks(newDir)
+	if err != nil {
+		fmt.Printf("%scd: %s: No such file or directory%s\n", RED, target, RESET)
+		return
+	}
+	fi, err := os.Stat(resolved)
+	if err != nil || !fi.IsDir() {
+		fmt.Printf("%scd: %s: Not a directory%s\n", RED, target, RESET)
+		return
+	}
+	s.workDir = resolved
+	// Keep OS process cwd in sync so child commands (ls, find…) see the same dir
+	_ = os.Chdir(resolved)
+}
+
+// ============================================================================
 // Tab completion
 // ============================================================================
 
 func (s *SecV) buildCompleter() *readline.PrefixCompleter {
 	topCmds := []readline.PrefixCompleterInterface{
+		// secV commands
 		readline.PcItem("use",
 			readline.PcItemDynamic(func(_ string) []string { return s.moduleNames() }),
 		),
@@ -849,17 +992,50 @@ func (s *SecV) buildCompleter() *readline.PrefixCompleter {
 		readline.PcItem("clear"),
 		readline.PcItem("exit"),
 		readline.PcItem("quit"),
+		// Linux navigation / filesystem
+		readline.PcItem("cd"),
+		readline.PcItem("pwd"),
+		readline.PcItem("ls"),
+		readline.PcItem("ll"),
+		readline.PcItem("la"),
+		readline.PcItem("mkdir"),
+		readline.PcItem("rmdir"),
+		readline.PcItem("mv"),
+		readline.PcItem("cp"),
+		readline.PcItem("rm"),
+		readline.PcItem("cat"),
+		readline.PcItem("less"),
+		readline.PcItem("head"),
+		readline.PcItem("tail"),
+		readline.PcItem("find"),
+		readline.PcItem("grep"),
+		readline.PcItem("chmod"),
+		readline.PcItem("chown"),
+		readline.PcItem("touch"),
+		readline.PcItem("file"),
+		readline.PcItem("stat"),
+		readline.PcItem("whoami"),
+		readline.PcItem("which"),
+		readline.PcItem("git"),
 	}
 	return readline.NewPrefixCompleter(topCmds...)
 }
 
 func (s *SecV) prompt() string {
+	base := fmt.Sprintf("%s%ssecV%s", BOLD, GREEN, RESET)
 	if s.currentModule != nil {
-		return fmt.Sprintf("%s%ssecV%s %s(%s)%s ❯ ",
-			BOLD, GREEN, RESET,
-			CYAN, s.currentModule.Name, RESET)
+		modPart := fmt.Sprintf(" %s%s%s", CYAN, s.currentModule.Name, RESET)
+		opPart := ""
+		if op, ok := s.params["operation"]; ok {
+			opPart = fmt.Sprintf(" %s›%s %s%s%s", DIM, RESET, YELLOW, op, RESET)
+		}
+		paramPart := ""
+		if n := len(s.params); n > 0 {
+			paramPart = fmt.Sprintf(" %s[%d params]%s", DIM, n, RESET)
+		}
+		return fmt.Sprintf("%s%s%s%s ❯ ", base, modPart, opPart, paramPart)
 	}
-	return fmt.Sprintf("%s%ssecV%s ❯ ", BOLD, GREEN, RESET)
+	return fmt.Sprintf("%s ❯ ", base)
 }
 
 // ============================================================================
@@ -1061,8 +1237,34 @@ func main() {
 			fmt.Println()
 			return
 
+		// ── Linux navigation ────────────────────────────────────────────────
+		case "cd":
+			target := ""
+			if len(args) > 0 {
+				target = strings.Join(args, " ")
+			}
+			// cd .. / cd ../ → back (unload module), then go up in filesystem
+			if target == ".." || target == "../" || target == "-" {
+				if secv.currentModule != nil {
+					secv.Back()
+				} else {
+					secv.changeDir("..")
+				}
+			} else {
+				secv.changeDir(target)
+				fmt.Printf("%s%s%s\n", DIM, secv.workDir, RESET)
+			}
+
+		case "pwd":
+			fmt.Printf("%s%s%s\n", DIM, secv.workDir, RESET)
+
 		default:
-			fmt.Printf("%s? %s  (type 'help')%s\n", YELLOW, cmd, RESET)
+			// Transparent passthrough for standard Linux commands
+			if shellPassthroughCmds[cmd] {
+				secv.execShellCmd(line)
+			} else {
+				fmt.Printf("%s? %s  (type 'help')%s\n", YELLOW, cmd, RESET)
+			}
 		}
 	}
 }
