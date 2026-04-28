@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "category": "mobile",
   "description": "Complete Android penetration testing suite with device reconnaissance, app analysis, vulnerability scanning, exploitation, network capture, and forensics",
-  "author": "SecVulnHub Team | Enhanced by 0xb0rn3",
+  "author": "SecVulnHub Team | 0xb0rn3",
   "executable": "python3 android_pentest.py",
   
   "dependencies": [
@@ -23,7 +23,7 @@
   },
   
   "help": {
-    "description": "Professional Android penetration testing framework combining device fingerprinting, static/dynamic app analysis, vulnerability scanning, exploitation testing, network traffic interception, and forensics. Detects 50+ vulnerability types including SQL injection, insecure storage, cleartext traffic, exported components, and more. Includes automated exploitation chains for common Android vulnerabilities.",
+    "description": "Android penetration testing framework covering device fingerprinting, static/dynamic app analysis, vulnerability scanning, exploitation testing, network traffic interception, and forensics. Detects 50+ vulnerability types including SQL injection, insecure storage, cleartext traffic, exported components, and more. Includes automated exploitation chains for common Android vulnerabilities.",
     
     "parameters": {
       "operation": {
@@ -87,7 +87,7 @@
         "default": false
       },
       "search_secrets": {
-        "description": "Advanced secret search in decompiled code",
+        "description": "Secret search in decompiled code",
         "type": "boolean",
         "default": true,
         "patterns": [
@@ -213,7 +213,7 @@
       "ADB over network detection",
       "World-readable file detection",
       "Automated exploitation chains",
-      "Comprehensive security reporting"
+      "Security reporting"
     ],
     
     "operations": {
@@ -235,7 +235,7 @@
           "Kernel version",
           "Build ID and security patch level"
         ],
-        "output": "Comprehensive device security profile"
+        "output": "Device security profile"
       },
       "app_scan": {
         "description": "Application security analysis",
@@ -268,7 +268,7 @@
         "output": "Detailed application security profile with risk assessment"
       },
       "vuln_scan": {
-        "description": "Comprehensive vulnerability scanning",
+        "description": "Vulnerability scanning",
         "scans": [
           "Device configuration vulnerabilities",
           "Application security issues",
@@ -338,7 +338,7 @@
           "Network analysis",
           "Forensics extraction"
         ],
-        "output": "Comprehensive security assessment report"
+        "output": "Security assessment report"
       }
     },
     
@@ -444,7 +444,7 @@
     "installation_tiers": {
       "basic": "Device recon and basic app analysis (stdlib + adb)",
       "standard": "+ Static APK analysis (aapt, keytool)",
-      "advanced": "+ Code analysis (apktool, jadx)",
+      "full":     "+ Code analysis (apktool, jadx)",
       "full": "+ Runtime instrumentation (frida, objection)"
     },
     
@@ -457,7 +457,7 @@
         "aapt (Android Asset Packaging Tool)",
         "keytool (Java Key and Certificate Management)"
       ],
-      "advanced": [
+      "full": [
         "apktool (APK decompilation)",
         "jadx (DEX to Java decompiler)"
       ],
