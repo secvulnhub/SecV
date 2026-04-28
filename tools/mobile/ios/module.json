@@ -20,64 +20,148 @@
     "frida-ios-dump":   "IPA extraction from encrypted apps — pip3 install frida-ios-dump"
   },
 
-  "inputs": {
-    "operation":      {"type": "string",  "default": "recon",    "required": false},
-    "udid":           {"type": "string",  "default": "",         "required": false},
-    "bundle_id":      {"type": "string",  "default": "",         "required": false},
-    "ipa_path":       {"type": "string",  "default": "",         "required": false},
-    "ssh_host":       {"type": "string",  "default": "",         "required": false,
-                       "description": "IP of jailbroken device for SSH access"},
-    "ssh_port":       {"type": "number",  "default": 22,         "required": false},
-    "ssh_user":       {"type": "string",  "default": "root",     "required": false},
-    "ssh_pass":       {"type": "string",  "default": "alpine",   "required": false},
-    "search_secrets": {"type": "boolean", "default": true,       "required": false},
-    "deep_analysis":  {"type": "boolean", "default": false,      "required": false},
-    "ssl_bypass":     {"type": "boolean", "default": false,      "required": false},
-    "frida":          {"type": "boolean", "default": false,      "required": false}
-  },
-
   "help": {
-    "operations": {
-      "recon":     "Fingerprint device via libimobiledevice (iOS version, model, jailbreak detection)",
-      "app_scan":  "Static analysis of IPA: Info.plist, binary protections, class-dump, secrets",
-      "vuln_scan": "Full device + app vulnerability assessment including iOS CVE checks",
-      "exploit":   "Dynamic exploitation: Frida SSL bypass, URL scheme injection",
-      "full":      "Complete pentest: recon + app_scan + vuln_scan + exploit + forensics"
+    "description": "iOS security testing suite covering non-jailbroken static analysis and jailbroken dynamic instrumentation. Performs IPA binary inspection (PIE, stack canary, ARC, encryption flags), ATS configuration audit, Info.plist analysis, Frida SSL bypass, keychain dumping, and live CVE assessment via NVD.",
+
+    "parameters": {
+      "operation": {
+        "description": "Assessment operation to run",
+        "type": "string",
+        "required": false,
+        "default": "recon",
+        "options": ["recon", "app_scan", "vuln_scan", "exploit", "full"]
+      },
+      "udid": {
+        "description": "Device UDID — auto-detected when a single device is connected",
+        "type": "string",
+        "required": false,
+        "default": ""
+      },
+      "bundle_id": {
+        "description": "Target app bundle identifier",
+        "type": "string",
+        "required": false,
+        "default": "",
+        "examples": ["com.apple.mobilesafari", "com.target.app"]
+      },
+      "ipa_path": {
+        "description": "Path to local .ipa file for static-only analysis (no device required)",
+        "type": "string",
+        "required": false,
+        "default": "",
+        "examples": ["/tmp/app.ipa", "/home/user/downloads/target.ipa"]
+      },
+      "ssh_host": {
+        "description": "IP address of jailbroken device for SSH-based deep testing",
+        "type": "string",
+        "required": false,
+        "default": "",
+        "examples": ["192.168.1.50", "10.0.0.25"]
+      },
+      "ssh_port": {
+        "description": "SSH port on jailbroken device",
+        "type": "integer",
+        "required": false,
+        "default": 22
+      },
+      "ssh_user": {
+        "description": "SSH username on jailbroken device",
+        "type": "string",
+        "required": false,
+        "default": "root"
+      },
+      "ssh_pass": {
+        "description": "SSH password — default is 'alpine' for most jailbreaks (change it)",
+        "type": "string",
+        "required": false,
+        "default": "alpine"
+      },
+      "search_secrets": {
+        "description": "Scan IPA and filesystem for hardcoded API keys, tokens, and credentials",
+        "type": "boolean",
+        "required": false,
+        "default": true
+      },
+      "deep_analysis": {
+        "description": "Full binary analysis: all Mach-O sections, ObjC metadata, Swift symbols",
+        "type": "boolean",
+        "required": false,
+        "default": false
+      },
+      "ssl_bypass": {
+        "description": "Inject Frida SSL bypass script to intercept pinned HTTPS traffic",
+        "type": "boolean",
+        "required": false,
+        "default": false
+      },
+      "frida": {
+        "description": "Enable Frida-based dynamic instrumentation (requires frida-server on device)",
+        "type": "boolean",
+        "required": false,
+        "default": false
+      },
+      "nvd_api_key": {
+        "description": "NVD API key for higher CVE lookup rate limits (optional)",
+        "type": "string",
+        "required": false,
+        "default": ""
+      }
     },
+
     "examples": [
       {
         "description": "Device recon over USB",
-        "commands": ["use ios_pentest", "run {}"]
+        "commands": ["use ios_pentest", "run device"]
       },
       {
-        "description": "Static analysis of local IPA",
-        "commands": ["use ios_pentest", "set ipa_path /path/to/app.ipa", "set operation app_scan", "run {}"]
-      },
-      {
-        "description": "Full pentest on jailbroken device",
+        "description": "Static analysis of a local IPA (no device needed)",
         "commands": [
           "use ios_pentest",
-          "set bundle_id com.target.app",
-          "set ssh_host 192.168.1.100",
-          "set ssl_bypass true",
+          "set ipa_path /tmp/app.ipa",
+          "set operation app_scan",
+          "run device"
+        ]
+      },
+      {
+        "description": "Full pentest on jailbroken device with SSL bypass",
+        "commands": [
+          "use ios_pentest",
           "set operation full",
-          "run {}"
+          "set ssh_host 192.168.1.50",
+          "set bundle_id com.target.app",
+          "set ssl_bypass true",
+          "set frida true",
+          "run device"
         ]
       }
     ],
-    "prerequisites": {
-      "non_jailbroken": "ideviceinfo + local IPA file — static analysis and CVE checks only",
-      "jailbroken":     "+ SSH root access (checkra1n/unc0ver/palera1n) — keychain dump, FS access, Frida",
-      "frida_server":   "frida-server must be running on device for dynamic instrumentation"
+
+    "features": [
+      "IPA binary protection checks: PIE, stack canary, ARC, encryption flags",
+      "ATS (App Transport Security) configuration audit",
+      "Info.plist key analysis: permissions, URL schemes, exported services",
+      "Frida SSL pinning bypass for HTTPS traffic interception",
+      "Keychain dump on jailbroken devices (SSH + frida-ios-dump)",
+      "Live iOS CVE assessment via NVD REST API v2",
+      "Works without jailbreak for static IPA analysis",
+      "Supports checkra1n, unc0ver, palera1n, dopamine jailbreaks"
+    ],
+
+    "installation_tiers": {
+      "basic":    "Static IPA analysis only — no device or tools required",
+      "standard": "Device recon — requires libimobiledevice (ideviceinfo)",
+      "full":     "Dynamic testing — requires frida-tools, objection, sshpass"
     },
-    "jailbreak_methods_supported": ["checkra1n", "unc0ver", "palera1n", "dopamine"],
+
     "notes": [
-      "⚠️  AUTHORIZATION REQUIRED: Only test apps and devices you have explicit permission to test",
-      "💡 Provide ipa_path for static-only analysis without a connected device",
-      "💡 Use ssh_host + ssh_pass for jailbroken device deep testing",
-      "💡 Default SSH credentials for common jailbreaks: root/alpine (change immediately after JB)",
-      "💡 frida-ios-dump handles FairPlay-encrypted IPAs automatically",
-      "🔒 Keychain dumps contain real user credentials — handle responsibly"
+      "AUTHORIZATION REQUIRED: Only test apps and devices you have explicit permission to test",
+      "Provide ipa_path for static-only analysis without a connected device",
+      "Default SSH credentials for common jailbreaks are root/alpine — change them immediately after jailbreaking",
+      "frida-server must be running on the device for dynamic instrumentation",
+      "frida-ios-dump handles FairPlay-encrypted IPAs automatically",
+      "Keychain dumps contain real user credentials — handle responsibly"
     ]
-  }
+  },
+
+  "timeout": 300
 }
