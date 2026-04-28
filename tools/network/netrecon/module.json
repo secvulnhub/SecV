@@ -186,9 +186,8 @@
     "installation_tiers": {
       "basic":    "TCP connect scan (stdlib only — always works)",
       "standard": "+ nmap service detection (apt install nmap)",
-      "enhanced": "+ masscan fast discovery, arp-scan MAC lookup (root required)",
-      "full":     "+ rustscan, scapy, dnspython, requests",
-      "elite":    "+ Shodan API key, objection"
+      "full":     "+ masscan fast discovery, arp-scan MAC lookup, rustscan, scapy, dnspython, requests (root required for raw scans)",
+      "shodan":   "+ Shodan API key for external intelligence lookup"
     },
 
     "notes": [

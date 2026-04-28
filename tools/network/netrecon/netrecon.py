@@ -2853,7 +2853,7 @@ OUTPUT (JSON):
 REQUIREMENTS:
   Minimum:  Python 3.8+ (TCP connect fallback always works)
   Standard: nmap
-  Enhanced: masscan nmap arp-scan whatweb gobuster   [+ run as root for SYN scan]
+  Full:     masscan nmap arp-scan whatweb gobuster   [+ run as root for SYN scan]
   Evasion:  proxychains4 + configured proxy chain
   IoT/Cam:  pip3 install mmh3   (favicon hash fingerprinting, optional)
   Full:     + pip3 install scapy dnspython requests shodan mmh3

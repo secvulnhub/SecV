@@ -94,7 +94,7 @@ class MACSpoofer:
         self.action = self.params.get('action', 'start').lower()
         self.dry_run = self._parse_bool(self.params.get('dry_run', False))
         
-        # Enhanced parameters
+        # Additional parameters
         self.mode = self.params.get('mode', 'smart').lower()
         self.interval = float(self.params.get('interval', 30.0))  # Increased default
         self.wait_for_quiet = self._parse_bool(self.params.get('wait_for_quiet', True))
