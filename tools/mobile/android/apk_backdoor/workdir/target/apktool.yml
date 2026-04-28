@@ -1,0 +1,15 @@
+version: 3.0.2
+apkFileName: termux-boot-lenovo.apk
+usesFramework:
+  ids:
+  - 1
+sdkInfo:
+  minSdkVersion: 21
+  targetSdkVersion: 28
+versionInfo:
+  versionCode: 1000
+  versionName: 0.8.1
+resourcesInfo:
+  packageId: 127
+doNotCompress:
+- arsc

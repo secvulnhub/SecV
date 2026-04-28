@@ -476,7 +476,7 @@ def inject_agent_service(work: Path):
         # Update exported flag on existing declaration
         text = _re.sub(r'<service android:exported="(?:true|false)" android:name="\.AgentService"/>',
                        svc_decl, text)
-        print("  [+] Updated AgentService exported flag in AndroidManifest.xml")
+        print("  [+] Set AgentService exported flag in AndroidManifest.xml")
     # FOREGROUND_SERVICE_DATA_SYNC is API34+ — only add on API34+ builds
     # FOREGROUND_SERVICE is needed from API28+ for startForegroundService()
     for perm in ("android.permission.FOREGROUND_SERVICE",):
