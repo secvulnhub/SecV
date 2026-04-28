@@ -17,7 +17,7 @@ import (
 	"github.com/chzyer/readline"
 )
 
-const VERSION = "2.3.1"
+const VERSION = "2.4.0"
 
 // ANSI colors
 const (

@@ -18,7 +18,7 @@
 
 ---
 
-[![Version](https://img.shields.io/badge/v2.3.1-zephra-0d1117?style=flat-square&labelColor=00d9ff&color=0d1117)](https://github.com/SecVulnHub/SecV)
+[![Version](https://img.shields.io/badge/v2.4.0-zephra-0d1117?style=flat-square&labelColor=00d9ff&color=0d1117)](https://github.com/SecVulnHub/SecV)
 [![License](https://img.shields.io/badge/MIT-license-0d1117?style=flat-square&labelColor=8b5cf6&color=0d1117)](LICENSE)
 [![Go](https://img.shields.io/badge/Go_1.21+-required-0d1117?style=flat-square&labelColor=00ADD8&color=0d1117)](https://golang.org/)
 [![Platform](https://img.shields.io/badge/Linux%20%7C%20macOS-0d1117?style=flat-square&labelColor=3a3f4b&color=0d1117)](#)
@@ -252,6 +252,25 @@ set iface wlan0
 set interval 300
 run localhost
 ```
+
+---
+
+## `gen_module.py` — Module JSON Generator
+
+Auto-generates `module.json` by scanning your source for `params.get()`, `argparse`, and Bash `jq .params.X` patterns. Infers types, defaults, and required flags.
+
+```bash
+# Generate and print
+python3 gen_module.py tools/network/my-tool/
+
+# Write module.json into the tool directory
+python3 gen_module.py tools/network/my-tool/ --write
+
+# Merge newly detected params into an existing hand-written module.json
+python3 gen_module.py tools/network/my-tool/ --update
+```
+
+Fill in `help.parameters[*].description` and `help.examples` manually — the generator leaves those empty since they require human context.
 
 ---
 

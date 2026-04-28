@@ -870,7 +870,7 @@ def perform_update(current_version: str, new_version: str) -> bool:
         VersionManager.update_component_hash(comp_name, comp_path, version_info)
     
     VersionManager.save_version_info(version_info)
-    print(f"{GREEN}{CHECK} Version info updated{NC}")
+    print(f"{GREEN}{CHECK} Version info applied{NC}")
     
     # Cleanup
     print(f"\n{YELLOW}Cleaning up...{NC}")
@@ -942,7 +942,7 @@ def first_run_check(silent: bool = True) -> bool:
         print(f"\n{BOLD}{GREEN}╔═══════════════════════════════════════════════════════════════════╗{NC}")
         print(f"{BOLD}{GREEN}║              Update Complete! {CHECK} Please Restart SecV              ║{NC}")
         print(f"{BOLD}{GREEN}╚═══════════════════════════════════════════════════════════════════╝{NC}\n")
-        print(f"{YELLOW}Please restart SecV to use the updated version.{NC}\n")
+        print(f"{YELLOW}Please restart SecV to use the new version.{NC}\n")
         sys.exit(2)
     
     return False
@@ -1198,8 +1198,8 @@ def repair_installation():
     
     version_info["go_compiled"] = SECV_BINARY.exists() and os.access(SECV_BINARY, os.X_OK)
     VersionManager.save_version_info(version_info)
-    repaired.append("Updated version information")
-    print(f"{GREEN}{CHECK} Version info updated{NC}")
+    repaired.append("Version information refreshed")
+    print(f"{GREEN}{CHECK} Version info applied{NC}")
     
     print(f"\n{YELLOW}[3/4] Checking file permissions...{NC}")
     executable_files = [SECV_BINARY, SECV_HOME / "install.sh"]
