@@ -90,7 +90,7 @@ sudo ln -sf "$(pwd)/secV" /usr/local/bin/secV
 
 ```bash
 ./secV
-secV ❯ show modules      # should list netrecon, android_pentest, ios_pentest, mac_spoof
+secV ❯ show modules      # should list netrecon, mac_spoof, wifi_monitor, android_pentest, ios_pentest, webscan
 secV ❯ show categories
 secV ❯ help
 secV ❯ exit
@@ -115,16 +115,20 @@ SecV/
 └── tools/
     ├── network/
     │   ├── netrecon/             # Multi-engine network recon
-    │   └── mac_spoof/            # Connection-aware MAC rotator
-    └── mobile/
-        ├── android/              # Android pentesting suite
-        │   ├── module.json
-        │   ├── android_pentest.py
-        │   ├── agent/            # On-device C2 agent
-        │   └── apk_backdoor/     # APK repackaging + WAN C2
-        └── ios/                  # iOS pentesting suite
-            ├── module.json
-            └── ios_pentest.py
+    │   ├── mac_spoof/            # Connection-aware MAC rotator
+    │   └── wifi_monitor/         # Smart WiFi monitor + threat detector
+    ├── mobile/
+    │   ├── android/              # Android pentesting suite
+    │   │   ├── module.json
+    │   │   ├── android_pentest.py
+    │   │   ├── agent/            # On-device C2 agent
+    │   │   ├── apk_backdoor/     # APK repackaging + WAN C2
+    │   │   └── c2_persistence/   # systemd service + watchdog for C2 attacker side
+    │   └── ios/                  # iOS pentesting suite
+    │       ├── module.json
+    │       └── ios_pentest.py
+    └── web/
+        └── webscan/              # Web vulnerability scanner (SQLi, XSS, CSRF, ...)
 ```
 
 ---
@@ -135,8 +139,10 @@ SecV uses a tiered dependency model. The installer installs everything in `requi
 
 | Tier | Packages | Notes |
 |------|----------|-------|
-| Core | `psutil`, `requests`, `cryptography`, `netifaces`, `scapy`, `python-nmap` | Always installed |
-| Full | `beautifulsoup4`, `dnspython`, `pycryptodome`, `paramiko`, `pyyaml` | Enabled by default |
+| Core | `psutil`, `requests`, `cryptography`, `netifaces`, `scapy`, `python-nmap`, `aiohttp`, `rich` | Always installed |
+| Full | `beautifulsoup4`, `dnspython`, `pycryptodome`, `paramiko`, `pyyaml`, `frida-tools`, `objection` | Enabled by default |
+
+`install.sh` also installs system tools (`adb`, `apktool`, `jadx`, `nmap`, `masscan`, `arp-scan`) and [bore](https://github.com/ekzhang/bore) for WAN tunneling.
 
 For raw socket operations (SYN scanning, masscan) run with `sudo`:
 ```bash

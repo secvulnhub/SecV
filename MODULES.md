@@ -3,8 +3,8 @@
 Complete reference of all SecV security modules.
 
 **Version:** 2.4.0  
-**Total Modules:** 4  
-**Categories:** network (2), mobile (2)
+**Total Modules:** 6  
+**Categories:** network (3), mobile (2), web (1)
 
 ---
 
@@ -12,6 +12,7 @@ Complete reference of all SecV security modules.
 
 - [Network](#network)
 - [Mobile](#mobile)
+- [Web](#web)
 - [Module Development](#module-development)
 
 ---
@@ -86,6 +87,31 @@ secV ❯ use mac_spoof
 secV (mac_spoof) ❯ set iface wlan0
 secV (mac_spoof) ❯ set interval 300
 secV (mac_spoof) ❯ run localhost
+```
+
+---
+
+### `wifi_monitor` v1.0.0
+**Smart WiFi Network Monitor & Threat Detector**
+
+Real-time host discovery via ARP (scapy) with TCP-ping fallback, async per-host port scanning, SSL/HTTP/SSH banner grabbing, CVE lookup via CIRCL API (24h cache), device fingerprinting (IoT, router, NAS, database, web server), and threat detection for exposed databases, Telnet, FTP, and end-of-life SSH.
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `mode` | string | `monitor` | `monitor`, `passive`, `deep` |
+| `ports` | string | `top-20` | Port range or preset: `top-20`, `top-100`, `full` |
+| `port_scan` | boolean | `true` | Enable per-host port scanning |
+| `cve_lookup` | boolean | `true` | Look up CVEs for detected services |
+| `timeout` | integer | `3` | Per-host/port timeout (seconds) |
+| `concurrency` | integer | `50` | Concurrent scan workers |
+
+**Quick Start:**
+```
+sudo secV
+secV ❯ use wifi_monitor
+secV (wifi_monitor) ❯ run 192.168.1.0/24
 ```
 
 ---
@@ -199,6 +225,42 @@ secV (ios_pentest) ❯ run device
 
 ---
 
+## Web
+
+### `webscan` v1.0.0
+**Web Vulnerability Scanner**
+
+OWASP Top 10 web scanner: error-based and time-based SQL injection, reflected XSS, CSRF detection, 403 bypass (header injection + path tricks), open redirect, Jira/AEM/Confluence CVEs, security headers audit, file upload detection, and rate limit testing. Supports authenticated scanning via cookies and custom headers.
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `url` | string | — | URL with query params for SQLi/XSS (e.g. `https://example.com/search?q=test`) |
+| `sqli` | boolean | `true` | Error-based and time-based SQL injection |
+| `xss` | boolean | `true` | Reflected XSS testing |
+| `csrf` | boolean | `true` | CSRF token detection |
+| `bypass_403` | boolean | `false` | 403 bypass via header injection + path manipulation |
+| `bypass_path` | string | `/admin` | Path to test 403 bypass on |
+| `open_redirect` | boolean | `true` | Open redirect via common redirect params |
+| `framework_cves` | boolean | `true` | Jira, AEM, Confluence CVE checks |
+| `file_upload` | boolean | `true` | File upload endpoint detection |
+| `rate_limit` | boolean | `false` | Rate limit enforcement test |
+| `cookies` | string | — | Session cookies: `key=value; key2=value2` |
+| `headers_str` | string | — | Custom request headers |
+| `user_agent` | string | `Mozilla/5.0` | User-Agent string |
+
+**Quick Start:**
+```
+secV ❯ use webscan
+secV (webscan) ❯ set url https://example.com/search?q=test
+secV (webscan) ❯ run https://example.com
+```
+
+**Authorization required** — only scan applications you own or have explicit written permission to test.
+
+---
+
 ## Module Development
 
 ### Quick Start
@@ -295,8 +357,10 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide.
 |--------|-------|----------|------|-------|-------|
 | `netrecon` | TCP/DNS | + SYN/Nmap | + Shodan/CVE | ✓ | ✓ |
 | `mac_spoof` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `wifi_monitor` | TCP-ping | + ARP/scapy | + CVE lookup | ✓ | ✓ |
 | `android_pentest` | recon/adb | + Frida | + all ops | ✓ | ✓ |
 | `ios_pentest` | static IPA | + idevice | + Frida/JB | ✓ | ✓ |
+| `webscan` | headers/CSRF | + SQLi/XSS | + CVE checks | ✓ | ✓ |
 
 ---
 

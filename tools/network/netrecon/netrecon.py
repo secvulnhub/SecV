@@ -1686,7 +1686,7 @@ class NetRecon:
         self.nse_profile   = self.params.get('nse_profile', '')
 
         # Output / post-processing params
-        self.web_enum      = self._bool(self.params.get('web_enum', True))
+        self.web_enum      = self._bool(self.params.get('web_enum', False))
         self.web_wordlist  = self.params.get('web_wordlist', '')
         self.do_searchsploit = self._bool(self.params.get('searchsploit', False))
         self.output_dir    = self.params.get('output_dir', '')
@@ -1822,7 +1822,8 @@ class NetRecon:
                 engines.append('tcp_connect')
 
             if not alive:
-                alive = {ip: set() for ip in target_ips if ip not in self.exclude}
+                print('[!] No hosts found — all discovery methods returned empty. Use --passive or check connectivity.',
+                      file=sys.stderr)
 
             print(f'[*] Found {len(alive)} alive hosts', file=sys.stderr)
 

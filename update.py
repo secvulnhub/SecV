@@ -716,6 +716,27 @@ def install_dependencies() -> bool:
     return False
 
 
+def sync_tools():
+    """Ensure all module scripts in tools/ are executable."""
+    tools_dir = SECV_HOME / "tools"
+    if not tools_dir.exists():
+        return
+    fixed = 0
+    for ext in ("*.py", "*.sh"):
+        for path in tools_dir.rglob(ext):
+            if not os.access(path, os.X_OK):
+                try:
+                    os.chmod(path, path.stat().st_mode | 0o111)
+                    fixed += 1
+                except Exception:
+                    pass
+    if fixed:
+        print(f"{GREEN}{CHECK} Made {fixed} module script(s) executable{NC}")
+    else:
+        print(f"{GREEN}{CHECK} Module scripts already executable{NC}")
+    Logger.log(f"sync_tools: fixed {fixed} file(s)")
+
+
 def perform_update(current_version: str, new_version: str) -> bool:
     """Perform the actual update"""
     print(f"\n{CYAN}updating {current_version} → {new_version or 'latest'}{NC}\n")
@@ -822,6 +843,10 @@ def perform_update(current_version: str, new_version: str) -> bool:
     else:
         print(f"{GREEN}{CHECK} No obsolete files found{NC}")
     
+    # Step 5.5: Ensure module scripts are executable
+    print(f"\n{YELLOW}[5b/8] Syncing tool permissions...{NC}")
+    sync_tools()
+
     # Step 6: Recompile Go binary
     print(f"\n{YELLOW}[6/8] Recompiling Go binary...{NC}")
     
@@ -1168,7 +1193,7 @@ def repair_installation():
     repaired = []
     failed = []
     
-    print(f"{YELLOW}[1/4] Creating missing directories...{NC}")
+    print(f"{YELLOW}[1/5] Creating missing directories...{NC}")
     critical_dirs = [CACHE_DIR, SECV_HOME / "tools", BACKUP_DIR]
     for dir_path in critical_dirs:
         try:
@@ -1180,7 +1205,7 @@ def repair_installation():
     if repaired:
         print(f"{GREEN}{CHECK} Created {len(repaired)} directories{NC}")
     
-    print(f"\n{YELLOW}[2/4] Checking version information...{NC}")
+    print(f"\n{YELLOW}[2/5] Checking version information...{NC}")
     version_info = VersionManager.load_version_info()
     
     components = {
@@ -1201,7 +1226,7 @@ def repair_installation():
     repaired.append("Version information refreshed")
     print(f"{GREEN}{CHECK} Version info applied{NC}")
     
-    print(f"\n{YELLOW}[3/4] Checking file permissions...{NC}")
+    print(f"\n{YELLOW}[3/5] Checking file permissions...{NC}")
     executable_files = [SECV_BINARY, SECV_HOME / "install.sh"]
     
     for file in executable_files:
@@ -1214,7 +1239,10 @@ def repair_installation():
     
     print(f"{GREEN}{CHECK} Permissions checked{NC}")
     
-    print(f"\n{YELLOW}[4/4] Checking Go binary...{NC}")
+    print(f"\n{YELLOW}[4/5] Syncing tool permissions...{NC}")
+    sync_tools()
+
+    print(f"\n{YELLOW}[5/5] Checking Go binary...{NC}")
     if MAIN_GO.exists() and not SECV_BINARY.exists():
         print(f"{CYAN}Binary missing, attempting compilation...{NC}")
         if GoBinaryManager.compile_binary():
@@ -1314,6 +1342,7 @@ Examples:
   python3 update.py --rollback         # Rollback to backup
   python3 update.py --list-backups     # List available backups
   python3 update.py --list-stashes     # List git stashes
+  python3 update.py --sync-tools       # Fix tool script permissions
         """
     )
     
@@ -1333,12 +1362,16 @@ Examples:
                        help='Verify installation integrity')
     parser.add_argument('--repair', action='store_true',
                        help='Repair common installation issues')
+    parser.add_argument('--sync-tools', action='store_true',
+                       help='Make all module scripts in tools/ executable')
     
     args = parser.parse_args()
     
     try:
         if args.first_run:
             first_run_check(silent=True)
+        elif args.sync_tools:
+            sync_tools()
         elif args.status:
             show_component_status()
         elif args.verify:

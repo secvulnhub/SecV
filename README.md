@@ -255,6 +255,30 @@ run localhost
 
 ---
 
+### `wifi_monitor` — Smart WiFi Monitor
+
+Real-time host discovery via ARP (scapy) with TCP-ping fallback, async per-host port scanning, device fingerprinting (IoT, router, NAS, database server), CVE lookup via CIRCL API, and threat detection for exposed databases, Telnet, FTP, and end-of-life SSH.
+
+```bash
+sudo secV
+use wifi_monitor
+run 192.168.1.0/24
+```
+
+---
+
+### `webscan` — Web Vulnerability Scanner
+
+OWASP Top 10 web scanner: error-based and time-based SQL injection (MySQL, PostgreSQL, MSSQL), reflected XSS, CSRF detection, 403 bypass (header injection + path tricks), open redirect, Jira/AEM/Confluence CVEs, security headers audit, and file upload detection. Supports authenticated scanning via cookies.
+
+```bash
+use webscan
+set url https://example.com/search?q=test
+run https://example.com
+```
+
+---
+
 ## `gen_module.py` — Module JSON Generator
 
 Auto-generates `module.json` by scanning your source for `params.get()`, `argparse`, and Bash `jq .params.X` patterns. Infers types, defaults, and required flags.
@@ -338,6 +362,7 @@ python3 update.py --status         # component status
 python3 update.py --verify         # integrity check
 python3 update.py --repair         # fix common issues
 python3 update.py --rollback       # restore last backup
+python3 update.py --sync-tools     # fix module script permissions
 ```
 
 ---
