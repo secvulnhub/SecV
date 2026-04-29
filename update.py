@@ -1,17 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-SecV Enhanced Update System v4.1
-Features:
-- First-run automatic update checking
-- Go binary recompilation support
-- Forced update check with version comparison
-- Automatic obsolete file cleanup
-- Component-level update tracking
-- Rollback capability
-- Dependency conflict resolution
-- Git conflict resolution (stash/restore)
-"""
+"""SecV update system — pulls from git, recompiles binary, updates deps."""
 
 import os
 import sys
@@ -24,6 +13,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional
 
 # --- Configuration ---
+REMOTE_URL = "https://github.com/secvulnhub/SecV.git"
 REQUIREMENTS_FILE = "requirements.txt"
 SECV_HOME = Path(__file__).parent.absolute()
 CACHE_DIR = SECV_HOME / ".cache"
@@ -407,14 +397,21 @@ class GoBinaryManager:
             return False
         
         print(f"{YELLOW}[*] Compiling Go binary...{NC}")
-        
+
+        # Resolve module deps if go.mod exists
+        if (SECV_HOME / "go.mod").exists():
+            subprocess.run(
+                ['go', 'mod', 'tidy'],
+                cwd=SECV_HOME, capture_output=True, timeout=60
+            )
+
         try:
             result = subprocess.run(
-                ['go', 'build', '-ldflags=-s -w', '-o', 'secV', 'main.go'],
+                ['go', 'build', '-ldflags=-s -w', '-o', 'secV', '.'],
                 cwd=SECV_HOME,
                 capture_output=True,
                 text=True,
-                timeout=60
+                timeout=120
             )
             
             if result.returncode == 0:
@@ -557,6 +554,43 @@ def check_git_repository() -> bool:
     return (SECV_HOME / '.git').is_dir()
 
 
+def ensure_git_remote() -> bool:
+    """
+    Ensure the git repo exists and has the correct remote.
+    If not a git repo, initialises one and adds the remote.
+    Returns True when the remote is ready for fetch/pull.
+    """
+    if not check_git_repository():
+        print(f"{YELLOW}Initialising git repository...{NC}")
+        try:
+            run_command(['git', 'init'], capture=True)
+            run_command(['git', 'remote', 'add', 'origin', REMOTE_URL], capture=True)
+            run_command(['git', 'fetch', '--depth=1', 'origin'], capture=True)
+            run_command(['git', 'checkout', '-t', 'origin/main'], check=False)
+            print(f"{GREEN}{CHECK} Repository initialised from {REMOTE_URL}{NC}")
+            Logger.log(f"Git repo initialised from {REMOTE_URL}")
+            return True
+        except Exception as e:
+            print(f"{RED}{CROSS} Could not initialise repo: {e}{NC}")
+            Logger.log(f"Git init failed: {e}", "ERROR")
+            return False
+
+    # Already a git repo — check remote
+    try:
+        result = run_command(['git', 'remote', 'get-url', 'origin'], check=False)
+        if result.returncode != 0 or not result.stdout.strip():
+            print(f"{YELLOW}Adding remote origin → {REMOTE_URL}{NC}")
+            run_command(['git', 'remote', 'add', 'origin', REMOTE_URL])
+        elif REMOTE_URL not in result.stdout:
+            # Remote points elsewhere — set it
+            print(f"{YELLOW}Updating remote origin → {REMOTE_URL}{NC}")
+            run_command(['git', 'remote', 'set-url', 'origin', REMOTE_URL])
+    except Exception as e:
+        Logger.log(f"Remote check failed: {e}", "WARNING")
+
+    return True
+
+
 def get_remote_version() -> Optional[str]:
     """Get version from remote repository"""
     try:
@@ -608,11 +642,11 @@ def check_for_updates(force: bool = False, silent: bool = False) -> Tuple[bool, 
     if not silent:
         print(f"{YELLOW}Checking for updates...{NC}")
     
-    if not check_git_repository():
+    if not ensure_git_remote():
         if not silent:
-            print(f"{RED}{CROSS} Not a git repository. Cannot check for updates.{NC}")
+            print(f"{RED}{CROSS} Cannot set up git remote. Check internet connection.{NC}")
         return False, version_info["current_version"], None
-    
+
     try:
         run_command(['git', 'fetch'])
         
@@ -682,11 +716,30 @@ def install_dependencies() -> bool:
     return False
 
 
+def sync_tools():
+    """Ensure all module scripts in tools/ are executable."""
+    tools_dir = SECV_HOME / "tools"
+    if not tools_dir.exists():
+        return
+    fixed = 0
+    for ext in ("*.py", "*.sh"):
+        for path in tools_dir.rglob(ext):
+            if not os.access(path, os.X_OK):
+                try:
+                    os.chmod(path, path.stat().st_mode | 0o111)
+                    fixed += 1
+                except Exception:
+                    pass
+    if fixed:
+        print(f"{GREEN}{CHECK} Made {fixed} module script(s) executable{NC}")
+    else:
+        print(f"{GREEN}{CHECK} Module scripts already executable{NC}")
+    Logger.log(f"sync_tools: fixed {fixed} file(s)")
+
+
 def perform_update(current_version: str, new_version: str) -> bool:
     """Perform the actual update"""
-    print(f"\n{BOLD}{CYAN}╔═══════════════════════════════════════════════════════════════════╗{NC}")
-    print(f"{BOLD}{CYAN}║                    Performing SecV Update                         ║{NC}")
-    print(f"{BOLD}{CYAN}╚═══════════════════════════════════════════════════════════════════╝{NC}\n")
+    print(f"\n{CYAN}updating {current_version} → {new_version or 'latest'}{NC}\n")
     
     Logger.log(f"Starting update: {current_version} -> {new_version}")
     
@@ -790,6 +843,10 @@ def perform_update(current_version: str, new_version: str) -> bool:
     else:
         print(f"{GREEN}{CHECK} No obsolete files found{NC}")
     
+    # Step 5.5: Ensure module scripts are executable
+    print(f"\n{YELLOW}[5b/8] Syncing tool permissions...{NC}")
+    sync_tools()
+
     # Step 6: Recompile Go binary
     print(f"\n{YELLOW}[6/8] Recompiling Go binary...{NC}")
     
@@ -838,7 +895,7 @@ def perform_update(current_version: str, new_version: str) -> bool:
         VersionManager.update_component_hash(comp_name, comp_path, version_info)
     
     VersionManager.save_version_info(version_info)
-    print(f"{GREEN}{CHECK} Version info updated{NC}")
+    print(f"{GREEN}{CHECK} Version info applied{NC}")
     
     # Cleanup
     print(f"\n{YELLOW}Cleaning up...{NC}")
@@ -852,9 +909,7 @@ def perform_update(current_version: str, new_version: str) -> bool:
 
 def show_update_summary(current_version: str, new_version: str):
     """Display update summary"""
-    print(f"\n{BOLD}{CYAN}╔═══════════════════════════════════════════════════════════════════╗{NC}")
-    print(f"{BOLD}{CYAN}║                    Update Available!                              ║{NC}")
-    print(f"{BOLD}{CYAN}╚═══════════════════════════════════════════════════════════════════╝{NC}\n")
+    print(f"\n{CYAN}update available: {current_version} → {new_version}{NC}\n")
     
     print(f"  {BOLD}Current Version:{NC} {RED}{current_version}{NC}")
     print(f"  {BOLD}New Version:{NC}     {GREEN}{new_version}{NC}")
@@ -912,7 +967,7 @@ def first_run_check(silent: bool = True) -> bool:
         print(f"\n{BOLD}{GREEN}╔═══════════════════════════════════════════════════════════════════╗{NC}")
         print(f"{BOLD}{GREEN}║              Update Complete! {CHECK} Please Restart SecV              ║{NC}")
         print(f"{BOLD}{GREEN}╚═══════════════════════════════════════════════════════════════════╝{NC}\n")
-        print(f"{YELLOW}Please restart SecV to use the updated version.{NC}\n")
+        print(f"{YELLOW}Please restart SecV to use the new version.{NC}\n")
         sys.exit(2)
     
     return False
@@ -920,9 +975,7 @@ def first_run_check(silent: bool = True) -> bool:
 
 def main():
     """Main update process"""
-    print(f"\n{CYAN}╔═══════════════════════════════════════════════════════════════════╗{NC}")
-    print(f"{CYAN}║                      SecV Update System v4.1                      ║{NC}")
-    print(f"{CYAN}╚═══════════════════════════════════════════════════════════════════╝{NC}\n")
+    print(f"\n{CYAN}secV update{NC}\n")
     
     Logger.log("Update check initiated")
     
@@ -955,16 +1008,7 @@ def main():
     success = perform_update(current_version, new_version or "unknown")
     
     if success:
-        print(f"\n{BOLD}{GREEN}╔═══════════════════════════════════════════════════════════════════╗{NC}")
-        print(f"{BOLD}{GREEN}║                    Update Complete! {CHECK}                             ║{NC}")
-        print(f"{BOLD}{GREEN}╚═══════════════════════════════════════════════════════════════════╝{NC}\n")
-        
-        print(f"{BOLD}{GREEN}{CHECK} SecV has been updated successfully!{NC}\n")
-        
-        print(f"{BLUE}Next Steps:{NC}")
-        print(f"  1. {YELLOW}Restart SecV{NC} to load updated components")
-        print(f"  2. {YELLOW}Run 'reload'{NC} inside SecV to rescan modules")
-        print(f"  3. {YELLOW}Type 'show modules'{NC} to see all available modules\n")
+        print(f"\n{GREEN}{CHECK} Done — restart SecV to use the new version{NC}\n")
         
         backups = BackupManager.list_backups()
         if backups:
@@ -1149,7 +1193,7 @@ def repair_installation():
     repaired = []
     failed = []
     
-    print(f"{YELLOW}[1/4] Creating missing directories...{NC}")
+    print(f"{YELLOW}[1/5] Creating missing directories...{NC}")
     critical_dirs = [CACHE_DIR, SECV_HOME / "tools", BACKUP_DIR]
     for dir_path in critical_dirs:
         try:
@@ -1161,7 +1205,7 @@ def repair_installation():
     if repaired:
         print(f"{GREEN}{CHECK} Created {len(repaired)} directories{NC}")
     
-    print(f"\n{YELLOW}[2/4] Checking version information...{NC}")
+    print(f"\n{YELLOW}[2/5] Checking version information...{NC}")
     version_info = VersionManager.load_version_info()
     
     components = {
@@ -1179,10 +1223,10 @@ def repair_installation():
     
     version_info["go_compiled"] = SECV_BINARY.exists() and os.access(SECV_BINARY, os.X_OK)
     VersionManager.save_version_info(version_info)
-    repaired.append("Updated version information")
-    print(f"{GREEN}{CHECK} Version info updated{NC}")
+    repaired.append("Version information refreshed")
+    print(f"{GREEN}{CHECK} Version info applied{NC}")
     
-    print(f"\n{YELLOW}[3/4] Checking file permissions...{NC}")
+    print(f"\n{YELLOW}[3/5] Checking file permissions...{NC}")
     executable_files = [SECV_BINARY, SECV_HOME / "install.sh"]
     
     for file in executable_files:
@@ -1195,7 +1239,10 @@ def repair_installation():
     
     print(f"{GREEN}{CHECK} Permissions checked{NC}")
     
-    print(f"\n{YELLOW}[4/4] Checking Go binary...{NC}")
+    print(f"\n{YELLOW}[4/5] Syncing tool permissions...{NC}")
+    sync_tools()
+
+    print(f"\n{YELLOW}[5/5] Checking Go binary...{NC}")
     if MAIN_GO.exists() and not SECV_BINARY.exists():
         print(f"{CYAN}Binary missing, attempting compilation...{NC}")
         if GoBinaryManager.compile_binary():
@@ -1282,7 +1329,7 @@ if __name__ == '__main__':
     import argparse
     
     parser = argparse.ArgumentParser(
-        description="SecV Update System v4.1 - Enhanced Git Conflict Resolution",
+        description="SecV update — pulls from https://github.com/secvulnhub/SecV.git",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -1295,6 +1342,7 @@ Examples:
   python3 update.py --rollback         # Rollback to backup
   python3 update.py --list-backups     # List available backups
   python3 update.py --list-stashes     # List git stashes
+  python3 update.py --sync-tools       # Fix tool script permissions
         """
     )
     
@@ -1314,12 +1362,16 @@ Examples:
                        help='Verify installation integrity')
     parser.add_argument('--repair', action='store_true',
                        help='Repair common installation issues')
+    parser.add_argument('--sync-tools', action='store_true',
+                       help='Make all module scripts in tools/ executable')
     
     args = parser.parse_args()
     
     try:
         if args.first_run:
             first_run_check(silent=True)
+        elif args.sync_tools:
+            sync_tools()
         elif args.status:
             show_component_status()
         elif args.verify:

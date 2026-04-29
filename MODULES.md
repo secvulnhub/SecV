@@ -1,391 +1,367 @@
 # SecV Module Index
 
-Complete reference of all SecV security modules organized by category.
+Complete reference of all SecV security modules.
 
-**Last Updated:** 2025-10-05  
-**Total Modules:** [Auto-updated by system]
+**Version:** 2.4.0  
+**Total Modules:** 6  
+**Categories:** network (3), mobile (2), web (1)
 
 ---
 
 ## Quick Navigation
 
-- [Scanning](#scanning) - Port scanning, service enumeration, network discovery
-- [Network](#network) - Network manipulation, spoofing, routing
-- [Vulnerability](#vulnerability) - Vulnerability assessment and detection
-- [Exploitation](#exploitation) - Exploit frameworks and PoC tools
-- [Reconnaissance](#reconnaissance) - OSINT, information gathering
-- [Web](#web) - Web application testing
-- [Wireless](#wireless) - WiFi and Bluetooth attacks
-- [Forensics](#forensics) - Digital forensics and analysis
-- [Post-Exploitation](#post-exploitation) - Privilege escalation, persistence
-- [Reporting](#reporting) - Report generation and documentation
-- [Miscellaneous](#miscellaneous) - Utilities and helper tools
-
----
-
-## Scanning
-
-### PortScan v2.0
-**Advanced Multi-Engine Network Scanner**
-
-Professional-grade port scanner with multiple engines and intelligent fallback.
-
-**Features:**
-- Multiple scan engines (Connect, SYN, Nmap)
-- 20+ service fingerprints
-- Banner grabbing and version detection
-- HTTP technology detection
-- Pre-defined port sets (top-20, web, db, etc.)
-- Concurrent scanning (50 threads)
-
-**Installation Tiers:**
-- Basic: TCP connect scan
-- Standard: + SYN scan (requires scapy)
-- Full: + HTTP detection (requires requests)
-
-**Quick Start:**
-```bash
-secV > use portscan
-secV (portscan) > help module
-secV (portscan) > set ports web
-secV (portscan) > run example.com
-```
-
-**Documentation:** [tools/scanning/portscan/README.md](tools/scanning/portscan/README.md)
-
----
-
-### Network Discovery v1.0
-**ICMP Ping Sweep and Host Discovery**
-
-Fast network reconnaissance to identify live hosts.
-
-**Features:**
-- ICMP ping sweep
-- CIDR notation support
-- Multi-threaded scanning
-- Response time measurement
-
-**Installation Tiers:**
-- Basic: Standard ping
-- Standard: + Raw socket support
-
-**Quick Start:**
-```bash
-secV > use network-discovery
-secV (network-discovery) > run 192.168.1.0/24
-```
-
-**Documentation:** [tools/scanning/network-discovery/README.md](tools/scanning/network-discovery/README.md)
+- [Network](#network)
+- [Mobile](#mobile)
+- [Web](#web)
+- [Module Development](#module-development)
 
 ---
 
 ## Network
 
-### MAC Spoof v1.0
-**MAC Address Spoofing Tool**
+### `netrecon` v1.0.0
+**Concurrent Multi-Engine Network Profiler**
 
-Change network interface MAC addresses for anonymity or testing.
+Runs nmap, masscan, rustscan, arp-scan, and Shodan simultaneously, merges results, and correlates CVEs against detected service versions via live NVD lookups. Detects iOS/Apple devices (port 62078, mDNS). Supports passive-only mode, proxy chains, and evasion techniques.
 
-**Features:**
-- Random MAC generation
-- Vendor-specific MAC addresses
-- Interface backup and restore
-- Cross-platform (Linux/macOS/Windows)
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `mode` | string | `normal` | Scan mode: `normal`, `quick`, `deep`, `network`, `stealth` |
+| `ports` | string | `top-1000` | Port range or preset: `top-100`, `top-1000`, `web`, `db`, `all` |
+| `threads` | integer | `20` | Concurrent scanning threads |
+| `rate` | integer | `1000` | Packets/sec (masscan) |
+| `timeout` | integer | `5` | Per-host timeout (seconds) |
+| `os_detection` | boolean | `false` | Enable OS fingerprinting (requires root) |
+| `vuln_scripts` | boolean | `false` | Run nmap vuln scripts |
+| `shodan_key` | string | — | Shodan API key for enrichment |
+| `interface` | string | — | Network interface to bind |
+| `exclude` | string | — | Comma-separated hosts/CIDRs to skip |
+| `passive_only` | boolean | `false` | No active probing — Shodan/DNS only |
 
 **Installation Tiers:**
-- Basic: Works on all tiers
+- Basic: TCP connect, DNS, WHOIS, ASN lookup
+- Standard: + SYN scan (scapy), Nmap integration
+- Full: + Shodan enrichment, live NVD CVE correlation
 
 **Quick Start:**
-```bash
-secV > use macspoof
-secV (macspoof) > set interface eth0
-secV (macspoof) > run localhost
+```
+secV ❯ use netrecon
+secV (netrecon) ❯ set mode network
+secV (netrecon) ❯ set ports top-100
+secV (netrecon) ❯ run 192.168.1.0/24
 ```
 
-**Documentation:** [tools/network/spoof/README.md](tools/network/spoof/README.md)
+---
+
+### `mac_spoof` v2.1.0
+**Connection-Aware MAC Address Rotator**
+
+Per-interface background daemons with multiple rotation strategies, active connection tracking (no drops), locally-administered OUI prefix (`02:00:00`), and state persistence across restarts.
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `iface` | string | — | Interface name or comma-separated list |
+| `all_up` | boolean | `false` | Target all UP non-loopback interfaces |
+| `action` | string | `start` | `start`, `stop`, `status` |
+| `mode` | string | `smart` | `smart`, `session`, `periodic`, `aggressive` |
+| `interval` | float | `30.0` | Rotation interval (seconds, periodic mode) |
+| `preserve_connections` | boolean | `true` | Skip change when active TCP connections exist |
+| `wait_for_quiet` | boolean | `true` | Wait for connections to drop before rotating |
+| `max_wait` | integer | `30` | Max wait time (seconds) before forcing change |
+| `dry_run` | boolean | `false` | Preview without applying changes |
+
+**Modes:**
+- `smart` — changes only when no active connections (safest)
+- `session` — changes between connection sessions
+- `periodic` — fixed interval with connection checks
+- `aggressive` — rapid rotation regardless of connections
+
+**Quick Start:**
+```
+sudo secV
+secV ❯ use mac_spoof
+secV (mac_spoof) ❯ set iface wlan0
+secV (mac_spoof) ❯ set interval 300
+secV (mac_spoof) ❯ run localhost
+```
+
+---
+
+### `wifi_monitor` v1.0.0
+**Smart WiFi Network Monitor & Threat Detector**
+
+Real-time host discovery via ARP (scapy) with TCP-ping fallback, async per-host port scanning, SSL/HTTP/SSH banner grabbing, CVE lookup via CIRCL API (24h cache), device fingerprinting (IoT, router, NAS, database, web server), and threat detection for exposed databases, Telnet, FTP, and end-of-life SSH.
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `mode` | string | `monitor` | `monitor`, `passive`, `deep` |
+| `ports` | string | `top-20` | Port range or preset: `top-20`, `top-100`, `full` |
+| `port_scan` | boolean | `true` | Enable per-host port scanning |
+| `cve_lookup` | boolean | `true` | Look up CVEs for detected services |
+| `timeout` | integer | `3` | Per-host/port timeout (seconds) |
+| `concurrency` | integer | `50` | Concurrent scan workers |
+
+**Quick Start:**
+```
+sudo secV
+secV ❯ use wifi_monitor
+secV (wifi_monitor) ❯ run 192.168.1.0/24
+```
+
+---
+
+## Mobile
+
+### `android_pentest` v1.0.0
+**Full-Lifecycle Android Pentesting Suite**
+
+Device recon to active exploitation and persistence. Supports rooted and non-rooted devices, ADB over USB and WiFi, multi-device sweeps, and on-device native agent deployment with TCP+HTTP C2.
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `operation` | string | — | Operation to run (see table below) |
+| `device` | string | — | ADB device serial (auto-detect if single device) |
+| `package` | string | — | Target app package name |
+| `frida` | boolean | `false` | Enable Frida runtime instrumentation |
+| `proxy` | boolean | `false` | Enable HTTP proxy interception |
+| `proxy_host` | string | `127.0.0.1` | Proxy host |
+| `proxy_port` | integer | `8080` | Proxy port |
+| `bypass_ssl` | boolean | `false` | Bypass SSL pinning via Frida |
+| `backup` | boolean | `false` | Create ADB backup before testing |
+| `search_secrets` | boolean | `true` | Scan for hardcoded secrets and credentials |
+| `mirror` | boolean | `false` | Mirror device screen during testing |
+| `record` | boolean | `false` | Record screen during operation |
+
+**Operations:**
+
+| Operation | Description |
+|-----------|-------------|
+| `recon` | Device fingerprint, root status, SELinux, chipset |
+| `app_scan` | APK analysis, manifest audit, security score |
+| `vuln_scan` | 50+ checks, OWASP Mobile Top 10, NVD live CVEs |
+| `exploit` | Intent injection, SQLi, content provider attacks |
+| `network` | Traffic capture, SSL inspection, proxy setup |
+| `forensics` | Data extraction, artifact analysis |
+| `get_root` | Multi-vector root acquisition (Magisk, CVE-2024-0044, mtk-su, KernelSU) |
+| `inject_agent` | Push native recon agent, receive JSON report via TCP C2 |
+| `adb_wifi` | Enable ADB over WiFi — drop USB dependency |
+| `deploy_shell` | Generate and install Meterpreter APK (no root required) |
+| `persist` | Termux:Boot + Magisk module persistence |
+| `exploit_cve` | Targeted CVE exploitation |
+| `full_pwn` | Automated chain: recon → root → shell → persist → WAN |
+| `multi_device` | Run any operation across all connected devices simultaneously |
+| `full` | Complete assessment: recon + vuln_scan + exploit + network + forensics |
+
+**On-Device Agent** (`tools/mobile/android/agent/`):
+- `secv_agent.sh` — shell script, any Android without compilation
+- `secv_agent.c` — compiled ARM64 binary via NDK (`build.sh`)
+- `c2_server.py` — standalone TCP+HTTP C2 with interactive REPL
+
+**APK Backdoor Tool** (`tools/mobile/android/apk_backdoor/`):
+- `build_bootbuddy.py` — repackage any APK with persistent meterpreter payload, boot receiver, WAN C2 via bore.pub tunnels, DexClassLoader runtime staging, Play Protect bypass
+
+**Quick Start:**
+```
+secV ❯ use android_pentest
+secV (android_pentest) ❯ set operation inject_agent
+secV (android_pentest) ❯ set agent_mode recon
+secV (android_pentest) ❯ run device
+
+# C2 server (separate terminal)
+python3 tools/mobile/android/agent/c2_server.py --auto-exploit --lhost 192.168.1.100
+```
+
+**Dependencies:** `adb` (system binary — installed by `install.sh`)
+
+---
+
+### `ios_pentest` v1.0.0
+**iOS Security Testing**
+
+IPA static analysis, binary protection checks (PIE, stack canary, ARC, encryption), ATS/Info.plist audit, keychain dumping, Frida SSL bypass, and live iOS CVE assessment via NVD. Covers non-jailbroken and jailbroken paths.
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `operation` | string | `recon` | `recon`, `app_scan`, `vuln_scan`, `exploit`, `full` |
+| `udid` | string | — | Device UDID (auto-detect if single device) |
+| `bundle_id` | string | — | Target app bundle ID |
+| `ipa_path` | string | — | Path to local IPA for static analysis |
+| `ssh_host` | string | — | Jailbroken device IP for SSH access |
+| `ssh_port` | integer | `22` | SSH port |
+| `ssh_user` | string | `root` | SSH user |
+| `ssh_pass` | string | `alpine` | SSH password |
+| `search_secrets` | boolean | `true` | Scan for hardcoded secrets |
+| `deep_analysis` | boolean | `false` | Extended binary analysis |
+| `ssl_bypass` | boolean | `false` | Frida SSL pinning bypass |
+| `frida` | boolean | `false` | Enable Frida instrumentation |
+| `nvd_api_key` | string | — | NVD API key (higher rate limit) |
+
+**Prerequisites:**
+- Non-jailbroken: `ideviceinfo` + local IPA file
+- Jailbroken: + SSH root access (checkra1n / unc0ver / palera1n / dopamine) + frida-server running on device
+
+**Quick Start:**
+```
+secV ❯ use ios_pentest
+secV (ios_pentest) ❯ run device
+
+# Jailbroken deep test
+secV ❯ use ios_pentest
+secV (ios_pentest) ❯ set operation full
+secV (ios_pentest) ❯ set ssh_host 192.168.1.50
+secV (ios_pentest) ❯ set ssl_bypass true
+secV (ios_pentest) ❯ run device
+```
 
 ---
 
 ## Web
 
-### Web Enumeration v1.0
-**Web Application Discovery and Analysis**
+### `webscan` v1.0.0
+**Web Vulnerability Scanner**
 
-Comprehensive web application enumeration including technology detection.
+OWASP Top 10 web scanner: error-based and time-based SQL injection, reflected XSS, CSRF detection, 403 bypass (header injection + path tricks), open redirect, Jira/AEM/Confluence CVEs, security headers audit, file upload detection, and rate limit testing. Supports authenticated scanning via cookies and custom headers.
 
-**Features:**
-- Technology fingerprinting
-- HTTP header analysis
-- Common file discovery
-- Directory bruteforcing
-- SSL/TLS analysis
+**Parameters:**
 
-**Installation Tiers:**
-- Basic: Basic enumeration (urllib)
-- Standard: + Technology detection (requests)
-- Full: + HTML parsing (beautifulsoup4)
-
-**Quick Start:**
-```bash
-secV > use web-enum
-secV (web-enum) > set mode standard
-secV (web-enum) > run https://example.com
-```
-
-**Documentation:** [tools/web/web-enum/README.md](tools/web/web-enum/README.md)
-
----
-
-## Reconnaissance
-
-### Subdomain Enumeration v1.0
-**Subdomain Discovery Tool**
-
-Discover subdomains using multiple techniques.
-
-**Features:**
-- DNS bruteforcing
-- Certificate transparency logs
-- Search engine queries
-- Custom wordlists
-- Multi-source aggregation
-
-**Installation Tiers:**
-- Basic: Basic DNS queries
-- Full: + Advanced queries (dnspython)
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `url` | string | — | URL with query params for SQLi/XSS (e.g. `https://example.com/search?q=test`) |
+| `sqli` | boolean | `true` | Error-based and time-based SQL injection |
+| `xss` | boolean | `true` | Reflected XSS testing |
+| `csrf` | boolean | `true` | CSRF token detection |
+| `bypass_403` | boolean | `false` | 403 bypass via header injection + path manipulation |
+| `bypass_path` | string | `/admin` | Path to test 403 bypass on |
+| `open_redirect` | boolean | `true` | Open redirect via common redirect params |
+| `framework_cves` | boolean | `true` | Jira, AEM, Confluence CVE checks |
+| `file_upload` | boolean | `true` | File upload endpoint detection |
+| `rate_limit` | boolean | `false` | Rate limit enforcement test |
+| `cookies` | string | — | Session cookies: `key=value; key2=value2` |
+| `headers_str` | string | — | Custom request headers |
+| `user_agent` | string | `Mozilla/5.0` | User-Agent string |
 
 **Quick Start:**
-```bash
-secV > use subdomain-enum
-secV (subdomain-enum) > set wordlist common
-secV (subdomain-enum) > run example.com
+```
+secV ❯ use webscan
+secV (webscan) ❯ set url https://example.com/search?q=test
+secV (webscan) ❯ run https://example.com
 ```
 
-**Documentation:** [tools/reconnaissance/subdomain-enum/README.md](tools/reconnaissance/subdomain-enum/README.md)
-
----
-
-## Post-Exploitation
-
-### Privilege Escalation Checker v1.0
-**Linux Privilege Escalation Vector Scanner**
-
-Automated checking for common Linux privilege escalation vectors.
-
-**Features:**
-- SUID/SGID binary enumeration
-- Writable file discovery
-- Kernel exploit checking
-- Cron job analysis
-- Service misconfiguration detection
-
-**Installation Tiers:**
-- Basic: Works on all tiers (bash)
-
-**Quick Start:**
-```bash
-secV > use priv-esc-check
-secV (priv-esc-check) > set checks all
-secV (priv-esc-check) > run localhost
-```
-
-**Documentation:** [tools/post-exploitation/priv-esc-check/README.md](tools/post-exploitation/priv-esc-check/README.md)
+**Authorization required** — only scan applications you own or have explicit written permission to test.
 
 ---
 
 ## Module Development
 
-### Creating Your Own Module
+### Quick Start
 
-Want to contribute a module? Follow these steps:
+```bash
+mkdir -p tools/category/my-tool
+cd tools/category/my-tool
 
-1. **Read the guides:**
-   - [CONTRIBUTING.md](CONTRIBUTING.md) - Contribution guidelines
-   - [MODULE_DEVELOPMENT.md](MODULE_DEVELOPMENT.md) - Development guide
-   - [MODULE_HELP_GUIDE.md](MODULE_HELP_GUIDE.md) - Help documentation
+# Generate module.json from source code
+python3 ../../../gen_module.py . --write
 
-2. **Create module structure:**
-   ```bash
-   mkdir -p tools/category/module-name
-   cd tools/category/module-name
-   ```
-
-3. **Add required files:**
-   - `module.json` - Module configuration with help section
-   - `module.py` (or your executable) - Module implementation
-   - `README.md` - Comprehensive documentation
-
-4. **Update global requirements:**
-   - Add dependencies to [requirements.txt](requirements.txt)
-   - Document which module requires them
-   - Test across all tiers
-
-5. **Test thoroughly:**
-   ```bash
-   # Test at Basic tier
-   pip uninstall scapy requests -y
-   ./secV
-   secV > use your-module
-   
-   # Test at Standard tier
-   pip install scapy
-   
-   # Test at Full tier
-   pip install -r requirements.txt
-   ```
-
-6. **Submit PR:**
-   - Update this MODULES.md with your module
-   - Include comprehensive documentation
-   - Follow contribution guidelines
-
----
-
-## Module Template
-
-```json
+# Or scaffold manually
+cat > module.json << 'EOF'
 {
-  "name": "module-name",
+  "name": "my-tool",
   "version": "1.0.0",
   "category": "category",
   "description": "One-line description",
-  "author": "Your Name",
-  "executable": "python3 module.py",
-  
-  "dependencies": ["python3"],
-  
-  "optional_dependencies": {
-    "library": "Description - Install: pip3 install library"
-  },
-  
+  "author": "you",
+  "executable": "python3 main.py",
+  "dependencies": [],
+  "optional_dependencies": {},
   "help": {
     "description": "Extended description",
     "parameters": {
-      "param": {
+      "param_name": {
         "description": "What it does",
-        "examples": ["value1", "value2"],
-        "default": "default_value"
+        "type": "string",
+        "required": false,
+        "default": "value",
+        "options": ["option1", "option2"]
       }
     },
     "examples": [
       {
-        "description": "Use case",
-        "commands": ["use module-name", "run target"]
+        "description": "Basic usage",
+        "commands": ["use my-tool", "run target"]
       }
     ],
-    "features": ["Feature 1", "Feature 2"],
-    "notes": ["Important note"]
+    "features": [],
+    "notes": []
   },
-  
   "timeout": 300
 }
+EOF
 ```
 
----
+Module stdin receives `{"target": "...", "params": {...}}` as JSON. Read with:
+```python
+import json, sys
+ctx    = json.loads(sys.stdin.read())
+target = ctx["target"]
+params = ctx.get("params", {})
+```
 
-## Module Status Legend
+After adding: `secV ❯ reload`
 
-- ✅ **Stable** - Production ready, thoroughly tested
-- 🔧 **Beta** - Functional but may have issues
-- 🚧 **Alpha** - Early development, use with caution
-- 📦 **Planned** - Documented but not yet implemented
+### `gen_module.py` — Module JSON Generator
 
----
+Auto-generates `module.json` from source code. Scans Python `params.get()` and `argparse`, and Bash `jq .params.X` patterns.
 
-## Coming Soon
-
-These modules are planned for future releases:
-
-### Scanning
-- **ServiceEnum** 📦 - Comprehensive service enumeration
-- **VulnScanner** 📦 - Vulnerability scanner integration
-
-### Web
-- **SQLMap Integration** 📦 - SQL injection testing
-- **XSS Scanner** 📦 - Cross-site scripting detection
-- **Directory Bruteforcer** 📦 - Advanced directory enumeration
-
-### Exploitation
-- **Metasploit Bridge** 📦 - Metasploit framework integration
-- **Exploit-DB Search** 📦 - Search and execute exploits
-
-### Wireless
-- **WiFi Cracker** 📦 - WPA/WPA2 password cracking
-- **Evil Twin** 📦 - Rogue access point creation
-
----
-
-## Module Compatibility Matrix
-
-| Module | Basic | Standard | Full | Linux | macOS | Windows |
-|--------|-------|----------|------|-------|-------|---------|
-| portscan | ✅ | ✅✅ | ✅✅✅ | ✅ | ✅ | ⚠️ |
-| macspoof | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| web-enum | ✅ | ✅✅ | ✅✅✅ | ✅ | ✅ | ✅ |
-| priv-esc-check | ✅ | ✅ | ✅ | ✅ | ⚠️ | ❌ |
-
-**Legend:**
-- ✅ Basic functionality
-- ✅✅ Enhanced functionality
-- ✅✅✅ Full functionality
-- ⚠️ Limited support
-- ❌ Not supported
-
----
-
-## Module Statistics
-
-- **Total Modules:** Auto-updated
-- **By Category:**
-  - Scanning: 2
-  - Network: 1
-  - Web: 1
-  - Reconnaissance: 1
-  - Post-Exploitation: 1
-  - Others: Check repository
-
----
-
-## Getting Help
-
-**Module-specific help:**
 ```bash
-secV > info <module-name>          # View help before loading
-secV > use <module-name>
-secV (module) > help module         # View detailed help
+# Print generated JSON
+python3 gen_module.py tools/network/my-tool/
+
+# Write module.json into the tool directory
+python3 gen_module.py tools/network/my-tool/ --write
+
+# Merge newly detected params into existing hand-written module.json
+python3 gen_module.py tools/network/my-tool/ --update
 ```
 
-**General help:**
-- [README.md](README.md) - Project overview
-- [INSTALL.md](INSTALL.md) - Installation guide
-- [CONTRIBUTING.md](CONTRIBUTING.md) - Contribution guide
-- [GitHub Discussions](https://github.com/SecVulnHub/SecV/discussions)
+What is auto-detected: parameter names, types (`int(params.get(...))` → `integer`, `_bool(...)` → `boolean`), defaults, argparse `help=`/`choices=`/`required=`, version/author from docstrings, third-party imports as dependencies, executable.
+
+Descriptions and `examples` blocks must be filled in manually.
+
+### Contribution Checklist
+
+- [ ] Module works at Basic tier (no optional deps)
+- [ ] `module.json` with complete `help.parameters` section
+- [ ] `README.md` inside the module directory
+- [ ] No unhandled exceptions reaching stdout
+- [ ] Binary names (not pip packages) in `dependencies`
+- [ ] New pip packages added to `requirements.txt` with tier comment
+- [ ] Update this `MODULES.md` file
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide.
 
 ---
 
-## Contributing Modules
+## Compatibility Matrix
 
-We welcome module contributions! Your modules help expand SecV's capabilities.
-
-**Requirements:**
-1. Follow module development guide
-2. Include comprehensive help documentation
-3. Support Basic tier (graceful degradation)
-4. Test across all platforms
-5. Add dependencies to global requirements.txt
-6. Update this MODULES.md file
-
-**Process:**
-1. Fork repository
-2. Create module following guidelines
-3. Test thoroughly
-4. Submit PR with documentation
-5. Address review feedback
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
+| Module | Basic | Standard | Full | Linux | macOS |
+|--------|-------|----------|------|-------|-------|
+| `netrecon` | TCP/DNS | + SYN/Nmap | + Shodan/CVE | ✓ | ✓ |
+| `mac_spoof` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `wifi_monitor` | TCP-ping | + ARP/scapy | + CVE lookup | ✓ | ✓ |
+| `android_pentest` | recon/adb | + Frida | + all ops | ✓ | ✓ |
+| `ios_pentest` | static IPA | + idevice | + Frida/JB | ✓ | ✓ |
+| `webscan` | headers/CSRF | + SQLi/XSS | + CVE checks | ✓ | ✓ |
 
 ---
 
-*Module index maintained by SecVulnHub Team*  
-*Last updated: Auto-generated*
+*Maintained by SecVulnHub · 0xb0rn3*

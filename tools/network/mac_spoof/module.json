@@ -2,7 +2,7 @@
   "name": "mac_spoof",
   "version": "2.1.0",
   "category": "network",
-  "description": "Connection-aware MAC spoofer with smart rotation modes to minimize disruption",
+  "description": "MAC spoofer with per-interface rotation modes and active connection tracking",
   "author": "0xb0rn3 (oxbv1) - Connection-Preserving Edition",
   "executable": "python3 mac_spoof.py",
   
@@ -15,7 +15,7 @@
   },
   
   "help": {
-    "description": "Enhanced MAC spoofer that tracks active TCP connections and intelligently rotates MAC addresses to minimize disruption. Features multiple spoofing modes: smart (changes only when idle), session (changes between connection sessions), periodic (timed with connection checks), and aggressive (rapid changes). Uses locally-administered OUI prefix (02:00:00) and includes graceful DHCP renewal.",
+    "description": "MAC spoofer that tracks active TCP connections and rotates MAC addresses with minimal disruption. Supports smart (idle-only), session, periodic, and aggressive rotation modes. Uses locally-administered OUI prefix (02:00:00) with graceful DHCP renewal.",
     
     "parameters": {
       "iface": {

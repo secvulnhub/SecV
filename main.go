@@ -1,20 +1,25 @@
 package main
 
 import (
-	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
+	"io/fs"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
+
+	"github.com/chzyer/readline"
 )
 
-const VERSION = "2.3.1"
+const VERSION = "2.4.0"
 
-// ANSI Colors
+// ANSI colors
 const (
 	RED     = "\033[0;31m"
 	GREEN   = "\033[0;32m"
@@ -28,17 +33,179 @@ const (
 	RESET   = "\033[0m"
 )
 
-// Symbols
 const (
 	CHECK   = "✓"
 	CROSS   = "✗"
-	ARROW   = "➤"
 	BULLET  = "•"
 	WARNING = "⚠"
-	GEAR    = "⚙"
 )
 
-// Module represents a SecV module
+// ============================================================================
+// OS / package manager detection
+// ============================================================================
+
+type distroInfo struct {
+	id      string // arch, debian, ubuntu, fedora, …
+	pkgMgr  string // pacman, apt, dnf, …
+	aurHelper string // yay, paru, trizen — Arch only
+}
+
+func detectDistro() distroInfo {
+	info := distroInfo{}
+
+	// Read /etc/os-release
+	data, err := os.ReadFile("/etc/os-release")
+	if err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			if strings.HasPrefix(line, "ID=") {
+				info.id = strings.Trim(strings.TrimPrefix(line, "ID="), `"'`)
+			}
+		}
+	}
+	if info.id == "" {
+		if _, e := os.Stat("/etc/arch-release"); e == nil {
+			info.id = "arch"
+		}
+	}
+
+	switch info.id {
+	case "arch", "archcraft", "manjaro", "endeavouros", "cachyos":
+		info.pkgMgr = "pacman"
+		for _, aur := range []string{"yay", "paru", "trizen"} {
+			if path, _ := exec.LookPath(aur); path != "" {
+				info.aurHelper = aur
+				break
+			}
+		}
+	case "ubuntu", "debian", "kali", "parrot", "linuxmint", "pop":
+		info.pkgMgr = "apt"
+	case "fedora":
+		info.pkgMgr = "dnf"
+	case "rhel", "centos", "rocky", "alma":
+		info.pkgMgr = "dnf"
+	case "opensuse-leap", "opensuse-tumbleweed", "sles":
+		info.pkgMgr = "zypper"
+	case "alpine":
+		info.pkgMgr = "apk"
+	case "void":
+		info.pkgMgr = "xbps-install"
+	default:
+		if runtime.GOOS == "darwin" {
+			info.pkgMgr = "brew"
+		}
+	}
+	return info
+}
+
+// installPackage installs a single system package using the detected pkg manager.
+// Returns the error output if installation fails.
+func installPackage(pkg string, d distroInfo) error {
+	var cmd *exec.Cmd
+	switch d.pkgMgr {
+	case "pacman":
+		if d.aurHelper != "" {
+			cmd = exec.Command(d.aurHelper, "-S", "--noconfirm", "--needed", pkg)
+		} else {
+			cmd = exec.Command("sudo", "pacman", "-S", "--noconfirm", "--needed", pkg)
+		}
+	case "apt":
+		cmd = exec.Command("sudo", "apt-get", "install", "-y", pkg)
+	case "dnf":
+		cmd = exec.Command("sudo", "dnf", "install", "-y", pkg)
+	case "zypper":
+		cmd = exec.Command("sudo", "zypper", "install", "-y", pkg)
+	case "apk":
+		cmd = exec.Command("sudo", "apk", "add", pkg)
+	case "xbps-install":
+		cmd = exec.Command("sudo", "xbps-install", "-Sy", pkg)
+	case "brew":
+		cmd = exec.Command("brew", "install", pkg)
+	default:
+		return fmt.Errorf("unknown package manager for distro '%s'", d.id)
+	}
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// binToPackage maps binary names (as listed in module.json dependencies) to the
+// correct system package name for each package manager. Binary name = what
+// exec.LookPath checks; package name = what pacman/apt/dnf installs.
+var binToPackage = map[string]map[string]string{
+	// binary      pkgmgr   package
+	"adb":         {"pacman": "android-tools", "apt": "adb",         "dnf": "android-tools",   "brew": "android-platform-tools"},
+	"fastboot":    {"pacman": "android-tools", "apt": "fastboot",    "dnf": "android-tools"},
+	"nmap":        {"pacman": "nmap",          "apt": "nmap",        "dnf": "nmap",             "brew": "nmap"},
+	"masscan":     {"pacman": "masscan",       "apt": "masscan",     "dnf": "masscan"},
+	"rustscan":    {"pacman": "rustscan",      "apt": "rustscan",    "brew": "rustscan"},
+	"tcpdump":     {"pacman": "tcpdump",       "apt": "tcpdump",     "dnf": "tcpdump",          "brew": "tcpdump"},
+	"wireshark":   {"pacman": "wireshark-qt",  "apt": "wireshark",   "dnf": "wireshark"},
+	"apktool":     {"pacman": "apktool",       "apt": "apktool",     "brew": "apktool"},
+	"jadx":        {"pacman": "jadx",          "apt": "jadx"},
+	"aapt":        {"pacman": "aapt",          "apt": "aapt"},
+	"ideviceinfo": {"pacman": "libimobiledevice", "apt": "libimobiledevice-utils", "dnf": "libimobiledevice-utils", "brew": "libimobiledevice"},
+	"ideviceinstaller": {"pacman": "ideviceinstaller", "apt": "ideviceinstaller", "brew": "ideviceinstaller"},
+	"python3":     {"pacman": "python",        "apt": "python3",     "dnf": "python3",          "brew": "python@3"},
+	"jq":          {"pacman": "jq",            "apt": "jq",          "dnf": "jq",               "brew": "jq"},
+	"curl":        {"pacman": "curl",          "apt": "curl",        "dnf": "curl",             "brew": "curl"},
+	"git":         {"pacman": "git",           "apt": "git",         "dnf": "git",              "brew": "git"},
+	"go":          {"pacman": "go",            "apt": "golang",      "dnf": "golang",           "brew": "go"},
+	"avahi-browse":{"pacman": "avahi",         "apt": "avahi-utils", "dnf": "avahi-tools"},
+	"arp-scan":    {"pacman": "arp-scan",      "apt": "arp-scan",    "dnf": "arp-scan"},
+}
+
+// resolvePackageName returns the correct package name for installing a given
+// binary using the detected package manager. Falls back to the binary name
+// itself if no mapping is found.
+func resolvePackageName(binary string, d distroInfo) string {
+	if pkgMap, ok := binToPackage[binary]; ok {
+		if pkg, ok := pkgMap[d.pkgMgr]; ok {
+			return pkg
+		}
+	}
+	return binary
+}
+
+// ensureModuleDeps checks a module's dependency list and offers to install any
+// missing ones using the system package manager.
+func ensureModuleDeps(module *Module, d distroInfo) {
+	if len(module.Dependencies) == 0 {
+		return
+	}
+	var missing []string
+	for _, dep := range module.Dependencies {
+		if _, err := exec.LookPath(dep); err != nil {
+			missing = append(missing, dep)
+		}
+	}
+	if len(missing) == 0 {
+		return
+	}
+	fmt.Printf("%s%s missing: %s%s\n", YELLOW, WARNING, strings.Join(missing, ", "), RESET)
+	if d.pkgMgr == "" {
+		fmt.Printf("%sCannot auto-install — unknown package manager. Install manually.%s\n", DIM, RESET)
+		return
+	}
+	fmt.Printf("%sInstall with %s? [y/N] %s", CYAN, d.pkgMgr, RESET)
+	var ans string
+	fmt.Scanln(&ans)
+	if strings.ToLower(strings.TrimSpace(ans)) == "y" {
+		for _, bin := range missing {
+			pkg := resolvePackageName(bin, d)
+			fmt.Printf("%s  installing %s...%s\n", DIM, pkg, RESET)
+			if err := installPackage(pkg, d); err != nil {
+				fmt.Printf("%s%s  %s failed%s\n", RED, CROSS, pkg, RESET)
+			} else {
+				fmt.Printf("%s%s  %s%s\n", GREEN, CHECK, bin, RESET)
+			}
+		}
+	}
+}
+
+// ============================================================================
+// Module structs
+// ============================================================================
+
 type Module struct {
 	Name         string                 `json:"name"`
 	Version      string                 `json:"version"`
@@ -55,7 +222,6 @@ type Module struct {
 	Path         string                 `json:"-"`
 }
 
-// ModuleHelp contains help documentation
 type ModuleHelp struct {
 	Description       string                   `json:"description"`
 	Parameters        map[string]ParameterHelp `json:"parameters"`
@@ -65,7 +231,6 @@ type ModuleHelp struct {
 	Notes             []string                 `json:"notes"`
 }
 
-// ParameterHelp contains parameter documentation
 type ParameterHelp struct {
 	Description string        `json:"description"`
 	Type        string        `json:"type"`
@@ -75,13 +240,25 @@ type ParameterHelp struct {
 	Options     []string      `json:"options"`
 }
 
-// ExampleHelp contains usage examples
 type ExampleHelp struct {
 	Description string   `json:"description"`
 	Commands    []string `json:"commands"`
 }
 
-// SecV represents the main application state
+// ============================================================================
+// SecV app state
+// ============================================================================
+
+// msfRPCConfig is written by android_pentest msf_handler operation
+type msfRPCConfig struct {
+	Host    string `json:"host"`
+	Port    int    `json:"port"`
+	Pass    string `json:"pass"`
+	Payload string `json:"payload"`
+	LHost   string `json:"lhost"`
+	LPort   string `json:"lport"`
+}
+
 type SecV struct {
 	modules       []*Module
 	currentModule *Module
@@ -89,9 +266,12 @@ type SecV struct {
 	secvHome      string
 	toolsDir      string
 	cacheDir      string
+	workDir       string
+	distro        distroInfo
+	msfToken      string        // authenticated MSF RPC token
+	msfCfg        *msfRPCConfig // loaded from ~/.secv/msf_rpc.json
 }
 
-// NewSecV creates a new SecV instance
 func NewSecV() *SecV {
 	home, _ := os.Getwd()
 	return &SecV{
@@ -100,154 +280,131 @@ func NewSecV() *SecV {
 		secvHome: home,
 		toolsDir: filepath.Join(home, "tools"),
 		cacheDir: filepath.Join(home, ".cache"),
+		workDir:  home,
+		distro:   detectDistro(),
 	}
 }
 
-// ScanModules discovers all modules in tools directory
 func (s *SecV) ScanModules() error {
 	s.modules = []*Module{}
-
 	if _, err := os.Stat(s.toolsDir); os.IsNotExist(err) {
 		return fmt.Errorf("tools directory not found: %s", s.toolsDir)
 	}
-
-	err := filepath.Walk(s.toolsDir, func(path string, info os.FileInfo, err error) error {
+	return filepath.WalkDir(s.toolsDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
-
-		if info.Name() == "module.json" {
-			module, err := s.loadModule(filepath.Dir(path))
-			if err == nil {
-				s.modules = append(s.modules, module)
+		if d.Name() == "module.json" {
+			if m, e := s.loadModule(filepath.Dir(path)); e == nil {
+				s.modules = append(s.modules, m)
 			}
 		}
 		return nil
 	})
-
-	return err
 }
 
-// loadModule loads a module from its directory
 func (s *SecV) loadModule(dir string) (*Module, error) {
-	jsonPath := filepath.Join(dir, "module.json")
-	data, err := ioutil.ReadFile(jsonPath)
+	data, err := os.ReadFile(filepath.Join(dir, "module.json"))
 	if err != nil {
 		return nil, err
 	}
-
-	var module Module
-	if err := json.Unmarshal(data, &module); err != nil {
+	var m Module
+	if err := json.Unmarshal(data, &m); err != nil {
 		return nil, err
 	}
-
-	module.Path = dir
-	return &module, nil
+	m.Path = dir
+	return &m, nil
 }
 
-// FindModule finds a module by name
 func (s *SecV) FindModule(name string) *Module {
+	name = strings.ToLower(name)
 	for _, m := range s.modules {
-		if m.Name == name {
+		if strings.ToLower(m.Name) == name {
 			return m
 		}
 	}
 	return nil
 }
 
-// UseModule loads a module
-func (s *SecV) UseModule(name string) error {
-	module := s.FindModule(name)
-	if module == nil {
-		return fmt.Errorf("module '%s' not found", name)
+func (s *SecV) moduleNames() []string {
+	names := make([]string, len(s.modules))
+	for i, m := range s.modules {
+		names[i] = m.Name
 	}
+	return names
+}
 
-	s.currentModule = module
+// ============================================================================
+// Commands
+// ============================================================================
+
+func (s *SecV) UseModule(name string) error {
+	m := s.FindModule(name)
+	if m == nil {
+		return fmt.Errorf("'%s' not found", name)
+	}
+	s.currentModule = m
 	s.params = make(map[string]string)
 
-	fmt.Printf("%s%s%s Loaded: %s%s%s\n", GREEN, CHECK, RESET, BOLD, name, RESET)
-	fmt.Printf("  %sCategory:%s %s%s%s\n", DIM, RESET, YELLOW, module.Category, RESET)
-	fmt.Printf("  %sVersion:%s %s%s%s\n", DIM, RESET, CYAN, module.Version, RESET)
-	fmt.Printf("  %sPath:%s %s%s%s\n", DIM, RESET, BLUE, module.Path, RESET)
-	fmt.Printf("\n%s%sType 'help module' for detailed usage%s\n", CYAN, DIM, RESET)
+	fmt.Printf("%s%s%s %s%s%s\n", GREEN, CHECK, RESET, BOLD, m.Name, RESET)
+	fmt.Printf("  %scategory%s  %s%s%s\n", DIM, RESET, YELLOW, m.Category, RESET)
+	fmt.Printf("  %sversion%s   %s%s%s\n", DIM, RESET, CYAN, m.Version, RESET)
 
+	ensureModuleDeps(m, s.distro)
 	return nil
 }
 
-// Back unloads current module
 func (s *SecV) Back() {
 	if s.currentModule == nil {
-		fmt.Printf("%s%s No module loaded%s\n", YELLOW, WARNING, RESET)
+		fmt.Printf("%s%s no module loaded%s\n", YELLOW, WARNING, RESET)
 		return
 	}
-
 	s.currentModule = nil
 	s.params = make(map[string]string)
-	fmt.Printf("%s%s Module unloaded%s\n", BLUE, ARROW, RESET)
 }
 
-// SetParam sets a parameter
 func (s *SecV) SetParam(key, value string) {
 	if s.currentModule == nil {
-		fmt.Printf("%s%s No module loaded%s\n", YELLOW, WARNING, RESET)
+		fmt.Printf("%s%s no module loaded%s\n", YELLOW, WARNING, RESET)
 		return
 	}
-
 	s.params[key] = value
-	fmt.Printf("%s%s%s%s %s→%s %s%s%s\n", GREEN, BOLD, key, RESET, DIM, RESET, CYAN, value, RESET)
+	fmt.Printf("  %s%s%s → %s%s%s\n", BOLD, key, RESET, CYAN, value, RESET)
 }
 
-// UnsetParam removes a parameter
 func (s *SecV) UnsetParam(key string) {
 	if s.currentModule == nil {
-		fmt.Printf("%s%s No module loaded%s\n", YELLOW, WARNING, RESET)
+		fmt.Printf("%s%s no module loaded%s\n", YELLOW, WARNING, RESET)
 		return
 	}
-
-	if _, exists := s.params[key]; exists {
+	if _, ok := s.params[key]; ok {
 		delete(s.params, key)
-		fmt.Printf("%s%s Unset: %s%s\n", GREEN, CHECK, key, RESET)
+		fmt.Printf("%s%s %s%s\n", GREEN, CHECK, key, RESET)
 	} else {
-		fmt.Printf("%s%s Parameter '%s' not set%s\n", YELLOW, WARNING, key, RESET)
+		fmt.Printf("%s%s '%s' not set%s\n", YELLOW, WARNING, key, RESET)
 	}
 }
 
-// Run executes the current module
 func (s *SecV) Run(target string) error {
 	if s.currentModule == nil {
 		return fmt.Errorf("no module loaded")
 	}
-
 	if target == "" {
 		return fmt.Errorf("usage: run <target>")
 	}
 
-	// Build JSON context
-	context := map[string]interface{}{
+	ctx := map[string]interface{}{
 		"target": target,
 		"params": s.params,
 	}
-
-	jsonData, err := json.Marshal(context)
+	jsonData, err := json.Marshal(ctx)
 	if err != nil {
 		return err
 	}
 
-	// Display execution info
-	fmt.Printf("\n%s%s%s Executing %s%s%s against %s%s%s...%s\n",
-		BOLD, CYAN, GEAR, WHITE, s.currentModule.Name, CYAN, YELLOW, target, CYAN, RESET)
+	fmt.Printf("\n%s%s%s → %s%s%s\n\n", BOLD, s.currentModule.Name, RESET, YELLOW, target, RESET)
 
-	if len(s.params) > 0 {
-		fmt.Printf("%sParameters:%s\n", DIM, RESET)
-		for k, v := range s.params {
-			fmt.Printf("  %s%s:%s %s\n", DIM, k, RESET, v)
-		}
-	}
-	fmt.Println()
-
-	// Execute module
 	start := time.Now()
-
 	cmd := exec.Command("bash", "-c", s.currentModule.Executable)
 	cmd.Dir = s.currentModule.Path
 	cmd.Stdin = strings.NewReader(string(jsonData))
@@ -258,393 +415,632 @@ func (s *SecV) Run(target string) error {
 	elapsed := time.Since(start)
 
 	if err != nil {
-		fmt.Printf("\n%s%s Failed after %s (error: %v)%s\n",
-			RED, CROSS, elapsed, err, RESET)
+		fmt.Printf("\n%s%s %s (%v)%s\n", RED, CROSS, elapsed.Round(time.Millisecond), err, RESET)
 		return err
 	}
-
-	fmt.Printf("\n%s%s Completed in %s%s\n",
-		GREEN, CHECK, elapsed, RESET)
-
+	fmt.Printf("\n%s%s %s%s\n", GREEN, CHECK, elapsed.Round(time.Millisecond), RESET)
 	return nil
 }
 
-// ShowModules displays all available modules
 func (s *SecV) ShowModules() {
-	printHeader("Available Modules")
-
+	printHeader("modules")
 	if len(s.modules) == 0 {
-		fmt.Printf("%s%s No modules found%s\n", YELLOW, WARNING, RESET)
+		fmt.Printf("%sno modules found%s\n", DIM, RESET)
 		return
 	}
 
-	// Group by category
 	categories := make(map[string][]*Module)
+	order := []string{}
 	for _, m := range s.modules {
 		cat := m.Category
 		if cat == "" {
-			cat = "uncategorized"
+			cat = "misc"
+		}
+		if _, seen := categories[cat]; !seen {
+			order = append(order, cat)
 		}
 		categories[cat] = append(categories[cat], m)
 	}
 
-	// Display by category
-	for cat, mods := range categories {
+	for _, cat := range order {
+		mods := categories[cat]
 		fmt.Printf("\n%s%s%s%s\n", BOLD, YELLOW, cat, RESET)
-		fmt.Printf("%s%s%s\n", DIM, strings.Repeat("─", 67), RESET)
-
+		fmt.Printf("%s%s%s\n", DIM, strings.Repeat("─", 60), RESET)
 		for _, m := range mods {
 			desc := m.Description
-			if len(desc) > 35 {
-				desc = desc[:32] + "..."
+			if len(desc) > 40 {
+				desc = desc[:37] + "..."
 			}
-			fmt.Printf("  %s%s%-20s%s %sv%-8s%s %s\n",
-				BOLD, CYAN, m.Name, RESET,
-				DIM, m.Version, RESET, desc)
+			fmt.Printf("  %s%-22s%s %s%s\n", CYAN, m.Name, RESET, DIM+desc, RESET)
+		}
+	}
+	fmt.Printf("\n%s%d modules%s\n\n", DIM, len(s.modules), RESET)
+}
+
+func (s *SecV) ShowOptions() {
+	if s.currentModule == nil {
+		fmt.Printf("%s%s no module loaded%s\n", YELLOW, WARNING, RESET)
+		return
+	}
+	m := s.currentModule
+	printHeader(m.Name + " · options")
+	fmt.Printf("\n  %s%s%s\n", DIM, m.Description, RESET)
+	if m.Author != "" {
+		fmt.Printf("  %sauthor%s  %s%s%s\n", DIM, RESET, MAGENTA, m.Author, RESET)
+	}
+	fmt.Printf("  %sversion%s %s%s%s\n\n", DIM, RESET, CYAN, m.Version, RESET)
+
+	if m.Help != nil && len(m.Help.Parameters) > 0 {
+		printSection("parameters")
+		fmt.Printf("  %s%-22s %-10s %-5s %s%s\n", BOLD, "PARAM", "TYPE", "REQ", "CURRENT VALUE", RESET)
+		fmt.Printf("  %s%s%s\n", DIM, strings.Repeat("─", 70), RESET)
+		for pname, pi := range m.Help.Parameters {
+			val, isSet := s.params[pname]
+
+			reqStr := "no"
+			reqColor := DIM
+			if pi.Required {
+				if isSet {
+					reqStr = "YES"
+					reqColor = GREEN
+				} else {
+					reqStr = "YES"
+					reqColor = RED
+				}
+			}
+
+			var valStr string
+			if isSet {
+				valStr = fmt.Sprintf("%s%s%s", CYAN, val, RESET)
+			} else if pi.Default != nil && fmt.Sprintf("%v", pi.Default) != "" && fmt.Sprintf("%v", pi.Default) != "false" && fmt.Sprintf("%v", pi.Default) != "<nil>" {
+				valStr = fmt.Sprintf("%s(default: %v)%s", DIM, pi.Default, RESET)
+			} else {
+				valStr = fmt.Sprintf("%snot set%s", DIM, RESET)
+			}
+
+			nameStr := fmt.Sprintf("%s%s%s", BOLD, pname, RESET)
+			fmt.Printf("  %-30s %-10s %s%-5s%s %s\n",
+				nameStr, pi.Type, reqColor, reqStr, RESET, valStr)
+			if pi.Description != "" {
+				fmt.Printf("    %s%s%s\n", DIM, pi.Description, RESET)
+			}
+			if len(pi.Options) > 0 {
+				fmt.Printf("    %soptions: %s%s\n", DIM, strings.Join(pi.Options, " | "), RESET)
+			}
+			if len(pi.Examples) > 0 {
+				ex := make([]string, 0, len(pi.Examples))
+				for _, e := range pi.Examples {
+					ex = append(ex, fmt.Sprintf("%v", e))
+				}
+				fmt.Printf("    %se.g. %s%s\n", DIM, strings.Join(ex, ", "), RESET)
+			}
+		}
+	} else if len(m.Inputs) > 0 {
+		printSection("inputs")
+		for name, info := range m.Inputs {
+			inf, ok := info.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			ptype, _ := inf["type"].(string)
+			desc, _ := inf["description"].(string)
+			req := ""
+			if r, _ := inf["required"].(bool); r {
+				req = fmt.Sprintf(" %s*%s", RED, RESET)
+			}
+			val, isSet := s.params[name]
+			valStr := fmt.Sprintf("%snot set%s", DIM, RESET)
+			if isSet {
+				valStr = fmt.Sprintf("%s%s%s", CYAN, val, RESET)
+			}
+			fmt.Printf("  %s%s%s%s  %s(%s)%s  →  %s\n", BOLD, name, req, RESET, DIM, ptype, RESET, valStr)
+			if desc != "" {
+				fmt.Printf("    %s%s%s\n", DIM, desc, RESET)
+			}
+		}
+	} else {
+		printSection("params set")
+		if len(s.params) == 0 {
+			fmt.Printf("  %s(none)%s\n", DIM, RESET)
+		} else {
+			for k, v := range s.params {
+				fmt.Printf("  %s%-20s%s %s%s%s\n", BOLD, k, RESET, CYAN, v, RESET)
+			}
 		}
 	}
 
-	fmt.Printf("\n%sTotal: %d modules%s\n", DIM, len(s.modules), RESET)
-	fmt.Printf("%sUse 'use <module>' to load a module%s\n\n", DIM, RESET)
-}
-
-// ShowOptions displays current module options
-func (s *SecV) ShowOptions() {
-	if s.currentModule == nil {
-		fmt.Printf("%s%s No module loaded%s\n", YELLOW, WARNING, RESET)
-		return
-	}
-
-	printHeader(fmt.Sprintf("Module Options: %s", s.currentModule.Name))
-
-	// Module info
-	fmt.Printf("\n%sDescription:%s %s\n", DIM, RESET, s.currentModule.Description)
-	fmt.Printf("%sCategory:%s %s%s%s\n", DIM, RESET, YELLOW, s.currentModule.Category, RESET)
-	fmt.Printf("%sVersion:%s %s%s%s\n", DIM, RESET, CYAN, s.currentModule.Version, RESET)
-
-	// Current parameters
-	printSection("Current Parameters")
-	if len(s.params) == 0 {
-		fmt.Printf("%sNo parameters set%s\n", DIM, RESET)
-	} else {
+	// Always summarise what's currently set
+	if len(s.params) > 0 {
+		printSection("set")
 		for k, v := range s.params {
 			fmt.Printf("  %s%-20s%s %s%s%s\n", BOLD, k, RESET, CYAN, v, RESET)
 		}
 	}
 
-	// Available parameters from inputs
-	if len(s.currentModule.Inputs) > 0 {
-		printSection("Available Parameters")
-		for name, info := range s.currentModule.Inputs {
-			infoMap, ok := info.(map[string]interface{})
-			if !ok {
-				continue
-			}
-
-			paramType := "string"
-			if t, ok := infoMap["type"].(string); ok {
-				paramType = t
-			}
-
-			desc := ""
-			if d, ok := infoMap["description"].(string); ok {
-				desc = d
-			}
-
-			required := ""
-			if r, ok := infoMap["required"].(bool); ok && r {
-				required = " [REQUIRED]"
-			}
-
-			fmt.Printf("  %s%s%s %s(%s)%s%s\n",
-				BOLD, name, RESET, DIM, paramType, required, RESET)
-			if desc != "" {
-				fmt.Printf("    %s\n", desc)
-			}
-		}
-	}
-
-	fmt.Printf("\n%sUse 'set <param> <value>' to configure parameters%s\n\n", DIM, RESET)
+	fmt.Printf("\n%s  set <param> <value>  ·  run <target>  ·  help module%s\n\n", DIM, RESET)
 }
 
-// ShowInfo displays detailed module information
 func (s *SecV) ShowInfo(moduleName string) {
-	var module *Module
+	var m *Module
 	if moduleName == "" && s.currentModule != nil {
-		module = s.currentModule
+		m = s.currentModule
 	} else {
-		module = s.FindModule(moduleName)
+		m = s.FindModule(moduleName)
 	}
-
-	if module == nil {
-		fmt.Printf("%s%s Module not found%s\n", RED, CROSS, RESET)
+	if m == nil {
+		fmt.Printf("%s%s not found%s\n", RED, CROSS, RESET)
 		return
 	}
-
-	printHeader(fmt.Sprintf("Module: %s", module.Name))
-
-	fmt.Printf("\n%s%sName:%s %s%s%s%s\n", BOLD, DIM, RESET, BOLD, CYAN, module.Name, RESET)
-	fmt.Printf("%s%sVersion:%s %s%s%s\n", BOLD, DIM, RESET, CYAN, module.Version, RESET)
-	fmt.Printf("%s%sCategory:%s %s%s%s\n", BOLD, DIM, RESET, YELLOW, module.Category, RESET)
-	fmt.Printf("%s%sDescription:%s %s\n", BOLD, DIM, RESET, module.Description)
-	fmt.Printf("%s%sPath:%s %s%s%s\n", BOLD, DIM, RESET, BLUE, module.Path, RESET)
-
-	if module.Author != "" {
-		fmt.Printf("%s%sAuthor:%s %s%s%s\n", BOLD, DIM, RESET, MAGENTA, module.Author, RESET)
+	printHeader(m.Name)
+	fmt.Printf("\n  %scategory%s  %s\n", DIM, RESET, m.Category)
+	fmt.Printf("  %sversion%s   %s\n", DIM, RESET, m.Version)
+	fmt.Printf("  %spath%s      %s%s%s\n", DIM, RESET, BLUE, m.Path, RESET)
+	if m.Author != "" {
+		fmt.Printf("  %sauthor%s    %s%s%s\n", DIM, RESET, MAGENTA, m.Author, RESET)
+	}
+	fmt.Printf("\n  %s\n", m.Description)
+	if len(m.Dependencies) > 0 {
+		fmt.Printf("\n  %sdeps%s  %s\n", DIM, RESET, strings.Join(m.Dependencies, ", "))
 	}
 
-	if len(module.Dependencies) > 0 {
-		fmt.Printf("\n%s%sDependencies:%s\n", BOLD, DIM, RESET)
-		for _, dep := range module.Dependencies {
-			fmt.Printf("  %s %s\n", BULLET, dep)
+	// Show which deps are missing
+	var missing []string
+	for _, dep := range m.Dependencies {
+		if _, err := exec.LookPath(dep); err != nil {
+			missing = append(missing, dep)
 		}
 	}
-
-	readmePath := filepath.Join(module.Path, "README.md")
-	if _, err := os.Stat(readmePath); err == nil {
-		fmt.Printf("\n%s📖 Detailed documentation: %s%s%s\n",
-			DIM, BLUE, readmePath, RESET)
+	if len(missing) > 0 {
+		fmt.Printf("  %s%s missing: %s%s\n", YELLOW, WARNING, strings.Join(missing, ", "), RESET)
 	}
-
 	fmt.Println()
 }
 
-// ShowHelp displays help based on context
 func (s *SecV) ShowHelp(topic string) {
 	if topic == "module" {
 		if s.currentModule == nil {
-			fmt.Printf("%s%s No module loaded%s\n", YELLOW, WARNING, RESET)
+			fmt.Printf("%s%s no module loaded%s\n", YELLOW, WARNING, RESET)
 			return
 		}
 		s.ShowModuleHelp()
 		return
 	}
 
-	printHeader("SecV Command Reference")
+	printHeader("help")
 
 	sections := []struct {
 		title string
 		cmds  [][]string
 	}{
-		{"MODULE SELECTION", [][]string{
-			{"use <module>", "Load a module"},
-			{"back", "Unload current module"},
-			{"reload", "Rescan modules directory"},
+		{"modules", [][]string{
+			{"use <module>", "load a module by name"},
+			{"back  /  cd ..", "unload current module (cd .. = back)"},
+			{"reload", "rescan tools directory for modules"},
 		}},
-		{"CONFIGURATION", [][]string{
-			{"set <param> <value>", "Set module parameter"},
-			{"unset <param>", "Remove parameter"},
-			{"show options", "Show module parameters"},
+		{"config", [][]string{
+			{"set <param> <value>", "set a module parameter"},
+			{"unset <param>", "clear a parameter"},
+			{"show options", "list all params (required marked in red)"},
 		}},
-		{"EXECUTION", [][]string{
-			{"run <target>", "Execute loaded module"},
+		{"run", [][]string{
+			{"run <target>", "execute the loaded module against target"},
 		}},
-		{"INFORMATION", [][]string{
-			{"show modules", "List all modules"},
-			{"info [module]", "Show module details"},
-			{"search <keyword>", "Search modules"},
-			{"help module", "Show current module help"},
+		{"info", [][]string{
+			{"show modules", "list all available modules by category"},
+			{"info [module]", "module details and dependency status"},
+			{"search <keyword>", "search modules by name/description"},
+			{"help module", "full help for the loaded module"},
 		}},
-		{"UTILITIES", [][]string{
-			{"update", "Update SecV"},
-			{"clear", "Clear screen"},
-			{"exit", "Exit SecV"},
+		{"navigation", [][]string{
+			{"cd <dir>", "change working directory"},
+			{"cd ..  /  cd ../", "go up one directory (or back from module)"},
+			{"pwd", "print current working directory"},
+			{"ls [path]", "list directory contents"},
+			{"mkdir <dir>", "create directory"},
+			{"mv <src> <dst>", "move / rename file"},
+			{"cp <src> <dst>", "copy file"},
+			{"rm <file>", "remove file"},
+			{"cat <file>", "print file contents"},
+			{"find / grep / chmod", "standard Linux commands — all pass through"},
+		}},
+		{"system", [][]string{
+			{"sessions [list|interact|kill]", "manage Meterpreter sessions"},
+			{"update", "pull latest version from git"},
+			{"clear", "clear the terminal"},
+			{"exit / quit", "exit secV"},
 		}},
 	}
 
-	for _, section := range sections {
-		fmt.Printf("\n%s%s%s%s\n", BOLD, YELLOW, section.title, RESET)
-		for _, cmd := range section.cmds {
-			fmt.Printf("  %s%s%s%-22s%s%s\n",
-				CYAN, cmd[0], RESET,
-				strings.Repeat(" ", 22-len(cmd[0])),
-				cmd[1], "")
+	for _, sec := range sections {
+		fmt.Printf("\n%s%s%s%s\n", BOLD, YELLOW, sec.title, RESET)
+		for _, c := range sec.cmds {
+			pad := 32 - len(c[0])
+			if pad < 1 {
+				pad = 1
+			}
+			fmt.Printf("  %s%s%s%s%s\n", CYAN, c[0], RESET,
+				strings.Repeat(" ", pad), c[1])
 		}
 	}
-
-	fmt.Printf("\n%sType 'help module' for current module help%s\n\n", DIM, RESET)
+	fmt.Printf("\n%stab completion active — press Tab | any Linux command works natively%s\n\n", DIM, RESET)
 }
 
-// ShowModuleHelp displays comprehensive module help
 func (s *SecV) ShowModuleHelp() {
 	if s.currentModule == nil {
 		return
 	}
-
 	// Try built-in --help first
 	cmd := exec.Command("bash", "-c", s.currentModule.Executable+" --help")
 	cmd.Dir = s.currentModule.Path
-	output, err := cmd.Output()
-
-	if err == nil && strings.Contains(string(output), "╔") {
-		fmt.Print(string(output))
+	out, err := cmd.Output()
+	if err == nil && strings.Contains(string(out), "╔") {
+		fmt.Print(string(out))
 		return
 	}
 
-	// Parse help from module.json
 	if s.currentModule.Help == nil {
 		s.ShowInfo(s.currentModule.Name)
 		return
 	}
-
-	help := s.currentModule.Help
+	h := s.currentModule.Help
 	name := s.currentModule.Name
 
-	// Header
-	fmt.Printf("\n%s%s╔%s╗%s\n", BOLD, CYAN, strings.Repeat("═", 67), RESET)
-	fmt.Printf("%s%s║%s %s%s%s - Help%s%s║%s\n",
-		BOLD, CYAN, RESET, BOLD, WHITE, strings.ToUpper(name), RESET,
-		strings.Repeat(" ", 67-len(name)-8), BOLD+CYAN, RESET)
-	fmt.Printf("%s%s╚%s═%s\n\n", BOLD, CYAN, strings.Repeat("═", 67), RESET)
+	printHeader(name + " help")
 
-	// Description
-	if help.Description != "" {
-		fmt.Printf("%s%sDESCRIPTION:%s\n  %s\n\n", BOLD, YELLOW, RESET, help.Description)
+	if h.Description != "" {
+		fmt.Printf("\n%sdescription%s\n  %s\n", DIM, RESET, h.Description)
 	}
 
-	// Usage
-	fmt.Printf("%s%sUSAGE:%s\n", BOLD, YELLOW, RESET)
-	fmt.Printf("  secV > use %s\n", name)
-	fmt.Printf("  secV (%s) > show options\n", name)
-	fmt.Printf("  secV (%s) > run <target>\n\n", name)
+	fmt.Printf("\n%susage%s\n", DIM, RESET)
+	fmt.Printf("  use %s\n  show options\n  run <target>\n", name)
 
-	// Parameters
-	if len(help.Parameters) > 0 {
-		fmt.Printf("%s%sPARAMETERS:%s\n", BOLD, YELLOW, RESET)
-		for pname, pinfo := range help.Parameters {
+	if len(h.Parameters) > 0 {
+		fmt.Printf("\n%sparameters%s\n", DIM, RESET)
+		for pname, pi := range h.Parameters {
 			req := ""
-			if pinfo.Required {
-				req = " [REQUIRED]"
+			if pi.Required {
+				req = " *"
 			}
-			fmt.Printf("  %s%s%s%s %s(%s)%s%s\n",
-				BOLD, CYAN, pname, RESET, DIM, pinfo.Type, req, RESET)
-
-			if pinfo.Description != "" {
-				fmt.Printf("    %s\n", pinfo.Description)
+			fmt.Printf("  %s%s%s%s  %s(%s)%s\n", BOLD, pname, req, RESET, DIM, pi.Type, RESET)
+			if pi.Description != "" {
+				fmt.Printf("    %s\n", pi.Description)
 			}
-			if pinfo.Default != nil {
-				fmt.Printf("    %sDefault: %v%s\n", DIM, pinfo.Default, RESET)
-			}
-			if len(pinfo.Examples) > 0 {
-				examples := make([]string, len(pinfo.Examples))
-				for i, e := range pinfo.Examples {
-					examples[i] = fmt.Sprintf("%v", e)
-				}
-				fmt.Printf("    %sExamples: %s%s\n", DIM, strings.Join(examples, ", "), RESET)
-			}
-			fmt.Println()
 		}
 	}
 
-	// Examples
-	if len(help.Examples) > 0 {
-		fmt.Printf("%s%sEXAMPLES:%s\n", BOLD, YELLOW, RESET)
-		for i, ex := range help.Examples {
-			fmt.Printf("  %d. %s\n", i+1, ex.Description)
-			for _, cmd := range ex.Commands {
-				fmt.Printf("     %s%s%s\n", CYAN, cmd, RESET)
+	if len(h.Examples) > 0 {
+		fmt.Printf("\n%sexamples%s\n", DIM, RESET)
+		for _, ex := range h.Examples {
+			fmt.Printf("  %s\n", ex.Description)
+			for _, c := range ex.Commands {
+				fmt.Printf("    %s%s%s\n", CYAN, c, RESET)
 			}
-			fmt.Println()
 		}
 	}
 
-	// Features
-	if len(help.Features) > 0 {
-		fmt.Printf("%s%sFEATURES:%s\n", BOLD, YELLOW, RESET)
-		for _, feature := range help.Features {
-			fmt.Printf("  %s %s\n", BULLET, feature)
+	if len(h.Notes) > 0 {
+		fmt.Printf("\n%snotes%s\n", DIM, RESET)
+		for _, n := range h.Notes {
+			fmt.Printf("  %s %s\n", BULLET, n)
 		}
-		fmt.Println()
 	}
-
-	// Installation Tiers
-	if len(help.InstallationTiers) > 0 {
-		fmt.Printf("%s%sINSTALLATION TIERS:%s\n", BOLD, YELLOW, RESET)
-		for tier, desc := range help.InstallationTiers {
-			fmt.Printf("  %s%s:%s %s\n", BOLD, strings.Title(tier), RESET, desc)
-		}
-		fmt.Println()
-	}
-
-	// Notes
-	if len(help.Notes) > 0 {
-		fmt.Printf("%s%sNOTES:%s\n", BOLD, YELLOW, RESET)
-		for _, note := range help.Notes {
-			fmt.Printf("  %s %s\n", BULLET, note)
-		}
-		fmt.Println()
-	}
+	fmt.Println()
 }
 
-// Search searches for modules
 func (s *SecV) Search(query string) {
-	printHeader(fmt.Sprintf("Search Results: %s", query))
-
-	found := 0
 	query = strings.ToLower(query)
-
+	found := 0
 	for _, m := range s.modules {
 		if strings.Contains(strings.ToLower(m.Name), query) ||
 			strings.Contains(strings.ToLower(m.Description), query) ||
 			strings.Contains(strings.ToLower(m.Category), query) {
 			found++
-			fmt.Printf("\n%s%s%s%s %s[%s]%s\n",
-				BOLD, CYAN, m.Name, RESET, DIM, m.Category, RESET)
-			fmt.Printf("  %s\n", m.Description)
+			fmt.Printf("  %s%s%s  %s[%s]%s\n", CYAN, m.Name, RESET, DIM, m.Category, RESET)
+			fmt.Printf("    %s\n", m.Description)
 		}
 	}
-
 	if found == 0 {
-		fmt.Printf("\n%sNo modules found matching '%s'%s\n", DIM, query, RESET)
-	} else {
-		fmt.Printf("\n%sFound %d module(s)%s\n", DIM, found, RESET)
+		fmt.Printf("%sno results for '%s'%s\n", DIM, query, RESET)
 	}
-	fmt.Println()
 }
 
-// CheckForUpdates checks for updates on first run
-func (s *SecV) CheckForUpdates() {
-	// Check if update.py exists
+func (s *SecV) Update() {
 	updateScript := filepath.Join(s.secvHome, "update.py")
 	if _, err := os.Stat(updateScript); os.IsNotExist(err) {
-		return // No updater available
+		fmt.Printf("%s%s update.py not found%s\n", RED, CROSS, RESET)
+		return
 	}
-
-	// Run first-run update check
-	cmd := exec.Command("python3", updateScript, "--first-run")
+	cmd := exec.Command("python3", updateScript)
 	cmd.Dir = s.secvHome
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	err := cmd.Run()
-
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			// Exit code 2 means update was performed, restart required
-			if exitErr.ExitCode() == 2 {
-				fmt.Printf("\n%s%s⚠️  SecV has been updated. Please restart to apply changes.%s\n", YELLOW, BOLD, RESET)
-				fmt.Printf("%sRun: %s./secV%s or %ssecV%s (if installed globally)%s\n\n", DIM, CYAN, DIM, CYAN, DIM, RESET)
-				os.Exit(0)
-			}
+		if e, ok := err.(*exec.ExitError); ok && e.ExitCode() == 2 {
+			fmt.Printf("\n%s%s restart to apply%s\n", YELLOW, WARNING, RESET)
 		}
-		// Silently ignore other errors (e.g., no git repo, no internet)
 	}
 }
 
-// Utility functions
+// ============================================================================
+// MSF RPC session management
+// ============================================================================
 
-func printHeader(title string) {
-	fmt.Printf("\n%s%s╔%s╗%s\n", BOLD, CYAN, strings.Repeat("═", 67), RESET)
-	fmt.Printf("%s%s║%s %s%s%s║%s\n",
-		BOLD, CYAN, RESET, title,
-		strings.Repeat(" ", 67-len(title)-1),
-		BOLD+CYAN, RESET)
-	fmt.Printf("%s%s╚%s═%s\n", BOLD, CYAN, strings.Repeat("═", 67), RESET)
+func (s *SecV) loadMSFConfig() bool {
+	home, _ := os.UserHomeDir()
+	cfgPath := filepath.Join(home, ".secv", "msf_rpc.json")
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		return false
+	}
+	cfg := &msfRPCConfig{}
+	if err := json.Unmarshal(data, cfg); err != nil {
+		return false
+	}
+	s.msfCfg = cfg
+	return true
 }
 
-func printSection(title string) {
-	fmt.Printf("\n%s%s%s:%s\n", BOLD, CYAN, title, RESET)
-	fmt.Printf("%s%s%s\n", DIM, strings.Repeat("─", 67), RESET)
+// msfRPC sends a JSON-RPC call to msfrpcd and returns the response map.
+func (s *SecV) msfRPC(method string, params []interface{}) (map[string]interface{}, error) {
+	if s.msfCfg == nil {
+		if !s.loadMSFConfig() {
+			return nil, fmt.Errorf("no MSF RPC config — run android_pentest with operation=msf_handler first")
+		}
+	}
+
+	// Authenticate if we don't have a token yet
+	if s.msfToken == "" {
+		body := []interface{}{"auth.login", s.msfCfg.Pass}
+		resp, err := s.msfRPCRaw(body)
+		if err != nil {
+			return nil, fmt.Errorf("MSF RPC auth failed: %v", err)
+		}
+		if result, ok := resp["result"].(string); ok && result == "success" {
+			s.msfToken, _ = resp["token"].(string)
+		} else {
+			return nil, fmt.Errorf("MSF RPC auth rejected")
+		}
+	}
+
+	call := append([]interface{}{method, s.msfToken}, params...)
+	return s.msfRPCRaw(call)
 }
+
+func (s *SecV) msfRPCRaw(payload []interface{}) (map[string]interface{}, error) {
+	url := fmt.Sprintf("http://%s:%d/api/", s.msfCfg.Host, s.msfCfg.Port)
+	body, _ := json.Marshal(payload)
+	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	var result map[string]interface{}
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, fmt.Errorf("bad RPC response: %s", raw[:min(200, len(raw))])
+	}
+	return result, nil
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// Sessions lists all active Meterpreter / shell sessions from msfrpcd.
+func (s *SecV) Sessions() {
+	resp, err := s.msfRPC("session.list", nil)
+	if err != nil {
+		fmt.Printf("%s%s %v%s\n", RED, CROSS, err, RESET)
+		return
+	}
+
+	sessions, ok := resp["sessions"].(map[string]interface{})
+	if !ok || len(sessions) == 0 {
+		fmt.Printf("%s  no active sessions%s\n", DIM, RESET)
+		return
+	}
+
+	fmt.Printf("\n%s%-6s %-12s %-18s %-20s %s%s\n",
+		BOLD, "ID", "TYPE", "VIA", "TUNNEL", "INFO", RESET)
+	fmt.Printf("%s%s%s\n", DIM, strings.Repeat("─", 72), RESET)
+	for id, raw := range sessions {
+		sess, _ := raw.(map[string]interface{})
+		stype, _ := sess["type"].(string)
+		via, _    := sess["via_exploit"].(string)
+		tunnel, _ := sess["tunnel_local"].(string)
+		info, _   := sess["info"].(string)
+		fmt.Printf("%-6s %-12s %-18s %-20s %s\n",
+			id, stype, via, tunnel, info)
+	}
+	fmt.Println()
+}
+
+// SessionInteract drops into an interactive msfconsole session.
+func (s *SecV) SessionInteract(id string) {
+	if !CAPS_HAS("msfconsole") {
+		fmt.Printf("%s%s msfconsole not found%s\n", RED, CROSS, RESET)
+		return
+	}
+	fmt.Printf("%s  attaching to session %s (ctrl+z to background)%s\n", DIM, id, RESET)
+	cmd := exec.Command("msfconsole", "-q", "-x",
+		fmt.Sprintf("sessions -i %s", id))
+	cmd.Stdin  = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	_ = cmd.Run()
+}
+
+// SessionKill terminates a session.
+func (s *SecV) SessionKill(id string) {
+	resp, err := s.msfRPC("session.stop", []interface{}{id})
+	if err != nil {
+		fmt.Printf("%s%s %v%s\n", RED, CROSS, err, RESET)
+		return
+	}
+	if result, _ := resp["result"].(string); result == "success" {
+		fmt.Printf("%s%s session %s killed%s\n", GREEN, CHECK, id, RESET)
+	} else {
+		fmt.Printf("%s%s failed: %v%s\n", RED, CROSS, resp, RESET)
+	}
+}
+
+func CAPS_HAS(tool string) bool {
+	_, err := exec.LookPath(tool)
+	return err == nil
+}
+
+// ============================================================================
+// Linux shell passthrough
+// ============================================================================
+
+var shellPassthroughCmds = map[string]bool{
+	"ls": true, "ll": true, "la": true, "dir": true,
+	"mkdir": true, "rmdir": true, "mv": true, "cp": true, "rm": true,
+	"cat": true, "less": true, "more": true, "head": true, "tail": true,
+	"echo": true, "touch": true, "pwd": true,
+	"find": true, "grep": true, "egrep": true, "rg": true,
+	"chmod": true, "chown": true, "ln": true,
+	"whoami": true, "id": true, "which": true, "whereis": true,
+	"file": true, "stat": true, "df": true, "du": true,
+	"ps": true, "kill": true, "killall": true,
+	"sort": true, "wc": true, "uniq": true, "diff": true,
+	"tar": true, "gzip": true, "unzip": true,
+	"curl": true, "wget": true,
+	"python3": true, "python": true, "bash": true, "sh": true,
+	"git": true, "nano": true, "vim": true, "vi": true,
+	"env": true, "export": true, "printenv": true,
+	"uname": true, "hostname": true, "uptime": true, "date": true,
+}
+
+func (s *SecV) execShellCmd(line string) {
+	cmd := exec.Command("bash", "-c", line)
+	cmd.Dir = s.workDir
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	_ = cmd.Run()
+}
+
+func (s *SecV) changeDir(target string) {
+	var newDir string
+	switch target {
+	case "", "~":
+		home, _ := os.UserHomeDir()
+		newDir = home
+	case "-":
+		// Go to previous dir — just stay if no history
+		newDir = s.workDir
+	default:
+		if filepath.IsAbs(target) {
+			newDir = target
+		} else {
+			newDir = filepath.Join(s.workDir, target)
+		}
+	}
+	// Resolve symlinks / clean path
+	resolved, err := filepath.EvalSymlinks(newDir)
+	if err != nil {
+		fmt.Printf("%scd: %s: No such file or directory%s\n", RED, target, RESET)
+		return
+	}
+	fi, err := os.Stat(resolved)
+	if err != nil || !fi.IsDir() {
+		fmt.Printf("%scd: %s: Not a directory%s\n", RED, target, RESET)
+		return
+	}
+	s.workDir = resolved
+	// Keep OS process cwd in sync so child commands (ls, find…) see the same dir
+	_ = os.Chdir(resolved)
+}
+
+// ============================================================================
+// Tab completion
+// ============================================================================
+
+func (s *SecV) buildCompleter() *readline.PrefixCompleter {
+	topCmds := []readline.PrefixCompleterInterface{
+		// secV commands
+		readline.PcItem("use",
+			readline.PcItemDynamic(func(_ string) []string { return s.moduleNames() }),
+		),
+		readline.PcItem("back"),
+		readline.PcItem("reload"),
+		readline.PcItem("set"),
+		readline.PcItem("unset"),
+		readline.PcItem("run"),
+		readline.PcItem("show",
+			readline.PcItem("modules"),
+			readline.PcItem("options"),
+		),
+		readline.PcItem("info",
+			readline.PcItemDynamic(func(_ string) []string { return s.moduleNames() }),
+		),
+		readline.PcItem("search"),
+		readline.PcItem("sessions",
+			readline.PcItem("list"),
+			readline.PcItem("interact"),
+			readline.PcItem("kill"),
+		),
+		readline.PcItem("help",
+			readline.PcItem("module"),
+		),
+		readline.PcItem("update"),
+		readline.PcItem("clear"),
+		readline.PcItem("exit"),
+		readline.PcItem("quit"),
+		// Linux navigation / filesystem
+		readline.PcItem("cd"),
+		readline.PcItem("pwd"),
+		readline.PcItem("ls"),
+		readline.PcItem("ll"),
+		readline.PcItem("la"),
+		readline.PcItem("mkdir"),
+		readline.PcItem("rmdir"),
+		readline.PcItem("mv"),
+		readline.PcItem("cp"),
+		readline.PcItem("rm"),
+		readline.PcItem("cat"),
+		readline.PcItem("less"),
+		readline.PcItem("head"),
+		readline.PcItem("tail"),
+		readline.PcItem("find"),
+		readline.PcItem("grep"),
+		readline.PcItem("chmod"),
+		readline.PcItem("chown"),
+		readline.PcItem("touch"),
+		readline.PcItem("file"),
+		readline.PcItem("stat"),
+		readline.PcItem("whoami"),
+		readline.PcItem("which"),
+		readline.PcItem("git"),
+	}
+	return readline.NewPrefixCompleter(topCmds...)
+}
+
+func (s *SecV) prompt() string {
+	base := fmt.Sprintf("%s%ssecV%s", BOLD, GREEN, RESET)
+	if s.currentModule != nil {
+		modPart := fmt.Sprintf(" %s%s%s", CYAN, s.currentModule.Name, RESET)
+		opPart := ""
+		if op, ok := s.params["operation"]; ok {
+			opPart = fmt.Sprintf(" %s›%s %s%s%s", DIM, RESET, YELLOW, op, RESET)
+		}
+		paramPart := ""
+		if n := len(s.params); n > 0 {
+			paramPart = fmt.Sprintf(" %s[%d params]%s", DIM, n, RESET)
+		}
+		return fmt.Sprintf("%s%s%s%s ❯ ", base, modPart, opPart, paramPart)
+	}
+	return fmt.Sprintf("%s ❯ ", base)
+}
+
+// ============================================================================
+// Banner + startup
+// ============================================================================
 
 func printBanner() {
 	fmt.Print(BOLD + CYAN)
@@ -657,47 +1053,69 @@ func printBanner() {
 	fmt.Println("║   ╚══════╝╚══════╝ ╚═════╝  ╚═══╝                               ║")
 	fmt.Println("╚═══════════════════════════════════════════════════════════════════╝")
 	fmt.Print(RESET)
-	fmt.Printf("%s   SecV v%s - Compiled Edition%s\n", DIM, VERSION, RESET)
-	fmt.Printf("%s   The Polyglot Cybersecurity Orchestration Platform%s\n\n", DIM, RESET)
+	fmt.Printf("%s   v%s%s\n\n", DIM, VERSION, RESET)
 }
 
+func printHeader(title string) {
+	bar := strings.Repeat("─", 60)
+	fmt.Printf("\n%s%s%s%s\n", BOLD, CYAN, bar, RESET)
+	fmt.Printf(" %s%s%s\n", BOLD, title, RESET)
+	fmt.Printf("%s%s%s\n", DIM, bar, RESET)
+}
+
+func printSection(title string) {
+	fmt.Printf("\n%s%s%s\n", DIM, title, RESET)
+}
+
+// ============================================================================
+// main
+// ============================================================================
+
 func main() {
-	// Clear screen and show banner
 	fmt.Print("\033[H\033[2J")
 	printBanner()
 
-	// Initialize SecV
 	secv := NewSecV()
 
-	// CHECK FOR UPDATES - First run automatic check
-	secv.CheckForUpdates()
-
-	// Scan modules
-	fmt.Printf("%sScanning modules...%s\n", DIM, RESET)
-	if err := secv.ScanModules(); err != nil {
-		fmt.Printf("%s%s Error: %v%s\n", RED, CROSS, err, RESET)
-	}
-
-	fmt.Printf("%s%s Loaded %d modules%s\n", GREEN, CHECK, len(secv.modules), RESET)
-	fmt.Printf("%sType 'help' for commands%s\n\n", DIM, RESET)
-
-	// Command loop
-	scanner := bufio.NewScanner(os.Stdin)
-	for {
-		// Prompt
-		if secv.currentModule != nil {
-			fmt.Printf("%s%ssecV%s %s%s(%s)%s %s%s%s ",
-				BOLD, GREEN, RESET, BOLD, RED, secv.currentModule.Name, RESET,
-				CYAN, ARROW, RESET)
-		} else {
-			fmt.Printf("%s%ssecV%s %s%s%s ", BOLD, GREEN, RESET, CYAN, ARROW, RESET)
+	// Show detected distro info once
+	if secv.distro.id != "" {
+		line := secv.distro.id
+		if secv.distro.aurHelper != "" {
+			line += " (" + secv.distro.aurHelper + ")"
 		}
+		fmt.Printf("%s  os   %s %s\n", DIM, RESET, line)
+	}
+	fmt.Printf("%s  path %s %s\n\n", DIM, RESET, secv.secvHome)
 
-		if !scanner.Scan() {
+	// Load modules
+	if err := secv.ScanModules(); err != nil {
+		fmt.Printf("%s%s %v%s\n", RED, CROSS, err, RESET)
+	}
+	fmt.Printf("%s%s %d modules%s  %stype 'help' for commands%s\n\n",
+		GREEN, CHECK, len(secv.modules), RESET, DIM, RESET)
+
+	// Build readline instance with tab completion
+	completer := secv.buildCompleter()
+	rl, err := readline.NewEx(&readline.Config{
+		Prompt:              secv.prompt(),
+		HistoryFile:         filepath.Join(secv.cacheDir, ".history"),
+		AutoComplete:        completer,
+		InterruptPrompt:     "^C",
+		EOFPrompt:           "exit",
+		HistorySearchFold:   true,
+	})
+	if err != nil {
+		panic(err)
+	}
+	defer rl.Close()
+
+	for {
+		rl.SetPrompt(secv.prompt())
+		line, err := rl.Readline()
+		if err != nil {
 			break
 		}
-
-		line := strings.TrimSpace(scanner.Text())
+		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
@@ -709,9 +1127,11 @@ func main() {
 		switch cmd {
 		case "use":
 			if len(args) == 0 {
-				fmt.Printf("%s%s Usage: use <module>%s\n", RED, CROSS, RESET)
+				fmt.Printf("%suse <module>%s\n", DIM, RESET)
 			} else {
-				secv.UseModule(args[0])
+				if err := secv.UseModule(args[0]); err != nil {
+					fmt.Printf("%s%s %v%s\n", RED, CROSS, err, RESET)
+				}
 			}
 
 		case "back":
@@ -719,28 +1139,28 @@ func main() {
 
 		case "set":
 			if len(args) < 2 {
-				fmt.Printf("%s%s Usage: set <parameter> <value>%s\n", RED, CROSS, RESET)
+				fmt.Printf("%sset <param> <value>%s\n", DIM, RESET)
 			} else {
 				secv.SetParam(args[0], strings.Join(args[1:], " "))
 			}
 
 		case "unset":
 			if len(args) == 0 {
-				fmt.Printf("%s%s Usage: unset <parameter>%s\n", RED, CROSS, RESET)
+				fmt.Printf("%sunset <param>%s\n", DIM, RESET)
 			} else {
 				secv.UnsetParam(args[0])
 			}
 
 		case "run":
 			if len(args) == 0 {
-				fmt.Printf("%s%s Usage: run <target>%s\n", RED, CROSS, RESET)
-			} else {
-				secv.Run(args[0])
+				fmt.Printf("%srun <target>%s\n", DIM, RESET)
+			} else if err := secv.Run(args[0]); err != nil {
+				// error already printed inside Run
 			}
 
 		case "show":
 			if len(args) == 0 {
-				fmt.Printf("%s%s Usage: show {modules|options}%s\n", RED, CROSS, RESET)
+				fmt.Printf("%sshow modules | options%s\n", DIM, RESET)
 			} else {
 				switch args[0] {
 				case "modules":
@@ -748,22 +1168,22 @@ func main() {
 				case "options":
 					secv.ShowOptions()
 				default:
-					fmt.Printf("%s%s Unknown show command%s\n", RED, CROSS, RESET)
+					fmt.Printf("%sunknown: show %s%s\n", DIM, args[0], RESET)
 				}
 			}
 
 		case "info":
-			moduleName := ""
+			name := ""
 			if len(args) > 0 {
-				moduleName = args[0]
+				name = args[0]
 			}
-			secv.ShowInfo(moduleName)
+			secv.ShowInfo(name)
 
 		case "search":
 			if len(args) == 0 {
-				fmt.Printf("%s%s Usage: search <keyword>%s\n", RED, CROSS, RESET)
+				fmt.Printf("%ssearch <keyword>%s\n", DIM, RESET)
 			} else {
-				secv.Search(args[0])
+				secv.Search(strings.Join(args, " "))
 			}
 
 		case "help":
@@ -774,44 +1194,77 @@ func main() {
 			secv.ShowHelp(topic)
 
 		case "reload":
-			fmt.Printf("%sScanning modules...%s\n", DIM, RESET)
 			if err := secv.ScanModules(); err != nil {
-				fmt.Printf("%s%s Error: %v%s\n", RED, CROSS, err, RESET)
+				fmt.Printf("%s%s %v%s\n", RED, CROSS, err, RESET)
+			} else {
+				fmt.Printf("%s%s %d modules%s\n", GREEN, CHECK, len(secv.modules), RESET)
 			}
-			fmt.Printf("%s%s Loaded %d modules%s\n", GREEN, CHECK, len(secv.modules), RESET)
+			// Rebuild completer after reload so new module names appear in tab
+			completer = secv.buildCompleter()
+			rl.Config.AutoComplete = completer
+
+		case "sessions":
+			sub := ""
+			if len(args) > 0 {
+				sub = args[0]
+			}
+			switch sub {
+			case "list", "":
+				secv.Sessions()
+			case "interact":
+				if len(args) < 2 {
+					fmt.Printf("%ssessions interact <id>%s\n", DIM, RESET)
+				} else {
+					secv.SessionInteract(args[1])
+				}
+			case "kill":
+				if len(args) < 2 {
+					fmt.Printf("%ssessions kill <id>%s\n", DIM, RESET)
+				} else {
+					secv.SessionKill(args[1])
+				}
+			default:
+				fmt.Printf("%s? sessions list | interact <id> | kill <id>%s\n", DIM, RESET)
+			}
 
 		case "update":
-			updateScript := filepath.Join(secv.secvHome, "update.py")
-			if _, err := os.Stat(updateScript); os.IsNotExist(err) {
-				fmt.Printf("%s%s Update script not found%s\n", RED, CROSS, RESET)
-				break
-			}
-			fmt.Printf("%sChecking for updates...%s\n", DIM, RESET)
-			cmd := exec.Command("python3", updateScript)
-			cmd.Dir = secv.secvHome
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-			err := cmd.Run()
-			if err != nil {
-				if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 2 {
-					fmt.Printf("\n%s%s⚠️  SecV has been updated. Please restart to apply changes.%s\n", YELLOW, BOLD, RESET)
-					fmt.Printf("%sRun: %s./secV%s or %ssecV%s (if installed globally)%s\n\n", DIM, CYAN, DIM, CYAN, DIM, RESET)
-					return
-				}
-			}
+			secv.Update()
 
 		case "clear":
 			fmt.Print("\033[H\033[2J")
-			fmt.Printf("%s%sSecV v%s%s - %sCleared%s\n\n",
-				BOLD, CYAN, VERSION, RESET, DIM, RESET)
 
 		case "exit", "quit":
-			fmt.Printf("\n%s%sThanks for using SecV! ★%s\n\n", CYAN, BOLD, RESET)
+			fmt.Println()
 			return
 
+		// ── Linux navigation ────────────────────────────────────────────────
+		case "cd":
+			target := ""
+			if len(args) > 0 {
+				target = strings.Join(args, " ")
+			}
+			// cd .. / cd ../ → back (unload module), then go up in filesystem
+			if target == ".." || target == "../" || target == "-" {
+				if secv.currentModule != nil {
+					secv.Back()
+				} else {
+					secv.changeDir("..")
+				}
+			} else {
+				secv.changeDir(target)
+				fmt.Printf("%s%s%s\n", DIM, secv.workDir, RESET)
+			}
+
+		case "pwd":
+			fmt.Printf("%s%s%s\n", DIM, secv.workDir, RESET)
+
 		default:
-			fmt.Printf("%s%s Unknown command: %s %s(type 'help')%s\n",
-				YELLOW, WARNING, cmd, DIM, RESET)
+			// Transparent passthrough for standard Linux commands
+			if shellPassthroughCmds[cmd] {
+				secv.execShellCmd(line)
+			} else {
+				fmt.Printf("%s? %s  (type 'help')%s\n", YELLOW, cmd, RESET)
+			}
 		}
 	}
 }

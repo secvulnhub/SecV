@@ -3,126 +3,100 @@
 ## Quick Install
 
 ```bash
-# 1. Make the installer and SecV executable
-chmod +x install.sh secV
-
-# 2. Run the installer
-./install.sh
-
-# 3. Start SecV
-./secV              # Local execution
-# OR
-secV                # If installed system-wide
+git clone https://github.com/SecVulnHub/SecV.git
+cd SecV
+chmod +x install.sh && ./install.sh
 ```
+
+The installer detects your distro (Arch, Debian, Fedora, Alpine) and handles everything:
+compiles the Go binary, installs system tools (`adb`, `apktool`, `nmap`, etc.), and
+installs Python module dependencies. Optionally installs `secV` to `/usr/local/bin`.
+
+```bash
+./secV          # from repo directory
+secV            # if installed system-wide
+```
+
+---
 
 ## What the Installer Does
 
-1. ✅ Checks Python 3.8+ installation
-2. ✅ Installs pip if missing
-3. ✅ Installs Python dependencies (cmd2, rich)
-4. ✅ Makes SecV executable
-5. ✅ Optionally installs system-wide to `/usr/local/bin/secV`
-6. ✅ Creates tools directory structure
+1. Detects distro and package manager (`pacman`, `apt`, `dnf`, `apk`)
+2. Checks Python 3.8+ and installs if missing
+3. Installs `curl`, `unzip`, `java` (for Android RE tools)
+4. Downloads and installs Android tools: `aapt`, `apktool`, `jadx`
+5. Checks Go 1.21+ and installs if missing
+6. Compiles the Go binary: `go build -o secV .`
+7. Installs Python module dependencies via `requirements.txt`
+8. Optionally links binary to `/usr/local/bin/secV`
+
+---
 
 ## Requirements
 
-- **Python**: 3.8 or later
-- **pip**: Python package installer
-- **OS**: Linux, macOS, or Windows (with WSL)
+| Requirement | Version | Purpose |
+|-------------|---------|---------|
+| Go | 1.21+ | Compile the secV binary |
+| Python | 3.8+ | Module execution |
+| pip | any | Python dependency installation |
+| git | any | Cloning and updates |
 
-## Installation Options
+**OS:** Linux (Arch, Debian/Ubuntu, Fedora, Alpine) or macOS
 
-### Option 1: Local Installation (No sudo required)
-```bash
-./install.sh
-# Answer 'N' when asked about system-wide installation
-# Run with: ./secV
-```
-
-### Option 2: System-Wide Installation (Recommended)
-```bash
-./install.sh
-# Answer 'Y' when asked about system-wide installation
-# Run with: secV (from anywhere)
-```
-
-## Verification
-
-After installation, verify SecV is working:
-
-```bash
-# Start the shell
-./secV    # or just 'secV' if installed system-wide
-
-# Inside SecV shell
-secV > show modules
-secV > show categories
-secV > help
-secV > exit
-```
+---
 
 ## Manual Installation
 
-If you prefer to install manually:
+If you prefer to install step by step:
 
 ```bash
-# Install dependencies
-pip3 install cmd2 rich --user
+# 1. Compile the binary
+go build -o secV .
 
-# Make executable
+# 2. Install Python dependencies
+pip3 install -r requirements.txt --break-system-packages
+
+# 3. Make executable and run
 chmod +x secV
-
-# Run
 ./secV
 ```
 
-## Uninstallation
+---
 
-To remove system-wide installation:
+## Installation Options
 
+### Local (no sudo required)
 ```bash
-chmod +x uninstall.sh
-./uninstall.sh
-```
-
-To completely remove SecV including local files:
-
-```bash
-cd ..
-rm -rf SecV/
-```
-
-## Troubleshooting
-
-### Python not found
-```bash
-# Ubuntu/Debian
-sudo apt-get update
-sudo apt-get install python3 python3-pip
-
-# macOS
-brew install python3
-
-# Or download from python.org
-```
-
-### Permission denied when running ./secV
-```bash
-chmod +x secV
-```
-
-### Module not found: cmd2 or rich
-```bash
-pip3 install cmd2 rich --user
-# Or run installer again
 ./install.sh
+# Answer N when asked about system-wide install
+./secV
 ```
 
-### System-wide installation fails
+### System-Wide (recommended)
 ```bash
-# Ensure you have sudo access
-sudo ln -s $(pwd)/secV /usr/local/bin/secV
+./install.sh
+# Answer Y when asked about system-wide install
+secV             # available from anywhere
 ```
+
+### Manual system-wide link
+```bash
+sudo ln -sf "$(pwd)/secV" /usr/local/bin/secV
+```
+
+---
+
+## Verification
+
+```bash
+./secV
+secV ❯ show modules      # should list netrecon, mac_spoof, wifi_monitor, android_pentest, ios_pentest, webscan
+secV ❯ show categories
+secV ❯ help
+secV ❯ exit
+```
+
+---
 
 ## Directory Structure
 
@@ -130,37 +104,114 @@ After installation:
 
 ```
 SecV/
-├── secV                # Main executable
-├── install.sh          # Installation script
-├── uninstall.sh        # Uninstallation script
-├── requirements.txt    # Python dependencies
-├── README.md           # Main documentation
-├── INSTALL.md          # This file
-└── tools/              # Module directory
+├── secV                          # Compiled Go binary
+├── install.sh                    # Installer
+├── uninstall.sh                  # Uninstaller
+├── update.py                     # Updater
+├── gen_module.py                 # Module JSON generator
+├── requirements.txt              # Python dependencies (tiered)
+├── go.mod / go.sum               # Go module manifest
+├── main.go                       # Shell source
+└── tools/
     ├── network/
-    │   └── spoof/
+    │   ├── netrecon/             # Multi-engine network recon
+    │   ├── mac_spoof/            # Connection-aware MAC rotator
+    │   └── wifi_monitor/         # Smart WiFi monitor + threat detector
+    ├── mobile/
+    │   ├── android/              # Android pentesting suite
+    │   │   ├── module.json
+    │   │   ├── android_pentest.py
+    │   │   ├── agent/            # On-device C2 agent
+    │   │   ├── apk_backdoor/     # APK repackaging + WAN C2
+    │   │   └── c2_persistence/   # systemd service + watchdog for C2 attacker side
+    │   └── ios/                  # iOS pentesting suite
     │       ├── module.json
-    │       └── macspoof.sh
-    └── scanning/
-        └── port-scanner/
-            ├── module.json
-            └── scanner.py
+    │       └── ios_pentest.py
+    └── web/
+        └── webscan/              # Web vulnerability scanner (SQLi, XSS, CSRF, ...)
 ```
-
-## Next Steps
-
-After installation:
-
-1. **Add modules**: Place your security tools in `tools/category/module-name/`
-2. **Read docs**: Check out the main README.md
-3. **Start hacking**: Run `secV` and type `help`
-
-## Support
-
-- **Issues**: https://github.com/SecVulnHub/SecV/issues
-- **Docs**: https://github.com/SecVulnHub/SecV
-- **Community**: SecVulnHub Team
 
 ---
 
-**Ready to hack?** Run `./secV` and type `help` to get started! 🔒
+## Module Dependencies
+
+SecV uses a tiered dependency model. The installer installs everything in `requirements.txt`.
+
+| Tier | Packages | Notes |
+|------|----------|-------|
+| Core | `psutil`, `requests`, `cryptography`, `netifaces`, `scapy`, `python-nmap`, `aiohttp`, `rich` | Always installed |
+| Full | `beautifulsoup4`, `dnspython`, `pycryptodome`, `paramiko`, `pyyaml`, `frida-tools`, `objection` | Enabled by default |
+
+`install.sh` also installs system tools (`adb`, `apktool`, `jadx`, `nmap`, `masscan`, `arp-scan`) and [bore](https://github.com/ekzhang/bore) for WAN tunneling.
+
+For raw socket operations (SYN scanning, masscan) run with `sudo`:
+```bash
+sudo secV
+# or
+sudo ./secV
+```
+
+---
+
+## Updating
+
+```bash
+secV ❯ update                 # interactive update (inside shell)
+
+python3 update.py             # apply updates
+python3 update.py --status    # check component status
+python3 update.py --verify    # integrity check
+python3 update.py --rollback  # restore last backup
+```
+
+---
+
+## Uninstalling
+
+```bash
+chmod +x uninstall.sh && ./uninstall.sh    # removes system-wide binary
+
+# Full removal
+cd .. && rm -rf SecV/
+```
+
+---
+
+## Troubleshooting
+
+**Go binary won't compile**
+```bash
+sudo pacman -S go          # Arch
+sudo apt install golang    # Debian/Ubuntu
+brew install go            # macOS
+
+go mod tidy
+go build -o secV .
+```
+
+**Module not found after adding**
+```bash
+secV ❯ reload
+```
+
+**Permission denied**
+```bash
+chmod +x secV install.sh
+```
+
+**Missing adb / apktool**
+```bash
+./install.sh               # re-run installer — it skips already-installed components
+```
+
+**Python dependency missing**
+```bash
+pip3 install -r requirements.txt --break-system-packages
+```
+
+---
+
+## Support
+
+- Issues: https://github.com/SecVulnHub/SecV/issues
+- Docs: [README.md](README.md), [MODULES.md](MODULES.md), [CONTRIBUTING.md](CONTRIBUTING.md)

@@ -10,7 +10,7 @@ This guide explains how to add comprehensive help documentation to your SecV mod
 
 1. [Quick Start](#quick-start)
 2. [Help System Architecture](#help-system-architecture)
-3. [Enhanced module.json Format](#enhanced-modulejson-format)
+3. [module.json Format](#modulejson-format)
 4. [Built-in Help Implementation](#built-in-help-implementation)
 5. [Best Practices](#best-practices)
 6. [Examples](#examples)
@@ -35,7 +35,7 @@ secV > help module portscan
 
 ### Adding Help to Your Module
 
-**Option 1: Enhanced module.json (Recommended)**
+**Option 1: module.json (Recommended)**
 
 Add a `help` section to your `module.json`:
 
@@ -72,7 +72,7 @@ if len(sys.argv) > 1 and sys.argv[1] in ['--help', '-h', 'help']:
 ### Help Display Priority
 
 1. **Built-in help** - Module executable's `--help` output (if available)
-2. **Enhanced JSON** - `help` section in module.json
+2. **JSON** - `help` section in module.json
 3. **Basic JSON** - Auto-generated from `inputs`/`outputs`
 4. **README.md** - Link shown if available
 
@@ -94,7 +94,7 @@ Display formatted help
 
 ---
 
-## Enhanced module.json Format
+## module.json Format
 
 ### Complete Structure
 

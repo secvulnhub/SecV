@@ -1,0 +1,113 @@
+{
+  "name": "wifi_monitor",
+  "version": "1.0.0",
+  "category": "network",
+  "description": "LAN host discovery, async port scanning, device fingerprinting, CVE lookup via CIRCL, and threat detection",
+  "author": "0xb0rn3 | github.com/0xb0rn3",
+  "executable": "python3 wifi_monitor.py",
+
+  "dependencies": ["python3"],
+
+  "optional_dependencies": {
+    "scapy":   "ARP host discovery — pip3 install scapy (requires root)",
+    "aiohttp": "Async CVE lookup via cve.circl.lu — pip3 install aiohttp"
+  },
+
+  "help": {
+    "description": "Discovers live hosts on a LAN using ARP (scapy) with TCP-ping fallback, then async-scans open ports, grabs service banners, and looks up CVEs via the CIRCL API. Fingerprints device type and OS from port/banner patterns. Flags threats: exposed databases, cleartext protocols, legacy SSH versions.",
+
+    "parameters": {
+      "mode": {
+        "description": "Scan mode",
+        "type": "string",
+        "required": false,
+        "default": "scan",
+        "options": ["scan", "discover"]
+      },
+      "ports": {
+        "description": "Ports to scan — comma-separated or range (e.g. '22,80,443' or '1-1024'). 'default' uses a common 23-port set.",
+        "type": "string",
+        "required": false,
+        "default": "default"
+      },
+      "port_scan": {
+        "description": "Run port scan on discovered hosts",
+        "type": "boolean",
+        "required": false,
+        "default": true
+      },
+      "cve_lookup": {
+        "description": "Look up CVEs via CIRCL API based on service banners",
+        "type": "boolean",
+        "required": false,
+        "default": true
+      },
+      "timeout": {
+        "description": "ARP/TCP discovery timeout in seconds",
+        "type": "number",
+        "required": false,
+        "default": 3.0
+      },
+      "concurrency": {
+        "description": "Concurrent port probe workers per host",
+        "type": "integer",
+        "required": false,
+        "default": 100
+      }
+    },
+
+    "examples": [
+      {
+        "description": "Scan local /24 for live hosts and open ports",
+        "commands": [
+          "use wifi_monitor",
+          "set target 192.168.1.0/24",
+          "run"
+        ]
+      },
+      {
+        "description": "Scan single host with custom port range",
+        "commands": [
+          "use wifi_monitor",
+          "set target 192.168.1.1",
+          "set ports 1-1024",
+          "run"
+        ]
+      },
+      {
+        "description": "Host discovery only, no port scan",
+        "commands": [
+          "use wifi_monitor",
+          "set target 10.0.0.0/24",
+          "set port_scan false",
+          "run"
+        ]
+      }
+    ],
+
+    "features": [
+      "ARP host discovery via scapy (requires root) with TCP-ping fallback",
+      "Async port scanning with banner grabbing (HTTP, HTTPS, SSH, generic)",
+      "Device fingerprinting: IoT camera, router, NAS, DB server, web server",
+      "OS inference from port/banner patterns",
+      "CVE lookup via CIRCL cve.circl.lu API with 24-hour cache",
+      "Threat detection: exposed databases, cleartext protocols, legacy SSH",
+      "Works without scapy/aiohttp at reduced capability"
+    ],
+
+    "installation_tiers": {
+      "basic":    "TCP-ping discovery only — no extra deps required",
+      "standard": "ARP discovery — requires scapy (pip3 install scapy, run as root)",
+      "full":     "CVE enrichment — requires aiohttp (pip3 install aiohttp)"
+    },
+
+    "notes": [
+      "AUTHORIZATION REQUIRED: Only scan networks you own or have explicit permission to test",
+      "ARP scan requires root/sudo for raw socket access",
+      "CVE lookup requires internet access to cve.circl.lu",
+      "Large /16 or /8 subnets will be slow — use /24 or smaller"
+    ]
+  },
+
+  "timeout": 300
+}

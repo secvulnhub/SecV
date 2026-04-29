@@ -94,7 +94,7 @@ class MACSpoofer:
         self.action = self.params.get('action', 'start').lower()
         self.dry_run = self._parse_bool(self.params.get('dry_run', False))
         
-        # Enhanced parameters
+        # Additional parameters
         self.mode = self.params.get('mode', 'smart').lower()
         self.interval = float(self.params.get('interval', 30.0))  # Increased default
         self.wait_for_quiet = self._parse_bool(self.params.get('wait_for_quiet', True))
@@ -191,12 +191,13 @@ class MACSpoofer:
             return None
     
     def generate_mac(self):
-        """Generate random locally-administered MAC address"""
-        mac = ['02', '00', '00']
-        
-        for _ in range(3):
-            mac.append(f"{random.randint(0, 255):02x}")
-        
+        """Generate random locally-administered unicast MAC address"""
+        # Set locally-administered bit (bit 1) and clear multicast bit (bit 0)
+        # Result is 0x02-0xFE with both constraints met
+        first = (random.randint(0, 63) << 2) | 0x02
+        mac = [f'{first:02x}']
+        for _ in range(5):
+            mac.append(f'{random.randint(0, 255):02x}')
         return ':'.join(mac)
     
     def set_mac_graceful(self, iface: str, mac: str) -> bool:

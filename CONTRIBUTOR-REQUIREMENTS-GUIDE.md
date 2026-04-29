@@ -195,7 +195,7 @@ if __name__ == '__main__':
 3. Updater compares old vs new `requirements.txt`
 4. Updater shows what dependencies changed
 5. Updater installs new dependencies automatically
-6. User's SecV installation is fully updated
+6. User's SecV installation is complete
 
 ### Example Update Output
 
@@ -212,7 +212,7 @@ Checking for updates...
 Do you want to pull the latest changes? [Y/n]: y
 
 Pulling latest updates from the repository...
-✓ Project files updated successfully.
+✓ Project files installed successfully.
 
 ⚙ requirements.txt has changed in this update.
 
@@ -237,10 +237,10 @@ Attempt 1: pip install --user -r requirements.txt...
 ║                         Update Complete!                          ║
 ╚═══════════════════════════════════════════════════════════════════╝
 
-✓ SecV has been updated successfully!
+✓ SecV has been installed successfully!
 
 Next Steps:
-  1. Restart SecV to load updated modules
+  1. Restart SecV to load new modules
   2. Run 'reload' inside SecV to rescan modules
   3. Type 'show modules' to see all available modules
 ```

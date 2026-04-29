@@ -258,7 +258,7 @@ Test your module in these configurations:
 | Configuration | Dependencies | Expected Behavior |
 |--------------|--------------|-------------------|
 | **Basic** | cmd2, rich only | Core features work |
-| **Standard** | + python-nmap, scapy | Enhanced features work |
+| **Standard** | + python-nmap, scapy | Scanning features work |
 | **Full** | All requirements.txt | All features work |
 
 ### Testing Script Template

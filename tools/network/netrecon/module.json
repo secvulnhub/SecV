@@ -1,0 +1,231 @@
+{
+  "name": "netrecon",
+  "version": "1.0.0",
+  "category": "network",
+  "description": "Concurrent multi-engine network profiler: nmap + masscan + rustscan + arp-scan + Shodan all running simultaneously",
+  "author": "0xb0rn3 | github.com/0xb0rn3",
+  "executable": "python3 netrecon.py",
+
+  "dependencies": ["python3"],
+
+  "optional_dependencies": {
+    "nmap":       "Service/OS detection - apt install nmap",
+    "masscan":    "Ultra-fast discovery (root) - apt install masscan",
+    "rustscan":   "Fast port discovery - cargo install rustscan",
+    "arp-scan":   "Local MAC discovery (root) - apt install arp-scan",
+    "whois":      "WHOIS org lookup - apt install whois",
+    "scapy":      "ARP/ICMP probes - pip3 install scapy",
+    "requests":   "HTTP analysis + ASN lookup - pip3 install requests",
+    "dnspython":  "Full DNS enumeration - pip3 install dnspython",
+    "shodan":     "Shodan API enrichment - pip3 install shodan"
+  },
+
+  "help": {
+    "description": "Concurrent multi-engine network reconnaissance. Launches nmap, masscan, rustscan, arp-scan and Shodan simultaneously then merges all results into a unified full network profile with host discovery, open ports, service versions, OS fingerprints, HTTP tech stack, TLS certs, CVE mapping, ASN/country data, and risk scoring.",
+
+    "parameters": {
+      "mode": {
+        "description": "Scan intensity profile",
+        "options": ["quick", "normal", "deep", "stealth"],
+        "default": "normal",
+        "examples": [
+          "quick   - Fast, top ports, minimal service detection",
+          "normal  - Balanced, top-1000 ports, full service + HTTP detection",
+          "deep    - All ports, vuln scripts, OS fingerprinting",
+          "stealth - Low rate, IDS-aware pacing"
+        ]
+      },
+      "ports": {
+        "description": "Port specification preset or custom",
+        "default": "top-1000",
+        "options": ["quick", "top-20", "top-100", "top-1000", "web", "database", "common", "all", "custom"]
+      },
+      "threads": {
+        "description": "Concurrent host scan threads",
+        "type": "integer",
+        "default": 20,
+        "range": "1-100"
+      },
+      "rate": {
+        "description": "Masscan packet rate (pps)",
+        "type": "integer",
+        "default": 1000,
+        "range": "100-1000000"
+      },
+      "timeout": {
+        "description": "Per-host base timeout (seconds)",
+        "type": "integer",
+        "default": 5,
+        "range": "1-60"
+      },
+      "os_detection": {
+        "description": "Enable OS fingerprinting (always on in deep mode)",
+        "type": "boolean",
+        "default": false
+      },
+      "vuln_scripts": {
+        "description": "Run nmap vuln NSE scripts (always on in deep mode)",
+        "type": "boolean",
+        "default": false
+      },
+      "shodan_key": {
+        "description": "Shodan API key for external threat intelligence",
+        "type": "string",
+        "required": false
+      },
+      "interface": {
+        "description": "Network interface for ARP scan",
+        "type": "string",
+        "required": false
+      },
+      "exclude": {
+        "description": "Comma-separated IPs to exclude from scan",
+        "type": "string",
+        "required": false
+      },
+      "passive_only": {
+        "description": "Skip active scanning; DNS/WHOIS/Shodan only",
+        "type": "boolean",
+        "default": false
+      }
+    },
+
+    "examples": [
+      {
+        "description": "Full local network profile",
+        "commands": ["use netrecon", "set mode normal", "run 192.168.1.0/24"]
+      },
+      {
+        "description": "Deep scan with Shodan enrichment",
+        "commands": ["use netrecon", "set mode deep", "set shodan_key YOUR_KEY", "run 10.0.0.1"]
+      },
+      {
+        "description": "Web server audit",
+        "commands": ["use netrecon", "set ports web", "set vuln_scripts true", "run example.com"]
+      },
+      {
+        "description": "Stealth low-rate recon",
+        "commands": ["use netrecon", "set mode stealth", "set rate 100", "run 10.10.10.0/24"]
+      },
+      {
+        "description": "IP range quick scan",
+        "commands": ["use netrecon", "set mode quick", "run 192.168.1.1-50"]
+      },
+      {
+        "description": "Passive intel only (no active probing)",
+        "commands": ["use netrecon", "set passive_only true", "set shodan_key KEY", "run 1.2.3.4"]
+      }
+    ],
+
+    "concurrent_engines": {
+      "nmap":     "Service/version/OS detection, NSE scripts",
+      "masscan":  "Ultra-fast initial port discovery (requires root)",
+      "rustscan": "Fast port discovery wrapper around nmap",
+      "arp-scan": "Local network MAC + host discovery (requires root)",
+      "shodan":   "External threat intelligence via Shodan API",
+      "ipinfo":   "ASN, country, city, organization enrichment",
+      "dns":      "Forward, reverse, MX, NS, TXT record enumeration",
+      "whois":    "Organization ownership lookup",
+      "http":     "Web tech stack, titles, TLS certs per HTTP port",
+      "banner":   "Raw TCP banner fallback when nmap unavailable"
+    },
+
+    "output_structure": {
+      "hosts": {
+        "ip":            "IP address",
+        "hostname":      "Resolved or reverse-DNS hostname",
+        "mac":           "MAC address (local networks via ARP)",
+        "mac_vendor":    "Vendor from OUI database",
+        "os_family":     "Detected OS family",
+        "os_version":    "OS version",
+        "os_confidence": "Detection confidence 0-100",
+        "device_type":   "Inferred device type",
+        "services":      "Array of ServiceInfo (see below)",
+        "dns_records":   "DNS A/AAAA/CNAME/TXT records",
+        "reverse_dns":   "PTR record",
+        "asn":           "BGP ASN",
+        "asn_org":       "ASN organization name",
+        "country":       "Country code",
+        "city":          "City",
+        "shodan":        "Shodan host data (ports, vulns, tags)",
+        "risk_score":    "0-100 composite risk score",
+        "risk_level":    "LOW / MEDIUM / HIGH / CRITICAL",
+        "scan_sources":  "Which tools contributed data"
+      },
+      "services": {
+        "port":               "Port number",
+        "protocol":           "tcp / udp",
+        "service":            "Service name",
+        "product":            "Product name (from nmap)",
+        "version":            "Version string",
+        "banner":             "Raw TCP banner",
+        "http_title":         "Page title",
+        "http_server":        "Server header",
+        "http_status":        "HTTP response code",
+        "http_technologies":  "Detected web technologies",
+        "tls_subject":        "TLS certificate CN",
+        "tls_issuer":         "TLS certificate issuer",
+        "tls_expiry":         "TLS certificate expiry",
+        "cves":               "Correlated CVE list with CVSS scores",
+        "nmap_scripts":       "NSE script output dict",
+        "response_ms":        "Response time in ms"
+      },
+      "summary": {
+        "hosts_alive":        "Total alive hosts",
+        "total_open_ports":   "Total open ports across all hosts",
+        "top_services":       "Top 15 most common services",
+        "os_distribution":    "OS family counts",
+        "risk_distribution":  "Risk level counts",
+        "vulnerabilities":    "CVE severity breakdown + top CVE IDs",
+        "high_risk_hosts":    "IPs with HIGH or CRITICAL risk score",
+        "shodan_enriched":    "Hosts with Shodan data",
+        "engines_used":       "Which scan engines ran"
+      }
+    },
+
+    "installation_tiers": {
+      "basic":    "TCP connect scan (stdlib only — always works)",
+      "standard": "+ nmap service detection (apt install nmap)",
+      "full":     "+ masscan fast discovery, arp-scan MAC lookup, rustscan, scapy, dnspython, requests (root required for raw scans)",
+      "shodan":   "+ Shodan API key for external intelligence lookup"
+    },
+
+    "notes": [
+      "⚠️  AUTHORIZATION REQUIRED: Only scan systems you have permission to test",
+      "⚠️  masscan and arp-scan require root/sudo privileges",
+      "⚠️  Shodan API key required for external intelligence lookup",
+      "💡 Falls back gracefully to TCP connect if no tools are installed",
+      "💡 Use 'deep' mode for complete assessment; 'quick' for fast triage",
+      "💡 All engines run concurrently — total time ≈ slowest tool, not sum",
+      "💡 ARP scan auto-triggers on private/local network targets",
+      "💡 HTTP analysis runs automatically on web ports (80,443,8080,8443...)",
+      "💡 CVE correlation runs against a built-in database of 60+ CVEs",
+      "💡 Risk score is composite: open ports + CVE severity + cleartext protocols",
+      "🔒 Always follow responsible disclosure and legal authorization requirements"
+    ],
+
+    "legal_disclaimer": "This tool is for authorized security testing only. Only use on networks and systems for which you have explicit written permission. Unauthorized network scanning may violate computer fraud laws in your jurisdiction."
+  },
+
+  "inputs": {
+    "mode":          {"type": "string",  "default": "normal",  "required": false},
+    "ports":         {"type": "string",  "default": "top-1000","required": false},
+    "threads":       {"type": "number",  "default": 20,        "required": false},
+    "rate":          {"type": "number",  "default": 1000,      "required": false},
+    "timeout":       {"type": "number",  "default": 5,         "required": false},
+    "os_detection":  {"type": "boolean", "default": false,     "required": false},
+    "vuln_scripts":  {"type": "boolean", "default": false,     "required": false},
+    "shodan_key":    {"type": "string",  "default": "",        "required": false},
+    "interface":     {"type": "string",  "default": "",        "required": false},
+    "exclude":       {"type": "string",  "default": "",        "required": false},
+    "passive_only":  {"type": "boolean", "default": false,     "required": false}
+  },
+
+  "outputs": {
+    "hosts":   {"type": "array",  "description": "Full per-host profiles"},
+    "summary": {"type": "object", "description": "Network-wide statistics and risk summary"}
+  },
+
+  "timeout": 600,
+  "concurrent": true
+}
