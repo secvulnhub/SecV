@@ -166,7 +166,7 @@ Device recon to active exploitation and persistence. Supports rooted and non-roo
 - `c2_server.py` — standalone TCP+HTTP C2 with interactive REPL
 
 **APK Backdoor Tool** (`tools/mobile/android/apk_backdoor/`):
-- `build_termux_boot.py` — repackage any APK with persistent meterpreter payload, boot receiver, WAN C2 via bore.pub tunnels, DexClassLoader runtime staging, Play Protect bypass
+- `build_bootbuddy.py` — repackage any APK with persistent meterpreter payload, boot receiver, WAN C2 via bore.pub tunnels, DexClassLoader runtime staging, Play Protect bypass
 
 **Quick Start:**
 ```

