@@ -3,8 +3,8 @@
 Complete reference of all SecV security modules.
 
 **Version:** 2.4.0  
-**Total Modules:** 6  
-**Categories:** network (3), mobile (2), web (1)
+**Total Modules:** 7  
+**Categories:** network (3), mobile (2), web (2)
 
 ---
 
@@ -142,31 +142,49 @@ Device recon to active exploitation and persistence. Supports rooted and non-roo
 
 **Operations:**
 
-| Operation | Description |
-|-----------|-------------|
-| `recon` | Device fingerprint, root status, SELinux, chipset |
-| `app_scan` | APK analysis, manifest audit, security score |
-| `vuln_scan` | 50+ checks, OWASP Mobile Top 10, NVD live CVEs |
-| `exploit` | Intent injection, SQLi, content provider attacks |
-| `network` | Traffic capture, SSL inspection, proxy setup |
-| `forensics` | Data extraction, artifact analysis |
-| `get_root` | Multi-vector root acquisition (Magisk, CVE-2024-0044, mtk-su, KernelSU) |
-| `inject_agent` | Push native recon agent, receive JSON report via TCP C2 |
-| `adb_wifi` | Enable ADB over WiFi — drop USB dependency |
-| `deploy_shell` | Generate and install Meterpreter APK (no root required) |
-| `persist` | Termux:Boot + Magisk module persistence |
-| `exploit_cve` | Targeted CVE exploitation |
-| `full_pwn` | Automated chain: recon → root → shell → persist → WAN |
-| `multi_device` | Run any operation across all connected devices simultaneously |
-| `full` | Complete assessment: recon + vuln_scan + exploit + network + forensics |
+| Operation          | Description                                                                        |
+|--------------------|------------------------------------------------------------------------------------|
+| `recon`            | Device fingerprint, root status, SELinux, chipset                                  |
+| `app_scan`         | APK analysis, manifest audit, security score                                       |
+| `vuln_scan`        | 50+ checks, OWASP Mobile Top 10, NVD live CVEs                                    |
+| `exploit`          | Intent injection, SQLi, content provider attacks                                   |
+| `network`          | Traffic capture, SSL inspection, proxy setup                                       |
+| `forensics`        | Data extraction, artifact analysis                                                 |
+| `frida_hook`       | Deploy frida-server, auto-hook app: SSL unpin, root bypass, cred dump, trace       |
+| `objection_patch`  | Embed Frida gadget (no root at runtime), repackage and sign APK                    |
+| `get_root`         | Multi-vector root: Magisk, adb root, CVE-2024-0044, mtk-su, KernelSU              |
+| `inject_agent`     | Push native recon agent, receive JSON report via TCP C2, auto-escalate             |
+| `adb_wifi`         | Enable ADB over WiFi, drop USB dependency                                          |
+| `deploy_shell`     | Generate and install Meterpreter APK (no root required)                            |
+| `backdoor_apk`     | Pull APK, inject msfvenom payload (-x template), sign, optionally install          |
+| `rebuild`          | Build Termux:Boot WAN C2 APK with BootReceiver + DexClassLoader + bore + QR       |
+| `persist`          | Termux:Boot + Magisk module persistence                                            |
+| `hook`             | Three-vector hook: Magisk service.sh injection, SharedUID shell, LSPosed/Zygote    |
+| `unhook`           | Remove all persistence hooks planted by the hook operation                         |
+| `exploit_cve`      | Targeted CVE exploitation (CVE-2024-0044, CVE-2023-45866, CVE-2024-31317, etc.)   |
+| `cve_chain`        | Run predefined CVE chain: bt_to_root, sandbox_exfil, zero_click_full               |
+| `zero_click`       | Probe zero-click surfaces: Bluetooth HID, NFC, WiFi broadcast, media parsing       |
+| `qr_exploit`       | Generate QR for APK URL, Android Intent URI, ADB WiFi pairing, deeplink            |
+| `device_net_scan`  | Scan device WiFi via netrecon, detect exposed ADB TCP and web services             |
+| `wan_expose`       | Expose MSF listener and APK server via Cloudflare Tunnel for WAN delivery          |
+| `msf_handler`      | Launch Metasploit multi/handler and start msfrpcd for GUI session management       |
+| `full_pwn`         | 7-step chain: recon + adb_wifi + get_root + device_net_scan + shell + persist + WAN|
+| `multi_device`     | Run any operation across all connected devices simultaneously                      |
+| `c2_gui`           | Launch secV web C2 dashboard (bore, MSF, QR, operations, encrypted session logs)  |
+| `c2_cli`           | Launch C2 server in CLI mode                                                       |
+| `full`             | Complete assessment: recon + vuln_scan + exploit + network + forensics             |
 
 **On-Device Agent** (`tools/mobile/android/agent/`):
-- `secv_agent.sh` — shell script, any Android without compilation
-- `secv_agent.c` — compiled ARM64 binary via NDK (`build.sh`)
-- `c2_server.py` — standalone TCP+HTTP C2 with interactive REPL
+- `secv_agent.sh` - shell script, any Android without compilation
+- `secv_agent.c` - compiled ARM64 binary via NDK (`build.sh`)
+- `c2_server.py` - standalone TCP+HTTP C2 with interactive REPL
 
 **APK Backdoor Tool** (`tools/mobile/android/apk_backdoor/`):
-- `build_bootbuddy.py` — repackage any APK with persistent meterpreter payload, boot receiver, WAN C2 via bore.pub tunnels, DexClassLoader runtime staging, Play Protect bypass
+- `build_bootbuddy.py` - repackage any APK with BootReceiver + AgentService + DexClassLoader chain, WAN C2 via bore tunnels, QR delivery
+
+**C2 Web Dashboard** (`tools/mobile/android/c2_gui.py`):
+- Sessions, Bore tunnels, MSF sessions, QR delivery, Operations, Logs
+- 5-layer encrypted .scv session archives (PBKDF2 + SHA3 + Scrypt + AES-GCM + ChaCha20)
 
 **Quick Start:**
 ```
@@ -226,6 +244,52 @@ secV (ios_pentest) ❯ run device
 ---
 
 ## Web
+
+### `websec` v1.0.0
+**Web Security Research Tool**
+
+Burp Suite-style terminal tool for security researchers and bug bounty hunters. Covers web OSINT, security header auditing, CORS testing, cookie analysis, directory discovery, SQLi, XSS, web spidering, Google dork generation, WAF fingerprinting, and a built-in OWASP vulnerability knowledge base. Every operation prints `[LEARN]` context. Works with stdlib only, enhanced with `requests` and `beautifulsoup4`.
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `operation` | string | `recon` | Operation to run (see table below) |
+| `test_url` | string | — | URL with params for SQLi/XSS testing |
+| `threads` | integer | `10` | Concurrent threads (1-50) |
+| `timeout` | number | `10.0` | HTTP request timeout in seconds |
+| `max_pages` | integer | `50` | Max pages to crawl in spider operation |
+| `wordlist_file` | string | — | Path to custom wordlist for directory discovery |
+| `verbose` | boolean | `false` | Verbose output |
+
+**Operations:**
+
+| Operation  | Description                                                         |
+|------------|---------------------------------------------------------------------|
+| `recon`    | DNS, WHOIS, SSL cert, robots.txt, Wayback Machine, tech stack       |
+| `headers`  | Security headers audit (HSTS, CSP, X-Frame-Options, etc.)          |
+| `cors`     | CORS misconfiguration: wildcard, origin reflection, credentials     |
+| `cookies`  | Cookie flag audit: Secure, HttpOnly, SameSite                       |
+| `dirs`     | Directory/file discovery with 100+ built-in paths + custom wordlist |
+| `sqli`     | Error-based SQL injection (15+ database error patterns)             |
+| `xss`      | Reflected XSS via input reflection testing                          |
+| `spider`   | Crawl site, map URLs, forms, JS files                               |
+| `dork`     | Generate 18+ Google dork queries and OSINT resource links           |
+| `ssl`      | Deep SSL/TLS: version, cipher suites, cert details                  |
+| `waf`      | Detect Cloudflare, AWS WAF, ModSecurity, Akamai, Imperva, F5        |
+| `full`     | All non-intrusive checks in one pass                                |
+| `vulnlib`  | Browse built-in OWASP vulnerability knowledge base                  |
+
+**Quick Start:**
+```
+secV ❯ use websec
+secV (websec) ❯ set operation recon
+secV (websec) ❯ run https://example.com
+```
+
+**Authorization required** - only test systems you own or have explicit written permission to test.
+
+---
 
 ### `webscan` v1.0.0
 **Web Vulnerability Scanner**
@@ -360,6 +424,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide.
 | `wifi_monitor` | TCP-ping | + ARP/scapy | + CVE lookup | ✓ | ✓ |
 | `android_pentest` | recon/adb | + Frida | + all ops | ✓ | ✓ |
 | `ios_pentest` | static IPA | + idevice | + Frida/JB | ✓ | ✓ |
+| `websec` | stdlib/DNS | + requests | + bs4/spider | ✓ | ✓ |
 | `webscan` | headers/CSRF | + SQLi/XSS | + CVE checks | ✓ | ✓ |
 
 ---

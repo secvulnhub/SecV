@@ -110,7 +110,6 @@ if ! command -v jadx &>/dev/null; then
         warn "jadx not found - get it from github.com/skylot/jadx/releases"
     fi
 fi
-fi
 
 # ── Python packages (from rqm.md) ─────────────────────────────────────────────
 info "Installing Python packages..."
