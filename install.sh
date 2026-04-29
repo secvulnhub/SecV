@@ -1,13 +1,67 @@
 #!/usr/bin/env bash
-# secV — Full dependency installer
-# Installs all dependencies for all current modules: netrecon, mac_spoof, android_pentest,
-# ios_pentest, wifi_monitor, webscan, plus bore for WAN tunneling.
+# secV installer
+# Reads all rqm.md files in the repo tree and installs listed dependencies.
+# Contributors add their tool's requirements to the rqm.md in their module directory.
 set -euo pipefail
 
 RED='\033[0;31m'; GRN='\033[0;32m'; YLW='\033[1;33m'; CYN='\033[0;36m'; RST='\033[0m'
 info()  { echo -e "${CYN}[*]${RST} $*"; }
 ok()    { echo -e "${GRN}[+]${RST} $*"; }
 warn()  { echo -e "${YLW}[!]${RST} $*"; }
+
+# ── rqm.md parser ────────────────────────────────────────────────────────────
+# Collects packages from all rqm.md files. Call after setting DISTRO.
+# Populates globals: RQM_PY_PKGS RQM_OS_PKGS
+declare -a RQM_PY_PKGS=()
+declare -a RQM_OS_PKGS=()
+declare -A _seen_py=() _seen_os=()
+
+load_rqm_files() {
+    local section=""
+    local os_section=""
+
+    case "$DISTRO" in
+        arch)   os_section="pacman" ;;
+        debian) os_section="apt"    ;;
+        *)      os_section=""       ;;
+    esac
+
+    while IFS= read -r file; do
+        [[ -f "$file" ]] || continue
+        section=""
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            # strip leading/trailing whitespace
+            line="${line#"${line%%[![:space:]]*}"}"
+            line="${line%"${line##*[![:space:]]}"}"
+            # skip blank lines and full-line comments
+            [[ -z "$line" || "$line" == \#* ]] && {
+                # detect section markers
+                case "$line" in
+                    "#python") section="python" ;;
+                    "#pacman") section="pacman" ;;
+                    "#apt")    section="apt"    ;;
+                    "#binary") section="binary" ;;
+                esac
+                continue
+            }
+            # strip inline comment
+            pkg="${line%%#*}"
+            pkg="${pkg%"${pkg##*[![:space:]]}"}"
+            [[ -z "$pkg" ]] && continue
+
+            case "$section" in
+                python)
+                    [[ -z "${_seen_py[$pkg]+x}" ]] && { RQM_PY_PKGS+=("$pkg"); _seen_py["$pkg"]=1; }
+                    ;;
+                "$os_section")
+                    [[ -z "${_seen_os[$pkg]+x}" ]] && { RQM_OS_PKGS+=("$pkg"); _seen_os["$pkg"]=1; }
+                    ;;
+            esac
+        done < "$file"
+    done < <(find "$SCRIPT_DIR" -name "rqm.md" 2>/dev/null | sort)
+
+    info "rqm.md: found ${#RQM_PY_PKGS[@]} python pkgs, ${#RQM_OS_PKGS[@]} OS pkgs"
+}
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -27,42 +81,50 @@ else
     DISTRO="unknown"
 fi
 
-info "Detected: $DISTRO — installer starting"
+info "Detected: $DISTRO - installer starting"
 $PKG_UPDATE || true
 
-# ── System packages ───────────────────────────────────────────────────────────
+# Load rqm.md files from the repo tree
+load_rqm_files
+
+# ── System packages (from rqm.md) ─────────────────────────────────────────────
 info "Installing system packages..."
 
-COMMON_PKGS=(python3 python3-pip nmap curl wget git)
-NETRECON_PKGS=(masscan arp-scan whois)
-
-if [ "$DISTRO" = "arch" ]; then
-    $PKG_INSTALL "${COMMON_PKGS[@]}" "${NETRECON_PKGS[@]}" \
-        jdk-openjdk android-tools apktool iproute2 nmap-ncat || warn "Some system packages failed"
-    if ! command -v jadx &>/dev/null; then
-        warn "jadx not found — install via AUR: yay -S jadx"
-    fi
-elif [ "$DISTRO" = "debian" ]; then
-    $PKG_INSTALL "${COMMON_PKGS[@]}" "${NETRECON_PKGS[@]}" \
-        android-tools-adb apktool aapt default-jdk iproute2 || warn "Some system packages failed"
-    if ! command -v jadx &>/dev/null; then
-        warn "jadx not found — download from github.com/skylot/jadx/releases"
+if [ "${#RQM_OS_PKGS[@]}" -gt 0 ] && [ "$DISTRO" != "unknown" ]; then
+    $PKG_INSTALL "${RQM_OS_PKGS[@]}" || warn "Some system packages failed - check manually"
+else
+    # Fallback if no rqm.md found or unsupported distro
+    if [ "$DISTRO" = "arch" ]; then
+        $PKG_INSTALL python python-pip nmap masscan arp-scan whois iproute2 \
+            jdk-openjdk android-tools apktool nmap-ncat git curl wget || warn "Some system packages failed"
+    elif [ "$DISTRO" = "debian" ]; then
+        $PKG_INSTALL python3 python3-pip nmap masscan arp-scan whois iproute2 \
+            android-tools-adb apktool default-jdk git curl wget || warn "Some system packages failed"
     fi
 fi
 
-# ── Python packages ───────────────────────────────────────────────────────────
+if ! command -v jadx &>/dev/null; then
+    if [ "$DISTRO" = "arch" ]; then
+        warn "jadx not found - install via AUR: yay -S jadx"
+    else
+        warn "jadx not found - get it from github.com/skylot/jadx/releases"
+    fi
+fi
+fi
+
+# ── Python packages (from rqm.md) ─────────────────────────────────────────────
 info "Installing Python packages..."
 
-PIP_PKGS=(
-    requests rich psutil
-    scapy aiohttp netifaces
-    frida-tools objection
-    cryptography
-)
-
-pip3 install --break-system-packages --quiet "${PIP_PKGS[@]}" 2>/dev/null \
-    || pip3 install --quiet "${PIP_PKGS[@]}" 2>/dev/null \
-    || pip3 install --user --quiet "${PIP_PKGS[@]}" || warn "Some pip packages failed"
+if [ "${#RQM_PY_PKGS[@]}" -gt 0 ]; then
+    pip3 install --break-system-packages --quiet "${RQM_PY_PKGS[@]}" 2>/dev/null \
+        || pip3 install --quiet "${RQM_PY_PKGS[@]}" 2>/dev/null \
+        || pip3 install --user --quiet "${RQM_PY_PKGS[@]}" || warn "Some pip packages failed"
+else
+    # Fallback hardcoded list
+    pip3 install --break-system-packages --quiet \
+        requests rich psutil scapy aiohttp netifaces frida-tools objection \
+        cryptography flask qrcode pillow 2>/dev/null || warn "Some pip packages failed"
+fi
 
 ok "Python packages installed"
 
