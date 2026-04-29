@@ -1,0 +1,340 @@
+{
+  "name": "websec",
+  "version": "1.0.0",
+  "category": "web",
+  "description": "Burp Suite-style web security research tool: OSINT, headers, CORS, cookies, SQLi, XSS, directory discovery with built-in learning",
+  "author": "SecVulnHub Team",
+  "executable": "python3 websec.py",
+
+  "dependencies": ["python3"],
+
+  "optional_dependencies": {
+    "requests": "Better HTTP handling, session management - pip3 install requests",
+    "beautifulsoup4": "HTML parsing for spider/form detection - pip3 install beautifulsoup4",
+    "dnspython": "Advanced DNS lookups - pip3 install dnspython"
+  },
+
+  "help": {
+    "description": "A terminal-based web security research tool for bug bounty hunters and security researchers. Covers web OSINT, security header auditing, CORS testing, cookie analysis, directory discovery, SQL injection detection, XSS detection, web spidering, and WAF fingerprinting. Every operation includes educational explanations so users understand what they're doing and why it matters. For authorized testing only.",
+
+    "parameters": {
+      "operation": {
+        "description": "The security testing operation to perform",
+        "type": "string",
+        "options": [
+          "recon",
+          "headers",
+          "cors",
+          "cookies",
+          "dirs",
+          "sqli",
+          "xss",
+          "spider",
+          "dork",
+          "ssl",
+          "waf",
+          "full",
+          "vulnlib"
+        ],
+        "default": "recon",
+        "examples": [
+          "recon - Full OSINT: DNS, WHOIS, SSL certs, robots.txt, tech stack",
+          "headers - Security headers audit (HSTS, CSP, X-Frame-Options, etc)",
+          "cors - Test for CORS misconfigurations that enable cross-origin attacks",
+          "cookies - Audit cookie flags: Secure, HttpOnly, SameSite",
+          "dirs - Brute-force common paths: .env, .git, admin panels, backups",
+          "sqli - SQL injection detection via error patterns",
+          "xss - Reflected XSS detection via input reflection",
+          "spider - Crawl the site, discover all URLs, forms, JS files",
+          "dork - Generate Google dorks and OSINT resource links for the target",
+          "ssl - Deep SSL/TLS analysis: cipher suites, version, cert info",
+          "waf - Detect WAF presence and type (Cloudflare, ModSecurity, etc)",
+          "full - Run all non-intrusive operations",
+          "vulnlib - Browse built-in vulnerability knowledge base"
+        ]
+      },
+      "test_url": {
+        "description": "URL with parameters for injection testing (sqli/xss operations)",
+        "type": "string",
+        "required": false,
+        "examples": [
+          "https://example.com/search?q=test",
+          "https://example.com/product?id=1&category=2"
+        ]
+      },
+      "threads": {
+        "description": "Concurrent threads for discovery operations",
+        "type": "integer",
+        "default": 10,
+        "range": "1-50"
+      },
+      "timeout": {
+        "description": "HTTP request timeout in seconds",
+        "type": "number",
+        "default": 10.0,
+        "range": "3.0-30.0"
+      },
+      "max_pages": {
+        "description": "Maximum pages to crawl in spider operation",
+        "type": "integer",
+        "default": 50,
+        "range": "1-500"
+      },
+      "wordlist_file": {
+        "description": "Path to custom wordlist file for directory discovery",
+        "type": "string",
+        "required": false,
+        "examples": [
+          "/usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt",
+          "/usr/share/seclists/Discovery/Web-Content/common.txt"
+        ]
+      },
+      "verbose": {
+        "description": "Enable verbose output",
+        "type": "boolean",
+        "default": false
+      }
+    },
+
+    "examples": [
+      {
+        "description": "Web OSINT - gather everything publicly available (start here)",
+        "commands": [
+          "use websec",
+          "set operation recon",
+          "run https://example.com"
+        ]
+      },
+      {
+        "description": "Security headers audit",
+        "commands": [
+          "use websec",
+          "set operation headers",
+          "run https://example.com"
+        ]
+      },
+      {
+        "description": "Test for CORS vulnerabilities",
+        "commands": [
+          "use websec",
+          "set operation cors",
+          "run https://api.example.com"
+        ]
+      },
+      {
+        "description": "Discover hidden files and admin panels",
+        "commands": [
+          "use websec",
+          "set operation dirs",
+          "set threads 20",
+          "run https://example.com"
+        ]
+      },
+      {
+        "description": "SQL injection detection on a parameter",
+        "commands": [
+          "use websec",
+          "set operation sqli",
+          "set test_url https://example.com/search?q=test",
+          "run https://example.com"
+        ]
+      },
+      {
+        "description": "Reflected XSS detection",
+        "commands": [
+          "use websec",
+          "set operation xss",
+          "set test_url https://example.com/search?q=test",
+          "run https://example.com"
+        ]
+      },
+      {
+        "description": "Spider/crawl the entire site",
+        "commands": [
+          "use websec",
+          "set operation spider",
+          "set max_pages 100",
+          "run https://example.com"
+        ]
+      },
+      {
+        "description": "Generate OSINT dorks and resource links",
+        "commands": [
+          "use websec",
+          "set operation dork",
+          "run https://example.com"
+        ]
+      },
+      {
+        "description": "Full assessment - all checks (run with authorization)",
+        "commands": [
+          "use websec",
+          "set operation full",
+          "run https://example.com"
+        ]
+      },
+      {
+        "description": "Browse the vulnerability knowledge base to learn",
+        "commands": [
+          "use websec",
+          "set operation vulnlib",
+          "run https://example.com"
+        ]
+      }
+    ],
+
+    "features": [
+      "Web OSINT: DNS records, WHOIS, SSL cert inspection, Wayback Machine, crt.sh",
+      "Security headers audit: HSTS, CSP, X-Frame-Options, X-Content-Type-Options",
+      "CORS misconfiguration testing: wildcard, origin reflection, credential exposure",
+      "Cookie security audit: Secure, HttpOnly, SameSite flags",
+      "Directory/file discovery: 100+ built-in paths, custom wordlist support",
+      "SQL injection detection: error-based, 15+ database error patterns",
+      "Reflected XSS detection: HTML encoding bypass detection",
+      "Web spider/crawler: URL mapping, form discovery, JS file enumeration",
+      "Google dork generation: 18+ dork queries, OSINT resource links",
+      "SSL/TLS analysis: version, cipher, cert details, HTTP→HTTPS redirect",
+      "WAF detection: Cloudflare, AWS WAF, ModSecurity, Akamai, Imperva, F5, Sucuri",
+      "Built-in vulnerability knowledge base: OWASP Top 10 with educational context",
+      "Educational [LEARN] context at every step - teaches users as they test",
+      "Severity-colored output: CRITICAL/HIGH/RED, MEDIUM/YELLOW, LOW/CYAN",
+      "Structured JSON output for integration with other SecV tools",
+      "Graceful degradation: works with stdlib only, enhanced with requests/bs4"
+    ],
+
+    "vulnerability_coverage": {
+      "OWASP_A01_Broken_Access_Control": [
+        "Open redirect detection",
+        "Directory traversal indicators",
+        "CORS misconfiguration",
+        "Cookie SameSite missing (CSRF)"
+      ],
+      "OWASP_A02_Cryptographic_Failures": [
+        "Cookie Secure flag missing",
+        "Cookie HttpOnly flag missing",
+        "Weak TLS version (TLS 1.0/1.1)",
+        "Weak cipher suites",
+        "HTTP to HTTPS redirect missing"
+      ],
+      "OWASP_A03_Injection": [
+        "SQL injection - error-based detection (15+ DB patterns)",
+        "Reflected XSS via input reflection"
+      ],
+      "OWASP_A05_Security_Misconfiguration": [
+        "Missing HSTS header",
+        "Missing Content-Security-Policy",
+        "Missing X-Frame-Options (clickjacking)",
+        "Missing X-Content-Type-Options",
+        "Missing Referrer-Policy",
+        "Server version disclosure",
+        "X-Powered-By disclosure",
+        "Directory listing enabled",
+        "Sensitive files exposed (.git, .env, config)"
+      ],
+      "OWASP_A06_Vulnerable_Outdated_Components": [
+        "Outdated jQuery versions",
+        "Technology fingerprinting for CVE correlation"
+      ]
+    },
+
+    "installation_tiers": {
+      "basic": "Core functionality with Python stdlib - DNS, WHOIS, SSL, headers, dirs, dork, WAF",
+      "standard": "Full functionality with requests - better HTTP, session handling, CORS testing",
+      "full": "All features with bs4 - HTML parsing, form detection, spider, XSS/SQLi form testing"
+    },
+
+    "learning_resources": [
+      "PortSwigger Web Security Academy (free): https://portswigger.net/web-security",
+      "OWASP Testing Guide: https://owasp.org/www-project-web-security-testing-guide/",
+      "OWASP Top 10: https://owasp.org/www-project-top-ten/",
+      "Bug Bounty 101: https://www.hackerone.com/bug-bounty-programs",
+      "HackTheBox (practice): https://www.hackthebox.com",
+      "TryHackMe (learning): https://tryhackme.com"
+    ],
+
+    "notes": [
+      "⚠️  AUTHORIZATION REQUIRED: Only test systems you own or have written permission to test",
+      "⚠️  Bug bounty scope: always read the program's scope before testing",
+      "⚠️  SQLi/XSS tests only use safe, error-detection payloads - no data modification",
+      "💡 Start with 'recon' - it's non-intrusive and reveals the most information",
+      "💡 Run 'vulnlib' to learn about vulnerabilities before testing for them",
+      "💡 Use 'dork' to find OSINT without touching the target server",
+      "💡 For SSL testing, also use: https://www.ssllabs.com/ssltest/",
+      "💡 For deep testing, pair with Burp Suite Community (free): manual proxy + repeater",
+      "💡 Always try manual testing after automated tools - logic flaws need human eyes",
+      "💡 Responsible disclosure: follow the program's rules, report clearly, be patient",
+      "📚 Every operation prints [LEARN] context explaining what we're doing and why"
+    ],
+
+    "legal_disclaimer": "This tool is designed exclusively for authorized security testing, bug bounty research, and educational purposes. Users must obtain explicit written permission before testing any system they do not own. Unauthorized testing may violate the Computer Fraud and Abuse Act (CFAA), Computer Misuse Act, and similar laws globally. The authors assume no liability for misuse. Always follow responsible disclosure practices and bug bounty program rules."
+  },
+
+  "inputs": {
+    "operation": {
+      "type": "string",
+      "description": "Security operation to perform",
+      "required": false,
+      "default": "recon"
+    },
+    "test_url": {
+      "type": "string",
+      "description": "URL with parameters for injection testing",
+      "required": false
+    },
+    "threads": {
+      "type": "number",
+      "description": "Concurrent threads (1-50)",
+      "required": false,
+      "default": 10
+    },
+    "timeout": {
+      "type": "number",
+      "description": "Request timeout in seconds",
+      "required": false,
+      "default": 10.0
+    },
+    "max_pages": {
+      "type": "number",
+      "description": "Max pages for spider",
+      "required": false,
+      "default": 50
+    },
+    "wordlist_file": {
+      "type": "string",
+      "description": "Path to custom wordlist",
+      "required": false
+    },
+    "verbose": {
+      "type": "boolean",
+      "description": "Verbose output",
+      "required": false,
+      "default": false
+    }
+  },
+
+  "outputs": {
+    "target": {
+      "type": "string",
+      "description": "Normalized target URL"
+    },
+    "operation": {
+      "type": "string",
+      "description": "Operation performed"
+    },
+    "result": {
+      "type": "object",
+      "description": "Operation-specific results"
+    },
+    "findings": {
+      "type": "array",
+      "description": "Vulnerability findings with severity, CWE, OWASP mapping, fix, and learning context"
+    },
+    "finding_count": {
+      "type": "object",
+      "description": "Count of findings by severity: critical, high, medium, low, info"
+    }
+  },
+
+  "timeout": 300,
+  "concurrent": true
+}
