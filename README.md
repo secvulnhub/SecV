@@ -10,11 +10,9 @@
    ╚══════╝╚══════╝ ╚═════╝  ╚═══╝                               
 
 ```
-
-### zephra
+### zephra v2.4.0
 
 `Go` · `Python` · `Bash` · `Rust` · `C++` — one shell, any language
-
 ---
 
 [![Version](https://img.shields.io/badge/v2.4.0-zephra-0d1117?style=flat-square&labelColor=00d9ff&color=0d1117)](https://github.com/SecVulnHub/SecV)
