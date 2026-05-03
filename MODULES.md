@@ -3,8 +3,8 @@
 Complete reference of all SecV security modules.
 
 **Version:** 2.4.0  
-**Total Modules:** 7  
-**Categories:** network (3), mobile (2), web (2)
+**Total Modules:** 6  
+**Categories:** network (3), mobile (2), web (1)
 
 ---
 
@@ -246,17 +246,21 @@ secV (ios_pentest) ❯ run device
 ## Web
 
 ### `websec` v1.0.0
-**Web Security Research Tool**
+**Web Offensive Tool**
 
-Burp Suite-style terminal tool for security researchers and bug bounty hunters. Covers web OSINT, security header auditing, CORS testing, cookie analysis, directory discovery, SQLi, XSS, web spidering, Google dork generation, WAF fingerprinting, and a built-in OWASP vulnerability knowledge base. Every operation prints `[LEARN]` context. Works with stdlib only, enhanced with `requests` and `beautifulsoup4`.
+Full-stack web attack surface tool covering recon through active exploitation checks. DNS/WHOIS/SSL OSINT, security headers, CORS, cookies, directory brute-force, error-based + time-blind SQLi, reflected XSS, CSRF, 403 bypass, open redirect, Jira/AEM/Confluence CVEs, WAF fingerprinting, web spidering, and Google dorks. Authenticated scanning via cookies/custom headers. Works with stdlib; add `requests` for active testing, `beautifulsoup4` for HTML-aware spidering.
 
 **Parameters:**
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `operation` | string | `recon` | Operation to run (see table below) |
-| `test_url` | string | — | URL with params for SQLi/XSS testing |
-| `threads` | integer | `10` | Concurrent threads (1-50) |
+| `test_url` | string | — | URL with params for SQLi/XSS (e.g. `https://example.com/search?q=test`) |
+| `bypass_path` | string | `/admin` | Path to test 403 bypass on |
+| `cookies` | string | — | Session cookies: `key=value; key2=value2` |
+| `headers_str` | string | — | Custom request headers: `Header: value; Header2: value` |
+| `user_agent` | string | `Mozilla/5.0…` | User-Agent string |
+| `threads` | integer | `10` | Concurrent threads for directory discovery (1-50) |
 | `timeout` | number | `10.0` | HTTP request timeout in seconds |
 | `max_pages` | integer | `50` | Max pages to crawl in spider operation |
 | `wordlist_file` | string | — | Path to custom wordlist for directory discovery |
@@ -264,64 +268,36 @@ Burp Suite-style terminal tool for security researchers and bug bounty hunters. 
 
 **Operations:**
 
-| Operation  | Description                                                         |
-|------------|---------------------------------------------------------------------|
-| `recon`    | DNS, WHOIS, SSL cert, robots.txt, Wayback Machine, tech stack       |
-| `headers`  | Security headers audit (HSTS, CSP, X-Frame-Options, etc.)          |
-| `cors`     | CORS misconfiguration: wildcard, origin reflection, credentials     |
-| `cookies`  | Cookie flag audit: Secure, HttpOnly, SameSite                       |
-| `dirs`     | Directory/file discovery with 100+ built-in paths + custom wordlist |
-| `sqli`     | Error-based SQL injection (15+ database error patterns)             |
-| `xss`      | Reflected XSS via input reflection testing                          |
-| `spider`   | Crawl site, map URLs, forms, JS files                               |
-| `dork`     | Generate 18+ Google dork queries and OSINT resource links           |
-| `ssl`      | Deep SSL/TLS: version, cipher suites, cert details                  |
-| `waf`      | Detect Cloudflare, AWS WAF, ModSecurity, Akamai, Imperva, F5        |
-| `full`     | All non-intrusive checks in one pass                                |
-| `vulnlib`  | Browse built-in OWASP vulnerability knowledge base                  |
+| Operation        | Description                                                             |
+|------------------|-------------------------------------------------------------------------|
+| `recon`          | DNS, WHOIS, SSL cert, robots.txt, Wayback Machine, tech stack           |
+| `headers`        | Security headers audit (HSTS, CSP, X-Frame-Options, etc.)              |
+| `cors`           | CORS: wildcard, origin reflection, credentials misconfig                |
+| `cookies`        | Cookie flag audit: Secure, HttpOnly, SameSite                           |
+| `dirs`           | Directory brute-force with 100+ built-in paths + custom wordlist        |
+| `sqli`           | Error-based + time-blind SQLi (15+ DB patterns)                         |
+| `xss`            | Reflected XSS via input parameter reflection                            |
+| `csrf`           | CSRF token detection on all forms                                       |
+| `bypass_403`     | 403 bypass via header injection and path manipulation                   |
+| `open_redirect`  | Open redirect via 12+ common redirect parameter names                   |
+| `framework_cves` | Jira/AEM/Confluence CVE path probing (15+ known CVE paths)             |
+| `file_upload`    | File upload form and endpoint detection                                  |
+| `rate_limit`     | Rate limit enforcement check (10 rapid requests)                        |
+| `spider`         | Crawl site breadth-first, map URLs, forms, JS files                     |
+| `dork`           | Generate 18+ Google dork queries + OSINT resource links                 |
+| `ssl`            | SSL/TLS: version, cipher suites, cert details, expiry                   |
+| `waf`            | WAF fingerprinting: Cloudflare, AWS, ModSecurity, Akamai, Imperva, F5  |
+| `full`           | All checks in one pass                                                  |
 
 **Quick Start:**
 ```
 secV ❯ use websec
-secV (websec) ❯ set operation recon
+secV (websec) ❯ set operation sqli
+secV (websec) ❯ set test_url https://example.com/search?q=test
 secV (websec) ❯ run https://example.com
 ```
 
-**Authorization required** - only test systems you own or have explicit written permission to test.
-
----
-
-### `webscan` v1.0.0
-**Web Vulnerability Scanner**
-
-OWASP Top 10 web scanner: error-based and time-based SQL injection, reflected XSS, CSRF detection, 403 bypass (header injection + path tricks), open redirect, Jira/AEM/Confluence CVEs, security headers audit, file upload detection, and rate limit testing. Supports authenticated scanning via cookies and custom headers.
-
-**Parameters:**
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `url` | string | — | URL with query params for SQLi/XSS (e.g. `https://example.com/search?q=test`) |
-| `sqli` | boolean | `true` | Error-based and time-based SQL injection |
-| `xss` | boolean | `true` | Reflected XSS testing |
-| `csrf` | boolean | `true` | CSRF token detection |
-| `bypass_403` | boolean | `false` | 403 bypass via header injection + path manipulation |
-| `bypass_path` | string | `/admin` | Path to test 403 bypass on |
-| `open_redirect` | boolean | `true` | Open redirect via common redirect params |
-| `framework_cves` | boolean | `true` | Jira, AEM, Confluence CVE checks |
-| `file_upload` | boolean | `true` | File upload endpoint detection |
-| `rate_limit` | boolean | `false` | Rate limit enforcement test |
-| `cookies` | string | — | Session cookies: `key=value; key2=value2` |
-| `headers_str` | string | — | Custom request headers |
-| `user_agent` | string | `Mozilla/5.0` | User-Agent string |
-
-**Quick Start:**
-```
-secV ❯ use webscan
-secV (webscan) ❯ set url https://example.com/search?q=test
-secV (webscan) ❯ run https://example.com
-```
-
-**Authorization required** — only scan applications you own or have explicit written permission to test.
+**Authorization required** — only test systems you own or have explicit written permission to test.
 
 ---
 
@@ -424,8 +400,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide.
 | `wifi_monitor` | TCP-ping | + ARP/scapy | + CVE lookup | ✓ | ✓ |
 | `android_pentest` | recon/adb | + Frida | + all ops | ✓ | ✓ |
 | `ios_pentest` | static IPA | + idevice | + Frida/JB | ✓ | ✓ |
-| `websec` | stdlib/DNS | + requests | + bs4/spider | ✓ | ✓ |
-| `webscan` | headers/CSRF | + SQLi/XSS | + CVE checks | ✓ | ✓ |
+| `websec` | recon/DNS | + requests/active | + bs4/spider | ✓ | ✓ |
 
 ---
 

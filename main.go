@@ -571,19 +571,27 @@ func (s *SecV) ShowInfo(moduleName string) {
 		fmt.Printf("%s%s not found%s\n", RED, CROSS, RESET)
 		return
 	}
+
 	printHeader(m.Name)
-	fmt.Printf("\n  %scategory%s  %s\n", DIM, RESET, m.Category)
-	fmt.Printf("  %sversion%s   %s\n", DIM, RESET, m.Version)
-	fmt.Printf("  %spath%s      %s%s%s\n", DIM, RESET, BLUE, m.Path, RESET)
+
+	// Core metadata
+	fmt.Printf("\n  %s%-10s%s %s%s%s\n", DIM, "category", RESET, YELLOW, m.Category, RESET)
+	fmt.Printf("  %s%-10s%s %s%s%s\n", DIM, "version", RESET, CYAN, m.Version, RESET)
+	fmt.Printf("  %s%-10s%s %s%s%s\n", DIM, "path", RESET, BLUE, m.Path, RESET)
 	if m.Author != "" {
-		fmt.Printf("  %sauthor%s    %s%s%s\n", DIM, RESET, MAGENTA, m.Author, RESET)
+		fmt.Printf("  %s%-10s%s %s%s%s\n", DIM, "author", RESET, MAGENTA, m.Author, RESET)
 	}
-	fmt.Printf("\n  %s\n", m.Description)
-	if len(m.Dependencies) > 0 {
-		fmt.Printf("\n  %sdeps%s  %s\n", DIM, RESET, strings.Join(m.Dependencies, ", "))
+	if m.Timeout > 0 {
+		fmt.Printf("  %s%-10s%s %ds\n", DIM, "timeout", RESET, m.Timeout)
 	}
 
-	// Show which deps are missing
+	// Description
+	fmt.Printf("\n  %s\n", m.Description)
+
+	// Dependencies
+	if len(m.Dependencies) > 0 {
+		fmt.Printf("\n  %srequired%s  %s\n", DIM, RESET, strings.Join(m.Dependencies, ", "))
+	}
 	var missing []string
 	for _, dep := range m.Dependencies {
 		if _, err := exec.LookPath(dep); err != nil {
@@ -593,6 +601,83 @@ func (s *SecV) ShowInfo(moduleName string) {
 	if len(missing) > 0 {
 		fmt.Printf("  %s%s missing: %s%s\n", YELLOW, WARNING, strings.Join(missing, ", "), RESET)
 	}
+	if len(m.OptionalDeps) > 0 {
+		fmt.Printf("  %soptional%s", DIM, RESET)
+		for bin := range m.OptionalDeps {
+			fmt.Printf("  %s", bin)
+		}
+		fmt.Println()
+	}
+
+	// Operations (from help.parameters["operation"].options)
+	if m.Help != nil {
+		if opParam, ok := m.Help.Parameters["operation"]; ok && len(opParam.Options) > 0 {
+			printSection("operations")
+			cols := 4
+			for i, op := range opParam.Options {
+				if i%cols == 0 {
+					fmt.Printf("    ")
+				}
+				fmt.Printf("%s%-22s%s", CYAN, op, RESET)
+				if (i+1)%cols == 0 || i == len(opParam.Options)-1 {
+					fmt.Println()
+				}
+			}
+		}
+
+		// Examples
+		if len(m.Help.Examples) > 0 {
+			printSection("examples")
+			limit := 3
+			if len(m.Help.Examples) < limit {
+				limit = len(m.Help.Examples)
+			}
+			for _, ex := range m.Help.Examples[:limit] {
+				fmt.Printf("  %s%s%s\n", DIM, ex.Description, RESET)
+				for _, cmd := range ex.Commands {
+					fmt.Printf("    %s%s%s\n", CYAN, cmd, RESET)
+				}
+				fmt.Println()
+			}
+		}
+
+		// Notes (first 3)
+		if len(m.Help.Notes) > 0 {
+			printSection("notes")
+			limit := 3
+			if len(m.Help.Notes) < limit {
+				limit = len(m.Help.Notes)
+			}
+			for _, note := range m.Help.Notes[:limit] {
+				fmt.Printf("  %s%s%s\n", DIM, note, RESET)
+			}
+		}
+	}
+
+	// Inputs (from module.json inputs block)
+	if len(m.Inputs) > 0 {
+		printSection("inputs")
+		fmt.Printf("  %s%-20s %-10s %s%s\n", BOLD, "PARAM", "TYPE", "DESCRIPTION", RESET)
+		fmt.Printf("  %s%s%s\n", DIM, strings.Repeat("─", 60), RESET)
+		for k, v := range m.Inputs {
+			if vm, ok := v.(map[string]interface{}); ok {
+				typ := fmt.Sprintf("%v", vm["type"])
+				desc := ""
+				if d, ok := vm["description"].(string); ok {
+					if len(d) > 40 {
+						d = d[:37] + "..."
+					}
+					desc = d
+				}
+				def := ""
+				if dv, ok := vm["default"]; ok && dv != nil && fmt.Sprintf("%v", dv) != "" && fmt.Sprintf("%v", dv) != "false" {
+					def = fmt.Sprintf(" %s(default: %v)%s", DIM, dv, RESET)
+				}
+				fmt.Printf("  %s%-20s%s %-10s %s%s\n", CYAN, k, RESET, typ, desc, def)
+			}
+		}
+	}
+
 	fmt.Println()
 }
 

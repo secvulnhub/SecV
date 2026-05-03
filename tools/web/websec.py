@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
-WebSec - Web Security Research & OSINT Tool v1.0
-For SecV Platform | Author: SecVulnHub Team
+WebSec - Web Security Research & OSINT Tool v2.0
+For SecV Platform | Author: dezthejackal
 Category: Web Security Research
 
-A Burp Suite-style terminal tool for security researchers and bug bounty hunters.
-Every operation includes educational context so users learn as they work.
+Terminal web security tool for bug bounty hunters and security researchers.
+Covers OSINT, headers, CORS, cookies, SQLi, XSS, directory discovery, WAF detection,
+CSRF, 403 bypass, open redirect, framework CVEs, file upload, rate limit testing.
 
-⚠️  FOR AUTHORIZED TESTING AND SECURITY RESEARCH ONLY ⚠️
+FOR AUTHORIZED TESTING AND SECURITY RESEARCH ONLY
 """
 
 import json
@@ -86,14 +87,10 @@ def banner():
 ║   ╚███╔███╔╝███████╗██████╔╝███████║███████╗╚██████╗               ║
 ║    ╚══╝╚══╝ ╚══════╝╚═════╝ ╚══════╝╚══════╝ ╚═════╝               ║
 ║                                                                      ║
-║   Web Security Research & OSINT Tool v1.0                           ║
+║   Web Security Research & OSINT Tool v2.0                           ║
 ║   For Bug Bounty Hunters & Security Researchers                     ║
 ╚══════════════════════════════════════════════════════════════════════╝{NC}
 """
-
-def learn(text: str):
-    """Print educational context."""
-    print(f"\n{B}[LEARN]{NC} {DIM}{text}{NC}", file=sys.stderr)
 
 def info(text: str):
     print(f"{C}[*]{NC} {text}", file=sys.stderr)
@@ -108,9 +105,7 @@ def bad(text: str):
     print(f"{R}[-]{NC} {text}", file=sys.stderr)
 
 def section(title: str):
-    print(f"\n{BOLD}{Y}{'─'*60}{NC}", file=sys.stderr)
-    print(f"{BOLD}{W} {title}{NC}", file=sys.stderr)
-    print(f"{BOLD}{Y}{'─'*60}{NC}", file=sys.stderr)
+    print(f"\n{BOLD}{W}-- {title}{NC}", file=sys.stderr)
 
 # ============================================================================
 # VULNERABILITY KNOWLEDGE BASE
@@ -125,7 +120,6 @@ VULN_DB = {
         "description": "HSTS tells browsers to only use HTTPS. Without it, attackers can downgrade connections to HTTP and intercept traffic.",
         "impact": "Man-in-the-middle attacks, traffic interception",
         "fix": "Add: Strict-Transport-Security: max-age=31536000; includeSubDomains; preload",
-        "learn": "HSTS is a browser instruction. Once a browser sees this header, it will REFUSE to connect over HTTP for the specified time period."
     },
     "missing_csp": {
         "name": "Missing Content Security Policy (CSP)",
@@ -135,7 +129,6 @@ VULN_DB = {
         "description": "CSP controls what resources browsers can load, protecting against XSS and data injection.",
         "impact": "Cross-Site Scripting (XSS) attacks have higher success rate",
         "fix": "Add: Content-Security-Policy: default-src 'self'; script-src 'self'",
-        "learn": "Without CSP, if an attacker injects JavaScript into your page, the browser will happily run it. CSP is a whitelist of trusted sources."
     },
     "missing_xframe": {
         "name": "Missing X-Frame-Options",
@@ -145,7 +138,6 @@ VULN_DB = {
         "description": "Without this header, the site can be embedded in iframes on attacker-controlled pages.",
         "impact": "Clickjacking attacks - tricking users into clicking invisible buttons",
         "fix": "Add: X-Frame-Options: DENY or X-Frame-Options: SAMEORIGIN",
-        "learn": "Clickjacking: imagine an attacker overlays an invisible iframe of your bank's 'confirm transfer' button over a 'Win a Prize!' button. Users think they're clicking one thing but actually clicking your button."
     },
     "missing_xcontent": {
         "name": "Missing X-Content-Type-Options",
@@ -155,7 +147,6 @@ VULN_DB = {
         "description": "Without this header, browsers may 'sniff' content types and execute files as different types than intended.",
         "impact": "MIME-type confusion attacks, script execution from unexpected sources",
         "fix": "Add: X-Content-Type-Options: nosniff",
-        "learn": "Old browsers tried to be 'helpful' by guessing file types. If a server says a file is text/plain but it looks like HTML, the browser would render it as HTML - including any scripts inside."
     },
     "server_version_disclosure": {
         "name": "Server Version Disclosure",
@@ -165,7 +156,6 @@ VULN_DB = {
         "description": "The server is revealing its software name and version, helping attackers identify vulnerabilities.",
         "impact": "Reconnaissance - attacker knows exactly what CVEs to look for",
         "fix": "Configure server to suppress or genericize the Server header",
-        "learn": "Information disclosure is step 1 in most attacks. Knowing 'Apache 2.4.49' immediately tells an attacker to try CVE-2021-41773 (path traversal). Remove this gift to attackers."
     },
     "cors_wildcard": {
         "name": "CORS Wildcard Origin",
@@ -175,7 +165,6 @@ VULN_DB = {
         "description": "Access-Control-Allow-Origin: * allows any website to make cross-origin requests with your API's responses.",
         "impact": "Any malicious website can read your API responses if the user is logged in",
         "fix": "Restrict to specific trusted origins: Access-Control-Allow-Origin: https://yourdomain.com",
-        "learn": "CORS is a browser security feature. Browsers block cross-origin requests by default. The server tells browsers which origins are allowed. * means 'everyone is allowed' - dangerous for authenticated APIs."
     },
     "cors_reflect_origin": {
         "name": "CORS Reflects Arbitrary Origin",
@@ -185,7 +174,6 @@ VULN_DB = {
         "description": "The server echoes back any Origin header sent, granting access to any website.",
         "impact": "Cross-Origin attacks, credential theft from authenticated users",
         "fix": "Maintain an explicit whitelist of trusted origins",
-        "learn": "Some developers think 'I'll just allow whatever Origin is sent' to avoid CORS errors. This completely breaks the same-origin policy and is equivalent to Access-Control-Allow-Origin: *."
     },
     "insecure_cookie": {
         "name": "Cookie Missing Secure Flag",
@@ -195,7 +183,6 @@ VULN_DB = {
         "description": "Session cookies without the Secure flag can be sent over unencrypted HTTP connections.",
         "impact": "Session hijacking via network sniffing on HTTP connections",
         "fix": "Set-Cookie: session=xxx; Secure; HttpOnly; SameSite=Strict",
-        "learn": "The Secure flag tells the browser: only send this cookie over HTTPS. Without it, if a user visits http:// (not https://), their session cookie travels in plaintext - readable by anyone on the network."
     },
     "cookie_no_httponly": {
         "name": "Cookie Missing HttpOnly Flag",
@@ -205,7 +192,6 @@ VULN_DB = {
         "description": "Cookies without HttpOnly can be read by JavaScript, making XSS attacks more damaging.",
         "impact": "Session theft via XSS - document.cookie exposes the session token",
         "fix": "Set-Cookie: session=xxx; HttpOnly",
-        "learn": "HttpOnly cookies cannot be accessed via document.cookie in JavaScript. Even if an XSS attack injects malicious JS, it cannot steal HttpOnly cookies. Always set this on session tokens."
     },
     "cookie_no_samesite": {
         "name": "Cookie Missing SameSite Flag",
@@ -215,7 +201,6 @@ VULN_DB = {
         "description": "Without SameSite, cookies are sent with cross-site requests, enabling CSRF attacks.",
         "impact": "Cross-Site Request Forgery (CSRF) - attackers can make requests on behalf of authenticated users",
         "fix": "Set-Cookie: session=xxx; SameSite=Strict (or Lax for less restrictive)",
-        "learn": "SameSite=Strict means: don't send this cookie when navigating from another site. This breaks CSRF attacks because the attacker's form submission won't include the victim's cookies."
     },
     "sqli_error": {
         "name": "SQL Injection - Error Based",
@@ -225,7 +210,15 @@ VULN_DB = {
         "description": "User input is directly interpolated into SQL queries, and database errors are visible.",
         "impact": "Data exfiltration, authentication bypass, in some cases remote code execution",
         "fix": "Use parameterized queries/prepared statements. NEVER concatenate user input into SQL.",
-        "learn": "SQL injection is when user input changes the structure of a query. ' OR '1'='1 as a password can make the query: WHERE pass='' OR '1'='1' which is always true. Modern ORMs prevent this automatically."
+    },
+    "sqli_time_blind": {
+        "name": "SQL Injection - Time-Based Blind",
+        "severity": "CRITICAL",
+        "cwe": "CWE-89",
+        "owasp": "A03:2021 - Injection",
+        "description": "User input is injected into SQL queries; confirmed via response delay.",
+        "impact": "Data exfiltration, authentication bypass, potential RCE",
+        "fix": "Use parameterized queries/prepared statements. NEVER concatenate user input into SQL.",
     },
     "xss_reflected": {
         "name": "Reflected XSS",
@@ -235,7 +228,6 @@ VULN_DB = {
         "description": "User-supplied input is reflected in the response without proper encoding.",
         "impact": "Session theft, phishing, malware delivery, defacement",
         "fix": "HTML-encode all user input when rendering. Use modern frameworks that auto-escape. Implement CSP.",
-        "learn": "Reflected XSS: attacker sends victim a link with ?search=<script>steal()</script>. The server puts this in the page, browser runs it. The attacker never touches the server - the victim's browser does all the work."
     },
     "open_redirect": {
         "name": "Open Redirect",
@@ -245,7 +237,6 @@ VULN_DB = {
         "description": "The application redirects to user-supplied URLs without validation.",
         "impact": "Phishing - users trust your domain, get redirected to malicious site. Can be used in OAuth flows to steal tokens.",
         "fix": "Validate redirect URLs against a whitelist of allowed destinations",
-        "learn": "Open redirects are often chained with other attacks. 'Login at bank.com/login?next=evil.com' - user sees trusted bank.com domain, but gets redirected to evil.com after authentication where attacker harvests credentials."
     },
     "directory_listing": {
         "name": "Directory Listing Enabled",
@@ -255,7 +246,6 @@ VULN_DB = {
         "description": "The web server shows directory contents when no index file exists.",
         "impact": "Exposes file structure, source code, backups, configuration files",
         "fix": "Disable directory listing in web server config (Options -Indexes for Apache)",
-        "learn": "Directory listing exposes your app's internal structure. Attackers look for .git directories (source code), backup files (.bak, .old), and config files that shouldn't be public."
     },
     "outdated_libs": {
         "name": "Outdated JavaScript Libraries",
@@ -265,7 +255,6 @@ VULN_DB = {
         "description": "The application uses JavaScript libraries with known vulnerabilities.",
         "impact": "Depends on specific CVEs in the detected version",
         "fix": "Update to latest stable versions. Use automated dependency checking (npm audit, Dependabot)",
-        "learn": "Old jQuery versions had XSS vulnerabilities. Old Bootstrap had open redirects. Attackers scan sites for these fingerprints specifically. The OWASP Dependency-Check tool automates this detection."
     },
     "weak_ssl": {
         "name": "Weak SSL/TLS Configuration",
@@ -275,7 +264,6 @@ VULN_DB = {
         "description": "The server supports deprecated TLS versions or weak cipher suites.",
         "impact": "BEAST, POODLE, DROWN, SWEET32 and other protocol-level attacks",
         "fix": "Disable TLS 1.0/1.1, disable weak ciphers (RC4, DES, 3DES, MD5), use TLS 1.2+ with strong ciphers",
-        "learn": "TLS versions are like lock versions. TLS 1.0 is like a 30-year-old padlock - researchers have found ways to open it. TLS 1.3 is the latest, most secure version. Many compliance frameworks now require minimum TLS 1.2."
     },
     "path_traversal": {
         "name": "Path Traversal",
@@ -285,7 +273,6 @@ VULN_DB = {
         "description": "User input can navigate outside the intended directory using ../ sequences.",
         "impact": "Read arbitrary files including /etc/passwd, application config, source code",
         "fix": "Validate and sanitize file paths. Use realpath() to resolve and verify paths stay within allowed directory.",
-        "learn": "../../etc/passwd goes up two directories then into /etc/passwd. If your app serves files like /files/[user_input], an attacker can use ../../etc/passwd to read system files. Always use a path join + starts-with check."
     },
     "sensitive_files_exposed": {
         "name": "Sensitive Files Accessible",
@@ -295,7 +282,60 @@ VULN_DB = {
         "description": "Common sensitive files are publicly accessible (git, env, config files).",
         "impact": "Source code exposure, API key leakage, database credentials exposure",
         "fix": "Block access to .git, .env, config files in web server configuration",
-        "learn": "Developers often forget to exclude .git folders from web roots, exposing their entire source code history. .env files contain API keys and database passwords. These are #1 findings in bug bounty programs."
+    },
+    "csrf_missing_token": {
+        "name": "CSRF Missing Token",
+        "severity": "MEDIUM",
+        "cwe": "CWE-352",
+        "owasp": "A01:2021 - Broken Access Control",
+        "description": "Form found without a detectable CSRF token.",
+        "impact": "Cross-Site Request Forgery - attackers can submit forms on behalf of authenticated users",
+        "fix": "Add a CSRF token to all state-changing forms and validate it server-side",
+    },
+    "bypass_403_header": {
+        "name": "403 Bypass via Header Manipulation",
+        "severity": "HIGH",
+        "cwe": "CWE-284",
+        "owasp": "A01:2021 - Broken Access Control",
+        "description": "A 403-forbidden resource is accessible by adding IP spoofing headers.",
+        "impact": "Unauthorized access to restricted endpoints",
+        "fix": "Do not trust X-Forwarded-For or similar headers for access control decisions",
+    },
+    "bypass_403_path": {
+        "name": "403 Bypass via Path Manipulation",
+        "severity": "HIGH",
+        "cwe": "CWE-284",
+        "owasp": "A01:2021 - Broken Access Control",
+        "description": "A 403-forbidden resource is accessible via URL encoding or path tricks.",
+        "impact": "Unauthorized access to restricted endpoints",
+        "fix": "Normalize URL paths before access control checks",
+    },
+    "framework_cve": {
+        "name": "Framework CVE Probe Hit",
+        "severity": "MEDIUM",
+        "cwe": "CWE-1104",
+        "owasp": "A06:2021 - Vulnerable and Outdated Components",
+        "description": "A path associated with a known framework CVE returned a non-404 status.",
+        "impact": "Depends on specific CVE; may include RCE, SSRF, or info disclosure",
+        "fix": "Patch to the latest vendor-supported version and restrict access to sensitive paths",
+    },
+    "upload_endpoint": {
+        "name": "File Upload Endpoint Detected",
+        "severity": "INFO",
+        "cwe": "CWE-434",
+        "owasp": "A04:2021 - Insecure Design",
+        "description": "A file upload endpoint was found and is reachable.",
+        "impact": "Potential unrestricted file upload, leading to RCE if not validated",
+        "fix": "Validate MIME type, extension, and file content server-side; store uploads outside web root",
+    },
+    "missing_rate_limit": {
+        "name": "Missing Rate Limiting",
+        "severity": "LOW",
+        "cwe": "CWE-770",
+        "owasp": "A04:2021 - Insecure Design",
+        "description": "No rate limiting detected after repeated requests.",
+        "impact": "Brute-force attacks, credential stuffing, scraping",
+        "fix": "Implement rate limiting (e.g., 429 responses) per IP or account",
     },
 }
 
@@ -346,7 +386,7 @@ SQLI_PAYLOADS = [
     "' OR '1'='1",
     "' OR 1=1--",
     "'; SELECT 1--",
-    "' AND SLEEP(0)--",  # Safe - sleep(0) won't delay but tests syntax
+    "' AND SLEEP(0)--",
     "1 ORDER BY 1--",
     "1 UNION SELECT NULL--",
 ]
@@ -354,7 +394,9 @@ SQLI_PAYLOADS = [
 XSS_PAYLOADS = [
     "<script>alert(1)</script>",
     "\"'><script>alert(1)</script>",
+    "'><script>alert(1)</script>",
     "<img src=x onerror=alert(1)>",
+    "\"><img src=x onerror=alert(1)>",
     "javascript:alert(1)",
     "<svg/onload=alert(1)>",
     "';alert(1)//",
@@ -366,7 +408,7 @@ SQLI_ERROR_PATTERNS = [
     r"MySQLSyntaxErrorException",
     r"valid MySQL result",
     r"check the manual that corresponds to your MySQL server version",
-    r"ORA-[0-9]{5}",       # Oracle
+    r"ORA-[0-9]{5}",
     r"Microsoft OLE DB Provider for SQL Server",
     r"Unclosed quotation mark after",
     r"SQLITE_ERROR",
@@ -378,7 +420,80 @@ SQLI_ERROR_PATTERNS = [
     r"Microsoft SQL Native Client error",
     r"SQLSTATE\[",
     r"Syntax error.*near",
+    r"you have an error in your sql syntax",
+    r"warning: mysql",
+    r"unclosed quotation mark",
+    r"quoted string not properly terminated",
+    r"pg_query\(\): query failed",
+    r"sqlite3\.operationalerror",
+    r"odbc sql server driver",
+    r"supplied argument is not a valid mysql",
 ]
+
+# Time-based blind SQLi payloads (from webscan)
+TIME_SQLI = {
+    "mysql": "' AND SLEEP(3)-- -",
+    "pgsql": "' OR pg_sleep(3)-- -",
+    "mssql": "'; WAITFOR DELAY '0:0:3'--",
+}
+
+# CSRF token detection patterns (from webscan)
+CSRF_TOKEN_PATTERNS = [
+    r'<input[^>]+name=["\']?(_token|csrf_token|csrfmiddlewaretoken|authenticity_token|__RequestVerificationToken)["\']?',
+    r'<meta[^>]+name=["\']?csrf-token["\']?',
+]
+
+# 403 bypass headers (from webscan)
+BYPASS_HEADERS = [
+    {'X-Forwarded-For': '127.0.0.1'},
+    {'X-Custom-IP-Authorization': '127.0.0.1'},
+    {'X-Originating-IP': '127.0.0.1'},
+    {'X-Remote-IP': '127.0.0.1'},
+    {'X-Client-IP': '127.0.0.1'},
+    {'Referer': 'https://example.com/admin'},
+]
+
+# 403 bypass path tricks (from webscan)
+BYPASS_PATH_TRICKS = ['/%2f', '/./', '/..;/', '/%20', '//']
+
+# Open redirect payloads (from webscan)
+REDIRECT_PAYLOADS = [
+    'https://evil.com',
+    '//evil.com',
+    '/\\evil.com',
+    'https:evil.com',
+]
+
+REDIRECT_PARAMS = ['redirect', 'url', 'next', 'return', 'returnUrl', 'redirect_uri',
+                   'callback', 'goto', 'redir', 'destination', 'target', 'to']
+
+# Framework CVE paths (from webscan)
+JIRA_PATHS = [
+    ('/rest/api/2/mypermissions', 'CVE-check: Jira unauthenticated permissions'),
+    ('/secure/ContactAdministrators!default.jspa', 'CVE-2019-11581: Jira SSTI'),
+    ('/plugins/servlet/Wallboard/', 'CVE-2018-20824: Jira XSS'),
+    ('/plugins/servlet/gadgets/makeRequest', 'CVE-2019-8451: Jira SSRF'),
+    ('/rest/api/latest/groupuserpicker?query=1&maxResults=50000&showAvatar=true', 'CVE-2019-8449: Jira user info disclosure'),
+    ('/s/thiscanbeanythingyouwant/_/META-INF/maven/com.atlassian.jira/atlassian-jira-webapp/pom.xml', 'CVE-2019-8442: Jira info disclosure'),
+    ('/secure/QueryComponent!Default.jspa', 'CVE-2020-14179: Jira info disclosure'),
+    ('/_/;/WEB-INF/web.xml', 'CVE-2021-26086: Jira file read'),
+]
+
+AEM_PATHS = [
+    ('/bin/querybuilder.json/a.html', 'CVE-2016-0957: AEM dispatcher bypass'),
+    ('/bin/querybuilder.json;%0aa.css', 'CVE-2016-0957: AEM dispatcher bypass (encoded)'),
+    ('/content/../libs/foundation/components/login', 'AEM login bypass attempt'),
+    ('/etc.json', 'AEM /etc exposure'),
+]
+
+CONFLUENCE_PATHS = [
+    ('/login.action', 'Confluence login page'),
+    ('/pages/viewpage.action?pageId=1', 'Confluence anonymous access check'),
+]
+
+# File upload paths (from webscan)
+UPLOAD_PATHS = ['/upload', '/file/upload', '/api/upload', '/media/upload',
+                '/uploads', '/attachments', '/import']
 
 # Tech fingerprints
 TECH_SIGNATURES = {
@@ -422,6 +537,13 @@ class WebSec:
         self.wordlist = params.get("wordlist", "built-in")
         self.output_dir = params.get("output_dir", "./websec_output")
 
+        # New params from webscan integration
+        self.bypass_path = params.get("bypass_path", "/admin")
+        self.test_url = params.get("test_url", "")
+        self.cookies = params.get("cookies", "")
+        self.headers_str = params.get("headers_str", "")
+        self.user_agent = params.get("user_agent", "Mozilla/5.0 (SecV WebSec Research Tool)")
+
         self.findings: List[Dict] = []
         self.info_findings: List[Dict] = []
         self.errors: List[str] = []
@@ -429,38 +551,56 @@ class WebSec:
         # Parse target URL
         self.url, self.host, self.scheme, self.port = self._parse_target(target)
 
+        # Build a persistent session if requests is available
+        self._session = None
+        if CAPS["requests"]:
+            self._session = requests.Session()
+            self._session.headers.update({"User-Agent": self.user_agent})
+            if self.cookies:
+                for kv in self.cookies.split(";"):
+                    kv = kv.strip()
+                    if "=" in kv:
+                        k, v = kv.split("=", 1)
+                        self._session.cookies.set(k.strip(), v.strip())
+            if self.headers_str:
+                for kv in self.headers_str.split(";"):
+                    kv = kv.strip()
+                    if ":" in kv:
+                        k, v = kv.split(":", 1)
+                        self._session.headers[k.strip()] = v.strip()
+
     def _parse_target(self, target: str) -> Tuple[str, str, str, int]:
         """Parse and normalize the target URL."""
         if not target.startswith(("http://", "https://")):
             target = "https://" + target
-        
+
         parsed = urllib.parse.urlparse(target)
         scheme = parsed.scheme
         host = parsed.hostname or target
         port = parsed.port or (443 if scheme == "https" else 80)
-        
+
         # Clean URL
         url = f"{scheme}://{host}"
         if (scheme == "https" and port != 443) or (scheme == "http" and port != 80):
             url += f":{port}"
-        
+
         return url, host, scheme, port
 
     def _request(self, url: str, method: str = "GET", headers: dict = None,
-                  data: str = None, allow_redirects: bool = True,
-                  timeout: float = None) -> Optional[Dict]:
-        """Make an HTTP request, using requests if available, else urllib."""
+                 data: str = None, allow_redirects: bool = True,
+                 timeout: float = None) -> Optional[Dict]:
+        """Make an HTTP request, using requests session if available, else urllib."""
         timeout = timeout or self.timeout
         default_headers = {
-            "User-Agent": "Mozilla/5.0 (SecV WebSec Research Tool)",
+            "User-Agent": self.user_agent,
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         }
         if headers:
             default_headers.update(headers)
 
         try:
-            if CAPS["requests"]:
-                resp = requests.request(
+            if CAPS["requests"] and self._session:
+                resp = self._session.request(
                     method, url,
                     headers=default_headers,
                     data=data,
@@ -477,7 +617,6 @@ class WebSec:
                     "redirected": resp.url != url,
                 }
             else:
-                # Fallback to urllib
                 req = urllib.request.Request(url, headers=default_headers, method=method)
                 ctx = ssl.create_default_context()
                 ctx.check_hostname = False
@@ -492,8 +631,12 @@ class WebSec:
                         "url": resp.url,
                         "redirected": resp.url != url,
                     }
-        except Exception as e:
+        except Exception:
             return None
+
+    def _get(self, url: str, headers: dict = None, timeout: float = None) -> Optional[Dict]:
+        """Convenience GET wrapper."""
+        return self._request(url, method="GET", headers=headers, timeout=timeout)
 
     def _add_finding(self, vuln_key: str, detail: str = "", evidence: str = "",
                      url: str = "", severity_override: str = ""):
@@ -508,7 +651,6 @@ class WebSec:
                 "description": v["description"],
                 "impact": v["impact"],
                 "fix": v["fix"],
-                "learn": v["learn"],
                 "detail": detail,
                 "evidence": evidence,
                 "url": url or self.url,
@@ -533,65 +675,29 @@ class WebSec:
 
     def op_recon(self):
         """Full web OSINT reconnaissance."""
-        section("WEB OSINT RECONNAISSANCE")
-        learn("OSINT stands for Open Source Intelligence. We collect information that's publicly available "
-              "without touching the target directly. Think of it as checking someone's public social media "
-              "before knocking on their door. DNS records, SSL certs, and WHOIS are all public data.")
+        section("WEB OSINT RECON")
 
         results = {}
 
-        # --- DNS Records ---
-        section("DNS Records")
-        learn("DNS (Domain Name System) maps domain names to IP addresses. Different record types reveal "
-              "different info: A=IPv4, AAAA=IPv6, MX=mail servers, NS=nameservers, TXT=various config "
-              "(SPF/DKIM for email auth, verification tokens). MX records tell you what email provider "
-              "they use. NS records reveal what DNS provider they use.")
-        
+        info("DNS records...")
         dns_results = self._dns_lookup()
         results["dns"] = dns_results
 
-        # --- WHOIS ---
-        section("WHOIS Information")
-        learn("WHOIS is a public registry of who owns a domain. It reveals registrar, registration date, "
-              "expiry date, and sometimes contact info. Expiry dates matter - many 'hacks' are just "
-              "expired domains being registered by attackers. A recently registered domain mimicking "
-              "a brand is often a phishing indicator.")
-        
+        info("WHOIS...")
         whois_result = self._whois_lookup()
         results["whois"] = whois_result
 
-        # --- SSL Certificate ---
-        section("SSL/TLS Certificate")
-        learn("SSL certificates bind a domain to a public key. They reveal: who issued the cert (CA), "
-              "what domains it covers (SANs can reveal subdomains!), expiry date, and whether it's "
-              "using modern crypto. Certificate Transparency logs are public - you can find all certs "
-              "ever issued for a domain at crt.sh")
-        
+        info("SSL/TLS certificate...")
         ssl_result = self._ssl_inspect()
         results["ssl"] = ssl_result
 
-        # --- Robots.txt & Sitemap ---
-        section("Robots.txt & Sitemap")
-        learn("robots.txt tells search engine bots which URLs NOT to crawl. Ironically, this is a perfect "
-              "map of what the site wants to hide! /admin, /internal, /backup are common entries. "
-              "The Disallow lines are a treasure map for security researchers.")
-        
+        info("robots.txt / sitemap...")
         results["robots_sitemap"] = self._fetch_robots_sitemap()
 
-        # --- HTTP Headers ---
-        section("HTTP Response Headers")
-        learn("HTTP headers are metadata sent with every response. Security headers tell the browser how "
-              "to behave (block iframes, enforce HTTPS, allow scripts only from trusted sources). "
-              "Missing security headers are some of the most common bug bounty findings.")
-        
+        info("Security headers...")
         results["headers"] = self._headers_audit()
 
-        # --- Technology Detection ---
-        section("Technology Stack Detection")
-        learn("Every web framework, CMS, and library leaves fingerprints in the HTML, CSS, JS, and HTTP "
-              "headers. Knowing the tech stack lets you look up known CVEs specifically for those versions. "
-              "This is the reconnaissance that precedes targeted exploitation.")
-        
+        info("Technology fingerprinting...")
         results["technologies"] = self._tech_detect()
 
         return results
@@ -607,26 +713,22 @@ class WebSec:
                     answers = dns.resolver.resolve(self.host, rtype, raise_on_no_answer=False)
                     records[rtype] = [str(r) for r in answers]
                 else:
-                    # Fallback: use system dig/nslookup
                     result = subprocess.run(
                         ["dig", "+short", rtype, self.host],
                         capture_output=True, text=True, timeout=5
                     )
                     if result.returncode == 0 and result.stdout.strip():
                         records[rtype] = result.stdout.strip().split("\n")
-                
+
                 if rtype in records and records[rtype]:
                     ok(f"{rtype}: {', '.join(records[rtype])}")
             except Exception:
                 pass
 
-        # Check for interesting TXT records
         if "TXT" in records:
             for txt in records["TXT"]:
                 if "spf" in txt.lower():
                     info(f"SPF Record found: {txt[:80]}")
-                    learn("SPF (Sender Policy Framework) lists authorized mail servers. If too permissive "
-                          "(e.g., ~all instead of -all), attackers can spoof emails from this domain.")
                 if "dmarc" in txt.lower():
                     info(f"DMARC policy found: {txt[:80]}")
                 if "v=DKIM" in txt:
@@ -644,7 +746,6 @@ class WebSec:
             )
             raw = proc.stdout
 
-            # Extract key fields
             for field_name, patterns in [
                 ("registrar", [r"Registrar:\s*(.+)", r"registrar:\s*(.+)"]),
                 ("created", [r"Creation Date:\s*(.+)", r"created:\s*(.+)"]),
@@ -665,7 +766,6 @@ class WebSec:
                     info(f"{k.capitalize()}: {v}")
         except Exception as e:
             warn(f"WHOIS lookup failed: {e}")
-            warn("Tip: Try manually at https://whois.domaintools.com or https://lookup.icann.org")
 
         return result
 
@@ -686,7 +786,7 @@ class WebSec:
                     cert = ssock.getpeercert()
                     result["tls_version"] = ssock.version()
                     result["cipher"] = ssock.cipher()
-                    
+
                     if cert:
                         subject = dict(x[0] for x in cert.get("subject", ()))
                         issuer = dict(x[0] for x in cert.get("issuer", ()))
@@ -703,14 +803,10 @@ class WebSec:
                         ok(f"TLS Version: {result['tls_version']}")
 
                         if result["san"]:
-                            info(f"Subject Alternative Names (subdomains/domains on same cert):")
+                            info(f"Subject Alternative Names ({len(result['san'])} entries):")
                             for san in result["san"][:20]:
-                                info(f"  → {san}")
-                            learn("SANs are goldmine for bug bounty! Other domains on the same cert often "
-                                  "belong to the same company. Check each one - dev/staging/internal "
-                                  "environments are often less hardened than production.")
+                                info(f"  -> {san}")
 
-                        # Check for weak TLS
                         tls_ver = result["tls_version"]
                         if tls_ver in ("TLSv1", "TLSv1.1", "SSLv3"):
                             self._add_finding("weak_ssl",
@@ -728,11 +824,7 @@ class WebSec:
         except Exception as e:
             warn(f"SSL inspection error: {e}")
 
-        # Suggest crt.sh
         info(f"Certificate Transparency logs: https://crt.sh/?q={self.host}")
-        learn("crt.sh indexes all SSL certificates issued for a domain. Because CAs must publicly log certs, "
-              "you can find subdomains that were never intended to be discovered - internal.company.com, "
-              "dev.company.com, staging.company.com etc.")
         result["crt_sh_url"] = f"https://crt.sh/?q={self.host}"
 
         return result
@@ -752,16 +844,11 @@ class WebSec:
                     disallowed = re.findall(r"Disallow:\s*(.+)", resp["body"])
                     if disallowed:
                         info(f"Disallowed paths ({len(disallowed)} entries):")
-                        for path in disallowed[:20]:
-                            info(f"  → {path.strip()}")
-                        learn("Each 'Disallow' line is a hidden page the site doesn't want Google indexing. "
-                              "These are often admin panels, internal tools, or sensitive directories.")
-                
+                        for p in disallowed[:20]:
+                            info(f"  -> {p.strip()}")
+
                 if name == "security_txt":
-                    info("Security.txt found - this site has a vulnerability disclosure policy")
-                    learn("security.txt (RFC 9116) is how responsible companies tell researchers "
-                          "where and how to report vulnerabilities. Always check this before testing - "
-                          "it defines scope and responsible disclosure requirements.")
+                    info("security.txt found - vulnerability disclosure policy present")
             else:
                 info(f"{name}: Not found ({resp['status'] if resp else 'no response'})")
 
@@ -777,7 +864,6 @@ class WebSec:
         headers = {k.lower(): v for k, v in resp["headers"].items()}
         result = {"raw": resp["headers"], "findings": []}
 
-        # Security headers to check
         checks = [
             ("strict-transport-security", "missing_hsts", "HSTS"),
             ("content-security-policy", "missing_csp", "CSP"),
@@ -792,38 +878,28 @@ class WebSec:
                 warn(f"MISSING: {label}")
                 self._add_finding(vuln_key)
 
-        # Check referrer policy
         if "referrer-policy" in headers:
             ok(f"Referrer-Policy: {headers['referrer-policy']}")
         else:
             warn("MISSING: Referrer-Policy")
-            learn("Without Referrer-Policy, your site's URLs get included in the HTTP Referer header "
-                  "when users click links to other sites. If your URLs contain tokens or sensitive IDs "
-                  "(e.g., /reset-password?token=xxx), those leak to third-party sites.")
 
-        # Check permissions policy
         if "permissions-policy" in headers:
             ok(f"Permissions-Policy: {headers['permissions-policy'][:60]}")
-        
-        # Server header - version disclosure
+
         if "server" in headers:
             server = headers["server"]
             info(f"Server header: {server}")
-            # Check if version disclosed
             if any(char.isdigit() for char in server):
                 self._add_finding("server_version_disclosure",
                     evidence=f"Server: {server}")
                 warn(f"Version disclosed in Server header: {server}")
 
-        # X-Powered-By
         if "x-powered-by" in headers:
             powered = headers["x-powered-by"]
             warn(f"X-Powered-By disclosed: {powered}")
             self._add_finding("server_version_disclosure",
-                detail=f"Tech stack disclosed via X-Powered-By header",
+                detail="Tech stack disclosed via X-Powered-By header",
                 evidence=f"X-Powered-By: {powered}")
-            learn("X-Powered-By tells attackers exactly what framework you're using. "
-                  "PHP versions, ASP.NET versions, Express versions - all exploitable if outdated.")
 
         return result
 
@@ -845,12 +921,6 @@ class WebSec:
                     ok(f"Detected: {tech}")
                     break
 
-        if detected:
-            learn(f"Detected {len(detected)} technologies. For each one, search: "
-                  f"'[technology] CVE 2024' or check https://www.cvedetails.com. "
-                  f"Check if detected versions are current at https://www.npmjs.com/advisories")
-
-        # Check for version numbers in common libs
         jquery_match = re.search(r"jquery[/-]([\d.]+)(?:\.min)?\.js", full_text, re.IGNORECASE)
         if jquery_match:
             version = jquery_match.group(1)
@@ -860,7 +930,7 @@ class WebSec:
                 self._add_finding("outdated_libs",
                     detail=f"jQuery {version} has known XSS vulnerabilities",
                     evidence=f"Detected jQuery version: {version}")
-                warn(f"Potentially outdated jQuery: {version} - check for XSS CVEs")
+                warn(f"Potentially outdated jQuery: {version}")
 
         return {"detected": list(detected.keys())}
 
@@ -871,10 +941,6 @@ class WebSec:
     def op_dirs(self) -> Dict:
         """Discover directories and sensitive files."""
         section("DIRECTORY & FILE DISCOVERY")
-        learn("Directory brute-forcing tries common paths that developers often forget to protect. "
-              "We're looking for admin panels, backup files, source code, and configuration files "
-              "that shouldn't be publicly accessible. This is like trying every door in a building "
-              "to find which ones are unlocked.")
 
         wordlist = COMMON_PATHS
         custom_wl = self.params.get("wordlist_file", "")
@@ -904,26 +970,21 @@ class WebSec:
                 if result:
                     status = result["status"]
                     path = result["path"]
-                    color = G if status == 200 else Y
 
-                    # Highlight interesting files
                     is_interesting = any(x in path for x in [
                         ".env", ".git", "config", "backup", "admin",
                         "phpinfo", "debug", ".sql", "swagger", "graphql"
                     ])
 
                     if is_interesting:
-                        bad(f"[{status}] {path} ← INTERESTING!")
+                        bad(f"[{status}] {path} <- INTERESTING!")
                         interesting.append(result)
-                        
+
                         if ".git" in path:
                             self._add_finding("sensitive_files_exposed",
                                 detail="Git repository exposed - full source code may be accessible",
                                 evidence=f"HTTP {status} at {result['url']}",
                                 url=result["url"])
-                            learn("An exposed .git directory means an attacker can run "
-                                  "'git clone' tricks to download your entire source code, "
-                                  "including all history. API keys, passwords in old commits - all exposed.")
                         elif ".env" in path:
                             self._add_finding("sensitive_files_exposed",
                                 detail=".env file accessible - likely contains API keys and passwords",
@@ -931,15 +992,12 @@ class WebSec:
                                 url=result["url"])
                         elif "swagger" in path or "graphql" in path:
                             info(f"API documentation found: {result['url']}")
-                            learn("API documentation (Swagger/OpenAPI) lists every endpoint, parameter, "
-                                  "and data type. This is the blueprint for testing the API. "
-                                  "Always check if authentication is required to view it.")
                     else:
                         info(f"[{status}] {path}")
 
                     found.append(result)
 
-        info(f"\nFound {len(found)} accessible paths, {len(interesting)} interesting")
+        info(f"Found {len(found)} accessible paths, {len(interesting)} interesting")
         return {"found": found, "interesting": interesting}
 
     # =========================================================================
@@ -949,9 +1007,6 @@ class WebSec:
     def op_headers(self) -> Dict:
         """Detailed security headers analysis."""
         section("SECURITY HEADERS AUDIT")
-        learn("HTTP security headers are instructions browsers follow to protect users. They're free to "
-              "implement and have a massive security impact. Missing headers are low-effort, high-impact "
-              "findings in bug bounty programs. Tools like securityheaders.com grade sites on these.")
         return self._headers_audit()
 
     # =========================================================================
@@ -961,10 +1016,6 @@ class WebSec:
     def op_cors(self) -> Dict:
         """Test for CORS misconfigurations."""
         section("CORS MISCONFIGURATION TESTING")
-        learn("CORS (Cross-Origin Resource Sharing) allows websites to request data from other domains. "
-              "Misconfigurations let attacker-controlled sites access your API on behalf of logged-in users. "
-              "Imagine: you visit evil.com, it silently calls bank.com/api/balance using your session cookie "
-              "and sends the result to the attacker. CORS misconfigs are consistently high-paying bug bounty findings.")
 
         results = {}
         test_origins = [
@@ -984,7 +1035,7 @@ class WebSec:
             acac = resp["headers"].get("Access-Control-Allow-Credentials", "")
 
             if acao == "*":
-                warn(f"Wildcard CORS: Origin={origin} → ACAO={acao}")
+                warn(f"Wildcard CORS: Origin={origin} -> ACAO={acao}")
                 self._add_finding("cors_wildcard",
                     detail="Access-Control-Allow-Origin: * allows all origins",
                     evidence=f"Request Origin: {origin}\nResponse ACAO: {acao}")
@@ -992,22 +1043,19 @@ class WebSec:
 
             elif acao == origin and origin != f"https://{self.host}":
                 if acac.lower() == "true":
-                    bad(f"REFLECTED CORS with credentials: Origin={origin} → ACAO={acao}, ACAC={acac}")
+                    bad(f"REFLECTED CORS with credentials: Origin={origin} -> ACAO={acao}, ACAC={acac}")
                     self._add_finding("cors_reflect_origin",
                         detail="Server reflects arbitrary Origin and allows credentials - Critical CORS bypass",
                         evidence=f"Request Origin: {origin}\nResponse ACAO: {acao}\nResponse ACAC: {acac}",
                         severity_override="CRITICAL")
-                    learn("CORS reflection + credentials = account takeover. Attacker can make authenticated "
-                          "API calls from their site and read the responses. This is often rated Critical "
-                          "in bug bounty programs, especially on financial/healthcare applications.")
                 else:
-                    warn(f"Reflected CORS (no credentials): Origin={origin} → ACAO={acao}")
+                    warn(f"Reflected CORS (no credentials): Origin={origin} -> ACAO={acao}")
                     self._add_finding("cors_reflect_origin",
                         detail="Server reflects arbitrary Origin header",
                         evidence=f"Request Origin: {origin}\nResponse ACAO: {acao}")
                 results.setdefault("reflected", []).append(origin)
             else:
-                info(f"Origin: {origin} → ACAO: {acao or 'not set'}")
+                info(f"Origin: {origin} -> ACAO: {acao or 'not set'}")
 
         return results
 
@@ -1018,9 +1066,6 @@ class WebSec:
     def op_cookies(self) -> Dict:
         """Audit cookie security attributes."""
         section("COOKIE SECURITY AUDIT")
-        learn("Cookies store session tokens - the keys to a user's account. Three flags protect them: "
-              "Secure (only send over HTTPS), HttpOnly (JavaScript can't read it), SameSite (don't "
-              "send cross-site). Missing flags are like leaving your house keys in an unlocked mailbox.")
 
         resp = self._request(self.url)
         if not resp:
@@ -1049,9 +1094,9 @@ class WebSec:
             httponly = "httponly" in flags
             samesite = flags.get("samesite", "").lower()
 
-            ok(f"  Secure: {'✓' if secure else '✗'}")
-            ok(f"  HttpOnly: {'✓' if httponly else '✗'}")
-            ok(f"  SameSite: {samesite or '✗ NOT SET'}")
+            ok(f"  Secure: {'yes' if secure else 'NO'}")
+            ok(f"  HttpOnly: {'yes' if httponly else 'NO'}")
+            ok(f"  SameSite: {samesite or 'NOT SET'}")
 
             if not secure and self.scheme == "https":
                 self._add_finding("insecure_cookie",
@@ -1083,27 +1128,20 @@ class WebSec:
     # =========================================================================
 
     def op_sqli(self) -> Dict:
-        """Test for SQL injection vulnerabilities."""
+        """Test for SQL injection vulnerabilities (error-based + time-based blind)."""
         section("SQL INJECTION DETECTION")
-        learn("SQL injection occurs when user input is embedded directly into SQL queries. "
-              "We test by sending characters that 'break' SQL syntax (quotes, semicolons) "
-              "and watching for database error messages. If we get MySQL errors back, the input "
-              "is going directly into a query. We only use safe, non-destructive payloads here.")
 
-        warn("Testing with error-based detection only. No blind/time-based tests to avoid server load.")
         warn("Always get written authorization before running SQLi tests.")
 
         results = {"vulnerable": [], "tested": 0}
-        test_url = self.params.get("test_url", self.url)
+        test_url = self.test_url or self.params.get("test_url", self.url)
 
-        # Get the page first to find forms and parameters
         resp = self._request(test_url)
         if not resp:
             return results
 
         test_points = []
 
-        # Extract URL parameters
         parsed = urllib.parse.urlparse(test_url)
         if parsed.query:
             params = urllib.parse.parse_qs(parsed.query)
@@ -1111,7 +1149,6 @@ class WebSec:
                 test_points.append(("GET", param_name, test_url))
                 info(f"Found GET parameter: {param_name}")
 
-        # Extract form fields
         if CAPS["bs4"] and resp["body"]:
             soup = BeautifulSoup(resp["body"], "html.parser")
             for form in soup.find_all("form"):
@@ -1123,34 +1160,37 @@ class WebSec:
                     name = input_tag.get("name", "")
                     if name and input_tag.get("type") not in ("submit", "hidden", "csrf"):
                         test_points.append((method, name, action))
-                        info(f"Found form field: {name} [{method}] → {action}")
+                        info(f"Found form field: {name} [{method}] -> {action}")
 
         if not test_points:
             info("No parameters found to test. Use test_url param with a URL containing ?param=value")
-            learn("SQLi needs a place to inject. Look for URLs like: /search?q=test, "
-                  "/product?id=1, /user?name=john. These parameter values might go into SQL queries.")
             return results
 
-        # Test each point
+        base_params_map = {}
+        parsed = urllib.parse.urlparse(test_url)
+        if parsed.query:
+            base_params_map = dict(urllib.parse.parse_qsl(parsed.query))
+
         for method, param, url in test_points:
-            for payload in SQLI_PAYLOADS[:5]:  # Test with first 5 safe payloads
+            # Error-based tests
+            for payload in SQLI_PAYLOADS[:5]:
                 results["tested"] += 1
 
                 if method == "GET":
-                    parsed = urllib.parse.urlparse(url)
-                    params_dict = urllib.parse.parse_qs(parsed.query)
+                    p = urllib.parse.urlparse(url)
+                    params_dict = urllib.parse.parse_qs(p.query)
                     params_dict[param] = [payload]
                     new_query = urllib.parse.urlencode(params_dict, doseq=True)
-                    test_target = urllib.parse.urlunparse(parsed._replace(query=new_query))
-                    resp = self._request(test_target, timeout=8.0)
+                    test_target = urllib.parse.urlunparse(p._replace(query=new_query))
+                    r = self._request(test_target, timeout=8.0)
                 else:
-                    resp = self._request(url, method="POST",
-                                        data=urllib.parse.urlencode({param: payload}))
+                    r = self._request(url, method="POST",
+                                      data=urllib.parse.urlencode({param: payload}))
 
-                if not resp:
+                if not r:
                     continue
 
-                body = resp["body"]
+                body = r["body"]
                 for pattern in SQLI_ERROR_PATTERNS:
                     if re.search(pattern, body, re.IGNORECASE):
                         bad(f"POSSIBLE SQLi: {param}='{payload}' triggered: {pattern}")
@@ -1162,16 +1202,48 @@ class WebSec:
                             "param": param,
                             "payload": payload,
                             "url": url,
-                            "pattern": pattern
+                            "pattern": pattern,
+                            "type": "error_based"
                         })
-                        learn(f"The payload '{payload}' caused a database error. This means the input "
-                              f"went directly into a SQL query. To confirm, you'd use sqlmap with "
-                              f"authorization: sqlmap -u '{url}' --dbs")
                         break
 
+            # Time-based blind tests
+            for db, payload in TIME_SQLI.items():
+                results["tested"] += 1
+                test_p = base_params_map.copy()
+                test_p[param] = payload
+
+                if method == "GET":
+                    p = urllib.parse.urlparse(url)
+                    new_query = urllib.parse.urlencode(test_p)
+                    test_target = urllib.parse.urlunparse(p._replace(query=new_query))
+                    t0 = time.time()
+                    r = self._request(test_target, timeout=12.0)
+                    elapsed = time.time() - t0
+                else:
+                    t0 = time.time()
+                    r = self._request(url, method="POST",
+                                      data=urllib.parse.urlencode({param: payload}),
+                                      timeout=12.0)
+                    elapsed = time.time() - t0
+
+                if r and elapsed >= 2.8:
+                    bad(f"TIME-BASED SQLi: {param} delayed {elapsed:.2f}s with {db} payload")
+                    self._add_finding("sqli_time_blind",
+                        detail=f"Parameter '{param}' caused {elapsed:.2f}s delay (>{db} payload)",
+                        evidence=f"Payload: {payload}\nElapsed: {elapsed:.2f}s",
+                        url=url)
+                    results["vulnerable"].append({
+                        "param": param,
+                        "payload": payload,
+                        "url": url,
+                        "db": db,
+                        "elapsed": round(elapsed, 2),
+                        "type": "time_blind"
+                    })
+
         if not results["vulnerable"]:
-            ok(f"No obvious SQLi found in {results['tested']} tests (error-based only)")
-            info("For thorough testing, use SQLMap with authorization on a test environment")
+            ok(f"No obvious SQLi found in {results['tested']} tests")
 
         return results
 
@@ -1182,19 +1254,13 @@ class WebSec:
     def op_xss(self) -> Dict:
         """Test for reflected XSS vulnerabilities."""
         section("CROSS-SITE SCRIPTING (XSS) DETECTION")
-        learn("XSS (Cross-Site Scripting) injects malicious JavaScript into web pages viewed by other users. "
-              "Reflected XSS: attacker sends victim a link, the link's payload reflects in the page, "
-              "browser executes it. We test by injecting markers and checking if they appear unescaped "
-              "in the response. We use unique markers to avoid false positives.")
 
         warn("Testing for reflected XSS only. Stored XSS requires manual review.")
 
         results = {"vulnerable": [], "tested": 0}
-        test_url = self.params.get("test_url", self.url)
+        test_url = self.test_url or self.params.get("test_url", self.url)
 
-        # Use a unique marker to identify reflection
         marker = f"WSEC{int(time.time())}"
-        safe_marker = f"{marker}<b>test</b>"
 
         resp = self._request(test_url)
         if not resp:
@@ -1223,28 +1289,26 @@ class WebSec:
             return results
 
         for method, param, url in test_points:
-            for payload in XSS_PAYLOADS[:3]:
+            for payload in XSS_PAYLOADS:
                 full_payload = f"{marker}{payload}"
                 results["tested"] += 1
 
                 if method == "GET":
-                    parsed = urllib.parse.urlparse(url)
-                    pdict = urllib.parse.parse_qs(parsed.query)
+                    p = urllib.parse.urlparse(url)
+                    pdict = urllib.parse.parse_qs(p.query)
                     pdict[param] = [full_payload]
                     new_q = urllib.parse.urlencode(pdict, doseq=True)
-                    target = urllib.parse.urlunparse(parsed._replace(query=new_q))
-                    resp = self._request(target)
+                    target = urllib.parse.urlunparse(p._replace(query=new_q))
+                    r = self._request(target)
                 else:
-                    resp = self._request(url, method="POST",
-                                        data=urllib.parse.urlencode({param: full_payload}))
+                    r = self._request(url, method="POST",
+                                      data=urllib.parse.urlencode({param: full_payload}))
 
-                if not resp:
+                if not r:
                     continue
 
-                body = resp["body"]
-                # Check if payload reflects unencoded
+                body = r["body"]
                 if marker in body:
-                    # Check if < > are encoded
                     if "&lt;" not in body and payload.startswith("<"):
                         bad(f"POSSIBLE XSS: {param} reflects unencoded HTML")
                         self._add_finding("xss_reflected",
@@ -1256,13 +1320,304 @@ class WebSec:
                             "payload": payload,
                             "url": url
                         })
-                        learn("The payload reflected without HTML encoding. To confirm, manually test in "
-                              "a browser. If alert(1) pops, it's confirmed XSS. Report with reproduction "
-                              "steps and a harmless alert() PoC. Do NOT use payloads that steal data.")
+                    elif payload in body:
+                        bad(f"POSSIBLE XSS: {param} reflects payload unmodified")
+                        self._add_finding("xss_reflected",
+                            detail=f"Parameter '{param}' reflects payload without modification",
+                            evidence=f"Payload: {full_payload}",
+                            url=url)
+                        results["vulnerable"].append({
+                            "param": param,
+                            "payload": payload,
+                            "url": url
+                        })
                     else:
                         ok(f"  {param}: Input reflected but HTML-encoded (safe)")
                 else:
-                    info(f"  {param}: Payload not reflected (payload: {payload[:20]})")
+                    info(f"  {param}: Payload not reflected")
+
+        return results
+
+    # =========================================================================
+    # OPERATION: CSRF TESTING
+    # =========================================================================
+
+    def op_csrf(self) -> Dict:
+        """Test for missing CSRF tokens on forms."""
+        section("CSRF TOKEN DETECTION")
+
+        results = {"findings": [], "tested_url": self.url}
+        resp = self._request(self.url)
+        if not resp:
+            bad("Could not reach target")
+            return results
+
+        body = resp["body"]
+        has_form = "<form" in body.lower() and "method" in body.lower()
+        if not has_form:
+            info("No forms detected on the main page.")
+            return results
+
+        has_token = any(re.search(pat, body, re.IGNORECASE) for pat in CSRF_TOKEN_PATTERNS)
+        if not has_token:
+            bad("Form found without detectable CSRF token")
+            self._add_finding("csrf_missing_token",
+                detail="Form present but no CSRF token pattern detected",
+                evidence="No _token, csrf_token, csrfmiddlewaretoken, authenticity_token found")
+            results["findings"].append({
+                "type": "csrf_missing_token",
+                "severity": "MEDIUM",
+                "url": self.url,
+            })
+        else:
+            ok("CSRF token detected in form(s)")
+
+        return results
+
+    # =========================================================================
+    # OPERATION: 403 BYPASS
+    # =========================================================================
+
+    def op_bypass_403(self) -> Dict:
+        """Test for 403 forbidden bypass via headers and path tricks."""
+        section("403 BYPASS TESTING")
+
+        path = self.bypass_path
+        full_url = self.url + path
+        results = {"findings": [], "tested_path": path}
+
+        resp = self._request(full_url)
+        if not resp:
+            bad(f"No response from {full_url}")
+            return results
+
+        if resp["status"] != 403:
+            info(f"{path} returned {resp['status']} (not 403, skipping bypass tests)")
+            return results
+
+        info(f"{path} is 403 - attempting bypass techniques...")
+
+        # Header-based bypass
+        for hdr_dict in BYPASS_HEADERS:
+            r = self._request(full_url, headers=hdr_dict)
+            if r and r["status"] == 200:
+                hdr_name = list(hdr_dict.keys())[0]
+                bad(f"BYPASS via header {hdr_name}: got 200!")
+                self._add_finding("bypass_403_header",
+                    detail=f"403 bypassed on {path} using {hdr_name}",
+                    evidence=f"Header: {hdr_dict}\nStatus: 200",
+                    url=full_url)
+                results["findings"].append({
+                    "type": "403_bypass_header",
+                    "bypass_header": hdr_name,
+                    "url": full_url,
+                })
+
+        # Path manipulation bypass
+        for trick in BYPASS_PATH_TRICKS:
+            test_url = self.url + trick + path.lstrip("/")
+            r = self._request(test_url)
+            if r and r["status"] == 200:
+                bad(f"BYPASS via path trick '{trick}': got 200 at {test_url}")
+                self._add_finding("bypass_403_path",
+                    detail=f"403 bypassed on {path} using path trick {trick}",
+                    evidence=f"URL: {test_url}\nStatus: 200",
+                    url=test_url)
+                results["findings"].append({
+                    "type": "403_bypass_path",
+                    "bypass_path": test_url,
+                    "url": full_url,
+                })
+
+        if not results["findings"]:
+            ok(f"No bypass found for {path}")
+
+        return results
+
+    # =========================================================================
+    # OPERATION: OPEN REDIRECT
+    # =========================================================================
+
+    def op_open_redirect(self) -> Dict:
+        """Test for open redirect vulnerabilities."""
+        section("OPEN REDIRECT TESTING")
+
+        test_url = self.test_url or self.params.get("test_url", self.url)
+        results = {"findings": [], "tested_url": test_url}
+
+        parsed = urllib.parse.urlparse(test_url)
+        existing = dict(urllib.parse.parse_qsl(parsed.query))
+        test_params_list = list(existing.keys()) or REDIRECT_PARAMS[:5]
+
+        info(f"Testing {len(test_params_list)} parameter(s) with {len(REDIRECT_PAYLOADS)} payloads each...")
+
+        for param in test_params_list:
+            for payload in REDIRECT_PAYLOADS:
+                p = existing.copy()
+                p[param] = payload
+                test_target = test_url.split("?")[0] + "?" + urllib.parse.urlencode(p)
+                r = self._request(test_target, allow_redirects=True, timeout=5.0)
+                if r:
+                    final = r.get("url", test_target)
+                    if "evil.com" in final:
+                        bad(f"OPEN REDIRECT: {param}={payload} -> {final}")
+                        self._add_finding("open_redirect",
+                            detail=f"Parameter '{param}' allows redirect to attacker-controlled domain",
+                            evidence=f"Payload: {payload}\nRedirected to: {final}",
+                            url=test_url)
+                        results["findings"].append({
+                            "param": param,
+                            "payload": payload,
+                            "redirected_to": final,
+                            "url": test_url,
+                        })
+                        break
+
+        if not results["findings"]:
+            ok("No open redirects detected")
+
+        return results
+
+    # =========================================================================
+    # OPERATION: FRAMEWORK CVE PROBES
+    # =========================================================================
+
+    def op_framework_cves(self) -> Dict:
+        """Probe for framework-specific CVE paths (Jira, AEM, Confluence)."""
+        section("FRAMEWORK CVE PROBES (Jira / AEM / Confluence)")
+
+        results = {"findings": []}
+
+        resp = self._request(self.url)
+        if not resp:
+            bad("Could not reach target")
+            return results
+
+        headers_lower = str(resp["headers"]).lower()
+        body_lower = resp["body"].lower()
+
+        is_jira = "jira" in body_lower or "atlassian" in headers_lower
+        is_aem = "aem" in body_lower or "cq5" in body_lower or "granite" in body_lower
+        is_confluence = "confluence" in body_lower
+
+        paths_to_check = []
+        if is_jira:
+            info("Jira detected - probing CVE paths...")
+            paths_to_check.extend([(p, note, "jira") for p, note in JIRA_PATHS])
+        if is_aem:
+            info("AEM detected - probing CVE paths...")
+            paths_to_check.extend([(p, note, "aem") for p, note in AEM_PATHS])
+        if is_confluence:
+            info("Confluence detected - probing CVE paths...")
+            paths_to_check.extend([(p, note, "confluence") for p, note in CONFLUENCE_PATHS])
+
+        # Always probe a subset of Jira paths regardless
+        if not is_jira:
+            paths_to_check.extend([(p, note, "jira") for p, note in JIRA_PATHS[:3]])
+
+        for path, note, framework in paths_to_check:
+            r = self._request(self.url + path, timeout=6.0)
+            if r and r["status"] in (200, 201, 301, 302):
+                warn(f"[{r['status']}] {framework.upper()} path accessible: {path}")
+                info(f"  Note: {note}")
+                self._add_finding("framework_cve",
+                    detail=f"{framework.upper()} - {note}",
+                    evidence=f"HTTP {r['status']} at {self.url + path}",
+                    url=self.url + path)
+                results["findings"].append({
+                    "framework": framework,
+                    "path": path,
+                    "status_code": r["status"],
+                    "note": note,
+                    "url": self.url + path,
+                })
+
+        if not results["findings"]:
+            ok("No accessible framework CVE paths found")
+
+        return results
+
+    # =========================================================================
+    # OPERATION: FILE UPLOAD DETECTION
+    # =========================================================================
+
+    def op_file_upload(self) -> Dict:
+        """Detect file upload endpoints and forms."""
+        section("FILE UPLOAD DETECTION")
+
+        results = {"findings": []}
+
+        resp = self._request(self.url)
+        if resp:
+            body = resp["body"]
+            upload_forms = re.findall(
+                r'<form[^>]*enctype=["\']multipart/form-data["\'][^>]*>',
+                body, re.IGNORECASE
+            )
+            if upload_forms:
+                warn(f"Found {len(upload_forms)} multipart upload form(s) on main page")
+                self._add_finding("upload_endpoint",
+                    detail=f"{len(upload_forms)} file upload form(s) detected on main page",
+                    evidence="enctype=multipart/form-data")
+                results["findings"].append({
+                    "type": "upload_form_detected",
+                    "count": len(upload_forms),
+                    "url": self.url,
+                })
+
+        for path in UPLOAD_PATHS:
+            r = self._request(self.url + path, timeout=5.0)
+            if r and r["status"] in (200, 201, 405):
+                warn(f"[{r['status']}] Upload path accessible: {path}")
+                self._add_finding("upload_endpoint",
+                    detail=f"Upload endpoint {path} returned {r['status']}",
+                    evidence=f"HTTP {r['status']} at {self.url + path}",
+                    url=self.url + path,
+                    severity_override="INFO")
+                results["findings"].append({
+                    "type": "upload_endpoint",
+                    "path": path,
+                    "status_code": r["status"],
+                    "url": self.url + path,
+                })
+
+        if not results["findings"]:
+            ok("No upload endpoints detected")
+
+        return results
+
+    # =========================================================================
+    # OPERATION: RATE LIMIT CHECK
+    # =========================================================================
+
+    def op_rate_limit(self) -> Dict:
+        """Check for missing rate limiting."""
+        section("RATE LIMIT TESTING")
+
+        attempts = int(self.params.get("rate_limit_attempts", 10))
+        test_url = self.test_url or self.url
+        results = {"codes": [], "limited": False}
+
+        info(f"Sending {attempts} requests to {test_url}...")
+
+        for i in range(attempts):
+            r = self._request(test_url, timeout=5.0)
+            if r:
+                results["codes"].append(r["status"])
+            time.sleep(0.1)
+
+        codes = results["codes"]
+        if codes and 429 not in codes and all(c < 400 for c in codes):
+            warn(f"No rate limiting detected after {attempts} requests (all {set(codes)})")
+            self._add_finding("missing_rate_limit",
+                detail=f"No 429 response after {attempts} rapid requests",
+                evidence=f"Status codes received: {codes}")
+            results["limited"] = False
+        elif 429 in codes:
+            ok(f"Rate limiting active (received 429)")
+            results["limited"] = True
+        else:
+            info(f"Inconclusive - received codes: {set(codes)}")
 
         return results
 
@@ -1273,10 +1628,6 @@ class WebSec:
     def op_spider(self) -> Dict:
         """Spider/crawl the target website."""
         section("WEB SPIDER / CRAWLER")
-        learn("Spidering follows links to map the structure of a website. We collect all discovered URLs, "
-              "forms, and JavaScript endpoints. This gives us a complete picture of the application's "
-              "attack surface. Every form is a potential injection point. Every URL is a potential "
-              "access control issue. Knowing the full site map is step 1 in any web pentest.")
 
         max_pages = int(self.params.get("max_pages", 50))
         visited = set()
@@ -1301,7 +1652,6 @@ class WebSec:
 
             soup = BeautifulSoup(resp["body"], "html.parser")
 
-            # Find links
             for tag in soup.find_all(["a", "link"], href=True):
                 href = tag["href"]
                 if href.startswith("#") or href.startswith("mailto:"):
@@ -1315,7 +1665,6 @@ class WebSec:
                     if full not in found["external"]:
                         found["external"].append(full)
 
-            # Find forms
             for form in soup.find_all("form"):
                 action = form.get("action", "")
                 method = form.get("method", "GET").upper()
@@ -1323,9 +1672,8 @@ class WebSec:
                 form_data = {"action": urllib.parse.urljoin(url, action),
                              "method": method, "fields": fields, "source_url": url}
                 found["forms"].append(form_data)
-                info(f"  → Form: {method} {form_data['action']} | Fields: {fields[:5]}")
+                info(f"  -> Form: {method} {form_data['action']} | Fields: {fields[:5]}")
 
-            # Find JS files
             for script in soup.find_all("script", src=True):
                 src = script["src"]
                 full_src = urllib.parse.urljoin(url, src)
@@ -1334,10 +1682,6 @@ class WebSec:
 
         ok(f"Spider complete: {len(found['urls'])} pages, {len(found['forms'])} forms, "
            f"{len(found['js_files'])} JS files, {len(found['external'])} external links")
-
-        if found["js_files"]:
-            learn("JavaScript files often contain API endpoints, hardcoded tokens, internal domain names, "
-                  "and developer comments. Download and search them: grep -r 'api_key\\|token\\|password\\|secret' *.js")
 
         return found
 
@@ -1348,11 +1692,6 @@ class WebSec:
     def op_dork(self) -> Dict:
         """Generate Google dork queries for OSINT."""
         section("GOOGLE DORK GENERATOR")
-        learn("Google dorks use advanced search operators to find information that's technically public "
-              "but not meant to be easily found. They reveal exposed files, login pages, vulnerable "
-              "parameters, and sensitive documents. Use these on Google, Bing, or Shodan. "
-              "Always note: finding public data via search engines is not hacking. Accessing systems "
-              "you're not authorized for IS. Know the difference.")
 
         domain = self.host
         dorks = {
@@ -1392,11 +1731,6 @@ class WebSec:
         for d in shodan_dorks:
             info(f"  {d}")
 
-        learn("Wayback Machine (web.archive.org) stores old versions of websites. "
-              "Old versions often have: previously exposed API keys in JS files, "
-              "removed but cached admin pages, old subdomains that still resolve. "
-              "This is a goldmine for OSINT and bug bounty reconnaissance.")
-
         return {"dorks": dorks}
 
     # =========================================================================
@@ -1406,15 +1740,10 @@ class WebSec:
     def op_ssl(self) -> Dict:
         """Full SSL/TLS analysis."""
         section("SSL/TLS DEEP ANALYSIS")
-        learn("SSL/TLS protects data in transit. Misconfigurations here affect ALL users silently. "
-              "TLS version matters: TLS 1.0/1.1 are deprecated. Weak ciphers can be attacked "
-              "with tools like BEAST, POODLE. Certificate issues cause browser warnings. "
-              "Use SSLLabs (ssllabs.com/ssltest) for definitive grading.")
 
         ssl_result = self._ssl_inspect()
-        info(f"\nFor comprehensive TLS testing: https://www.ssllabs.com/ssltest/analyze.html?d={self.host}")
-        
-        # Test HTTP → HTTPS redirect
+        info(f"For comprehensive TLS testing: https://www.ssllabs.com/ssltest/analyze.html?d={self.host}")
+
         if self.scheme == "https":
             http_url = f"http://{self.host}:{self.port if self.port != 443 else 80}"
             resp = self._request(http_url, allow_redirects=False, timeout=5.0)
@@ -1422,7 +1751,7 @@ class WebSec:
                 if resp["status"] in (301, 302, 307, 308):
                     location = resp["headers"].get("location", "")
                     if "https" in location:
-                        ok(f"HTTP → HTTPS redirect: {resp['status']} to {location[:60]}")
+                        ok(f"HTTP -> HTTPS redirect: {resp['status']} to {location[:60]}")
                     else:
                         warn(f"HTTP doesn't redirect to HTTPS: {resp['status']} to {location}")
                         self._add_finding("weak_ssl",
@@ -1442,10 +1771,6 @@ class WebSec:
     def op_waf(self) -> Dict:
         """Detect Web Application Firewall (WAF)."""
         section("WAF DETECTION")
-        learn("A WAF (Web Application Firewall) sits in front of web apps and blocks malicious traffic. "
-              "Knowing if one exists changes your testing approach. WAFs look for attack signatures "
-              "in requests. We probe with obviously malicious-looking requests and analyze the response. "
-              "Cloudflare returns 1020, ModSecurity returns 403 with specific messages, AWS WAF returns 403.")
 
         waf_signatures = {
             "Cloudflare": [r"cloudflare", r"CF-RAY", r"__cfduid", r"Attention Required"],
@@ -1459,11 +1784,9 @@ class WebSec:
             "Fortinet": [r"FORTIWAFSID"],
         }
 
-        # Normal request baseline
         baseline = self._request(self.url)
         baseline_status = baseline["status"] if baseline else 0
 
-        # Send attack-like request
         attack_payload = "/?q=<script>alert(1)</script>&id=1 UNION SELECT 1--"
         attack_resp = self._request(f"{self.url}{attack_payload}")
 
@@ -1488,26 +1811,17 @@ class WebSec:
                     detected_waf.append("Unknown WAF")
 
         if not detected_waf:
-            info("No WAF signature detected. Site may be unprotected or using a custom WAF.")
-            info("Check for rate limiting by sending many requests quickly.")
-
-        if waf_active:
-            learn("With a WAF, direct injection payloads will be blocked. Bug bounty hunters use techniques "
-                  "like encoding, case variation, comments (/**/, %20, %09), and split payloads to bypass "
-                  "signature-based WAFs. Understanding the WAF vendor helps find known bypasses.")
+            info("No WAF signature detected.")
 
         return {"detected": detected_waf, "waf_active": waf_active}
 
     # =========================================================================
-    # OPERATION: VULNERABILITY SUMMARY / FULL SCAN
+    # OPERATION: FULL SCAN
     # =========================================================================
 
     def op_full(self) -> Dict:
         """Run complete security assessment."""
         section("FULL WEB SECURITY ASSESSMENT")
-        learn("We'll run a complete assessment covering OSINT, headers, cookies, CORS, common files, "
-              "WAF detection, and SSL analysis. Each section teaches you what we're looking for and why. "
-              "Take notes on findings - a good report includes: description, impact, reproduction steps, fix.")
 
         results = {}
         results["recon"] = self.op_recon()
@@ -1516,31 +1830,14 @@ class WebSec:
         results["dirs"] = self.op_dirs()
         results["waf"] = self.op_waf()
         results["ssl"] = self.op_ssl()
+        results["csrf"] = self.op_csrf()
+        results["bypass_403"] = self.op_bypass_403()
+        results["open_redirect"] = self.op_open_redirect()
+        results["framework_cves"] = self.op_framework_cves()
+        results["file_upload"] = self.op_file_upload()
+        results["rate_limit"] = self.op_rate_limit()
 
         return results
-
-    # =========================================================================
-    # OPERATION: KNOWN VULNERABILITY LIBRARY
-    # =========================================================================
-
-    def op_vulnlib(self) -> Dict:
-        """Display the built-in vulnerability knowledge base."""
-        section("VULNERABILITY KNOWLEDGE BASE")
-        learn("This library covers the OWASP Top 10 and common web vulnerabilities. "
-              "Use it to understand what you're looking for and how to report findings. "
-              "Each vulnerability includes: description, impact, fix, and learning context.")
-
-        for key, vuln in VULN_DB.items():
-            sev = vuln["severity"]
-            color = self._severity_color(sev)
-            print(f"\n{color}{BOLD}[{sev}] {vuln['name']}{NC}", file=sys.stderr)
-            print(f"  {DIM}CWE: {vuln['cwe']} | {vuln['owasp']}{NC}", file=sys.stderr)
-            print(f"  Description: {vuln['description']}", file=sys.stderr)
-            print(f"  {R}Impact: {vuln['impact']}{NC}", file=sys.stderr)
-            print(f"  {G}Fix: {vuln['fix']}{NC}", file=sys.stderr)
-            print(f"  {B}[LEARN] {vuln['learn']}{NC}", file=sys.stderr)
-
-        return {"total_vulns": len(VULN_DB), "categories": list(VULN_DB.keys())}
 
     # =========================================================================
     # EXECUTE
@@ -1568,7 +1865,12 @@ class WebSec:
             "ssl": self.op_ssl,
             "waf": self.op_waf,
             "full": self.op_full,
-            "vulnlib": self.op_vulnlib,
+            "csrf": self.op_csrf,
+            "bypass_403": self.op_bypass_403,
+            "open_redirect": self.op_open_redirect,
+            "framework_cves": self.op_framework_cves,
+            "file_upload": self.op_file_upload,
+            "rate_limit": self.op_rate_limit,
         }
 
         func = operations.get(self.operation, self.op_recon)
@@ -1594,8 +1896,6 @@ class WebSec:
                 print(f"  {f.get('description', '')}", file=sys.stderr)
                 if f.get("fix"):
                     print(f"  {G}FIX: {f['fix']}{NC}", file=sys.stderr)
-                if f.get("learn"):
-                    print(f"  {B}[LEARN] {f['learn']}{NC}", file=sys.stderr)
 
             counts = {}
             for f in sorted_findings:
@@ -1606,14 +1906,8 @@ class WebSec:
             for sev, count in counts.items():
                 color = self._severity_color(sev)
                 print(f"  {color}{sev}: {count}{NC}", file=sys.stderr)
-
-            learn("When writing your bug bounty report: 1) Describe the vulnerability clearly, "
-                  "2) Show step-by-step reproduction, 3) Explain the real-world impact, "
-                  "4) Suggest a specific fix. Programs pay more for clear, actionable reports. "
-                  "Always follow the program's disclosure policy and scope.")
         else:
             ok("No critical findings detected in this run")
-            info("Manual testing is always needed for logic flaws, authentication issues, and business logic bugs")
 
         return {
             "success": True,
@@ -1636,95 +1930,79 @@ class WebSec:
         }
 
 # ============================================================================
-# HELP SYSTEM
-# ============================================================================
-
-def show_help():
-    print(banner())
-    print(f"""
-{BOLD}{Y}OPERATIONS:{NC}
-
-  {G}recon{NC}     → Full web OSINT (DNS, WHOIS, SSL, robots, headers, tech stack)
-             Ideal starting point. Non-intrusive intelligence gathering.
-
-  {G}headers{NC}   → HTTP security headers audit
-             Checks for HSTS, CSP, X-Frame-Options, X-Content-Type-Options
-
-  {G}cors{NC}      → CORS misconfiguration testing
-             Tests if arbitrary origins can access the API
-
-  {G}cookies{NC}   → Cookie security flag audit
-             Checks Secure, HttpOnly, SameSite flags
-
-  {G}dirs{NC}      → Directory and sensitive file discovery
-             Brute-forces common paths (admin, .env, .git, backups, APIs)
-
-  {G}sqli{NC}      → SQL injection detection (error-based)
-             Requires test_url parameter with ?param=value
-
-  {G}xss{NC}       → Reflected XSS detection
-             Requires test_url parameter with ?param=value
-
-  {G}spider{NC}    → Web crawler / site mapper
-             Discovers all pages, forms, and JS files
-
-  {G}dork{NC}      → Google dork generator for OSINT
-             Generates search queries for finding sensitive data
-
-  {G}ssl{NC}       → SSL/TLS deep analysis
-             Checks TLS version, ciphers, cert validity, HTTP→HTTPS redirect
-
-  {G}waf{NC}       → WAF detection
-             Identifies Cloudflare, ModSecurity, AWS WAF, Akamai, etc.
-
-  {G}full{NC}      → Complete assessment (runs all non-intrusive operations)
-
-  {G}vulnlib{NC}   → Browse the vulnerability knowledge base with explanations
-
-{BOLD}{Y}PARAMETERS:{NC}
-  operation      Operation to run (see above)
-  test_url       URL with parameters for sqli/xss testing
-  threads        Concurrent threads for discovery (default: 10)
-  timeout        Request timeout in seconds (default: 10)
-  max_pages      Max pages for spider (default: 50)
-  wordlist_file  Path to custom wordlist for dirs operation
-  verbose        Show verbose output (true/false)
-
-{BOLD}{Y}EXAMPLES:{NC}
-
-  {C}use websec{NC}
-  {C}set operation recon{NC}
-  {C}run https://example.com{NC}
-
-  {C}set operation dirs{NC}
-  {C}run https://example.com{NC}
-
-  {C}set operation sqli{NC}
-  {C}set test_url https://example.com/search?q=test{NC}
-  {C}run https://example.com{NC}
-
-  {C}set operation full{NC}
-  {C}run https://target.com{NC}
-
-{BOLD}{R}⚠  LEGAL DISCLAIMER:{NC}
-  Only test systems you own or have explicit written authorization to test.
-  Unauthorized testing is illegal under the CFAA, Computer Misuse Act, and similar laws.
-  Always read and follow bug bounty program rules and scope before testing.
-
-{BOLD}{Y}LEARNING RESOURCES:{NC}
-  PortSwigger Web Security Academy: https://portswigger.net/web-security (FREE)
-  OWASP Testing Guide: https://owasp.org/www-project-web-security-testing-guide/
-  HackTheBox: https://www.hackthebox.com
-  Bug Bounty Platforms: HackerOne, Bugcrowd, Intigriti
-""")
-
-# ============================================================================
 # MAIN
 # ============================================================================
 
+def _print_summary(result: dict):
+    """Print a clean formatted summary to stderr."""
+    data = result.get("data", {})
+    fc = data.get("finding_count", {})
+
+    parts = []
+    if fc.get("critical"):
+        parts.append(f"{R}{BOLD}{fc['critical']} critical{NC}")
+    if fc.get("high"):
+        parts.append(f"{R}{fc['high']} high{NC}")
+    if fc.get("medium"):
+        parts.append(f"{Y}{fc['medium']} medium{NC}")
+    if fc.get("low"):
+        parts.append(f"{C}{fc['low']} low{NC}")
+    if fc.get("info"):
+        parts.append(f"{B}{fc['info']} info{NC}")
+
+    findings_str = "  ".join(parts) if parts else f"{G}none{NC}"
+
+    line = "─" * 54
+    print(f"\n{BOLD}{W}┌─ RESULTS {line}{NC}", file=sys.stderr)
+    print(f"{W}│{NC}  target     {C}{data.get('target', '')}{NC}", file=sys.stderr)
+    print(f"{W}│{NC}  operation  {data.get('operation', '')}", file=sys.stderr)
+    print(f"{W}│{NC}  findings   {findings_str}", file=sys.stderr)
+    print(f"{BOLD}{W}└{line}─{NC}\n", file=sys.stderr)
+
+
 def main():
     if len(sys.argv) > 1 and sys.argv[1] in ("--help", "-h", "help"):
-        show_help()
+        print(banner())
+        print(f"""
+{BOLD}{Y}OPERATIONS:{NC}
+
+  {G}recon{NC}          Full web OSINT (DNS, WHOIS, SSL, robots, headers, tech stack)
+  {G}headers{NC}        HTTP security headers audit
+  {G}cors{NC}           CORS misconfiguration testing
+  {G}cookies{NC}        Cookie security flag audit
+  {G}dirs{NC}           Directory and sensitive file discovery
+  {G}sqli{NC}           SQL injection (error-based + time-based blind)
+  {G}xss{NC}            Reflected XSS detection
+  {G}csrf{NC}           CSRF token detection
+  {G}bypass_403{NC}     403 bypass via headers and path tricks
+  {G}open_redirect{NC}  Open redirect testing
+  {G}framework_cves{NC} Jira/AEM/Confluence CVE path probes
+  {G}file_upload{NC}    File upload endpoint detection
+  {G}rate_limit{NC}     Rate limiting check
+  {G}spider{NC}         Web crawler / site mapper
+  {G}dork{NC}           Google dork generator
+  {G}ssl{NC}            SSL/TLS deep analysis
+  {G}waf{NC}            WAF detection
+  {G}full{NC}           Complete assessment (all operations)
+
+{BOLD}{Y}PARAMETERS:{NC}
+  operation             Operation to run (see above)
+  test_url              URL with parameters for sqli/xss/redirect testing
+  bypass_path           Path to test for 403 bypass (default: /admin)
+  cookies               Cookie string (key=val; key2=val2)
+  headers_str           Extra headers (Key: Value; Key2: Value2)
+  user_agent            Custom User-Agent string
+  threads               Concurrent threads for discovery (default: 10)
+  timeout               Request timeout in seconds (default: 10)
+  max_pages             Max pages for spider (default: 50)
+  wordlist_file         Path to custom wordlist for dirs operation
+  rate_limit_attempts   Number of requests for rate limit test (default: 10)
+  verbose               Show verbose output (true/false)
+
+{BOLD}{R}LEGAL DISCLAIMER:{NC}
+  Only test systems you own or have explicit written authorization to test.
+  Unauthorized testing is illegal under the CFAA, Computer Misuse Act, and similar laws.
+""")
         sys.exit(0)
 
     try:
@@ -1748,6 +2026,7 @@ def main():
 
     try:
         result = tool.execute()
+        _print_summary(result)
         print(json.dumps(result, indent=2, default=str))
     except KeyboardInterrupt:
         print(json.dumps({"success": False, "errors": ["Interrupted by user"]}))

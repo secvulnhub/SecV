@@ -292,48 +292,41 @@ run 192.168.1.0/24
 
 ---
 
-### `websec` — Web Security Research Tool
+### `websec` — Web Offensive Tool
 
-Burp Suite-style terminal tool for bug bounty and web security research. Covers DNS/WHOIS/SSL OSINT, security headers audit, CORS misconfiguration testing, cookie flag analysis, directory discovery, error-based SQLi, reflected XSS, web spidering, Google dork generation, WAF fingerprinting, and a built-in OWASP vulnerability knowledge base. Every operation includes `[LEARN]` context. Works with stdlib only, enhanced with `requests` and `beautifulsoup4`.
+Full-stack web attack surface tool. DNS/WHOIS/SSL OSINT, security headers, CORS, cookies, directory brute-force, error-based + time-blind SQLi, reflected XSS, CSRF, 403 bypass, open redirect, Jira/AEM/Confluence CVEs, WAF fingerprinting, web spidering, and Google dorks. Authenticated scanning via cookies/custom headers. Works with stdlib; add `requests` for active testing, `beautifulsoup4` for HTML-aware spidering.
 
-| Operation   | Description                                                          |
-|-------------|----------------------------------------------------------------------|
-| `recon`     | DNS, WHOIS, SSL cert, robots.txt, Wayback Machine, tech stack        |
-| `headers`   | Security headers audit (HSTS, CSP, X-Frame-Options, etc.)           |
-| `cors`      | CORS misconfiguration: wildcard, origin reflection, credentials      |
-| `cookies`   | Cookie flag audit: Secure, HttpOnly, SameSite                        |
-| `dirs`      | Directory/file discovery with 100+ built-in paths + custom wordlist  |
-| `sqli`      | Error-based SQL injection (15+ database error patterns)              |
-| `xss`       | Reflected XSS via input reflection testing                           |
-| `spider`    | Crawl site, map URLs, forms, JS files                                |
-| `dork`      | Generate 18+ Google dork queries and OSINT resource links            |
-| `ssl`       | Deep SSL/TLS: version, cipher suites, cert details                   |
-| `waf`       | Detect Cloudflare, AWS WAF, ModSecurity, Akamai, Imperva, F5, Sucuri |
-| `full`      | All non-intrusive checks in one pass                                 |
-| `vulnlib`   | Browse built-in OWASP vulnerability knowledge base                   |
+| Operation        | Description                                                             |
+|------------------|-------------------------------------------------------------------------|
+| `recon`          | DNS, WHOIS, SSL cert, robots.txt, Wayback Machine, tech stack           |
+| `headers`        | Security headers audit (HSTS, CSP, X-Frame-Options, etc.)              |
+| `cors`           | CORS: wildcard, origin reflection, credentials misconfig                |
+| `cookies`        | Cookie flag audit: Secure, HttpOnly, SameSite                           |
+| `dirs`           | Directory brute-force with 100+ built-in paths + custom wordlist        |
+| `sqli`           | Error-based + time-blind SQLi (15+ DB patterns, MySQL/PgSQL/MSSQL)     |
+| `xss`            | Reflected XSS via input parameter reflection                            |
+| `csrf`           | CSRF token detection on all forms                                       |
+| `bypass_403`     | 403 bypass via header injection and path manipulation                   |
+| `open_redirect`  | Open redirect via 12+ common redirect parameter names                   |
+| `framework_cves` | Jira/AEM/Confluence CVE path probing (15+ known CVE paths)             |
+| `file_upload`    | File upload form and endpoint detection                                  |
+| `rate_limit`     | Rate limit enforcement check (10 rapid requests)                        |
+| `spider`         | Crawl site breadth-first, map URLs, forms, JS files                     |
+| `dork`           | Generate 18+ Google dork queries + OSINT resource links                 |
+| `ssl`            | SSL/TLS: version, cipher suites, cert details, expiry                   |
+| `waf`            | WAF fingerprinting: Cloudflare, AWS, ModSecurity, Akamai, Imperva, F5  |
+| `full`           | All checks in one pass                                                  |
 
 ```bash
 use websec
-set operation recon
+set operation sqli
+set test_url https://example.com/search?q=test
 run https://example.com
 
-# Directory discovery with custom wordlist
+# 403 bypass
 use websec
-set operation dirs
-set threads 20
-set wordlist_file /usr/share/seclists/Discovery/Web-Content/common.txt
-run https://example.com
-```
-
----
-
-### `webscan` — Web Vulnerability Scanner
-
-OWASP Top 10 web scanner: error-based and time-based SQL injection (MySQL, PostgreSQL, MSSQL), reflected XSS, CSRF detection, 403 bypass (header injection + path tricks), open redirect, Jira/AEM/Confluence CVEs, security headers audit, and file upload detection. Supports authenticated scanning via cookies.
-
-```bash
-use webscan
-set url https://example.com/search?q=test
+set operation bypass_403
+set bypass_path /admin
 run https://example.com
 ```
 

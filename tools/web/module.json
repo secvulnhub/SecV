@@ -2,8 +2,8 @@
   "name": "websec",
   "version": "1.0.0",
   "category": "web",
-  "description": "Burp Suite-style web security research tool: OSINT, headers, CORS, cookies, SQLi, XSS, directory discovery with built-in learning",
-  "author": "SecVulnHub Team",
+  "description": "Full-stack web offensive tool: OSINT, headers, CORS, cookies, SQLi (error+time-blind), XSS, CSRF, 403 bypass, open redirect, framework CVEs, WAF fingerprinting, directory discovery, spidering, Google dorks",
+  "author": "dezthejackal",
   "executable": "python3 websec.py",
 
   "dependencies": ["python3"],
@@ -272,18 +272,39 @@
   "inputs": {
     "operation": {
       "type": "string",
-      "description": "Security operation to perform",
+      "description": "Operation: recon, headers, cors, cookies, dirs, sqli, xss, csrf, bypass_403, open_redirect, framework_cves, file_upload, rate_limit, spider, dork, ssl, waf, full",
       "required": false,
       "default": "recon"
     },
     "test_url": {
       "type": "string",
-      "description": "URL with parameters for injection testing",
+      "description": "URL with query params for SQLi/XSS testing (e.g. https://example.com/search?q=test)",
+      "required": false
+    },
+    "bypass_path": {
+      "type": "string",
+      "description": "Path to test 403 bypass on (used with bypass_403 operation)",
+      "required": false,
+      "default": "/admin"
+    },
+    "cookies": {
+      "type": "string",
+      "description": "Session cookies for authenticated scanning (key=value; key2=value2)",
+      "required": false
+    },
+    "headers_str": {
+      "type": "string",
+      "description": "Custom request headers (Header-Name: value; Header2: value)",
+      "required": false
+    },
+    "user_agent": {
+      "type": "string",
+      "description": "User-Agent string for requests",
       "required": false
     },
     "threads": {
       "type": "number",
-      "description": "Concurrent threads (1-50)",
+      "description": "Concurrent threads for directory discovery (1-50)",
       "required": false,
       "default": 10
     },
@@ -295,13 +316,13 @@
     },
     "max_pages": {
       "type": "number",
-      "description": "Max pages for spider",
+      "description": "Max pages for spider operation",
       "required": false,
       "default": 50
     },
     "wordlist_file": {
       "type": "string",
-      "description": "Path to custom wordlist",
+      "description": "Path to custom wordlist for directory discovery",
       "required": false
     },
     "verbose": {
