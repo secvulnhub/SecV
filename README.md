@@ -598,6 +598,6 @@ MIT © 2024–2026 SecVulnHub
 
 <div align="center">
 
-**SecV** · zephra · built by 0xb0rn3
+**SecV** · tauri · built by 0xb0rn3
 
 </div>
