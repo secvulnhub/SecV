@@ -1,8 +1,8 @@
 {
   "name": "websec",
-  "version": "1.0.0",
+  "version": "2.4.0",
   "category": "web",
-  "description": "Full-stack web offensive tool: OSINT, headers, CORS, cookies, SQLi (error+time-blind), XSS, CSRF, 403 bypass, open redirect, framework CVEs, WAF fingerprinting, directory discovery, spidering, Google dorks",
+  "description": "Full-stack web offensive tool: OSINT, headers, CORS, cookies, SQLi (error+time-blind), XSS, CSRF, 403 bypass, open redirect, framework CVEs, WordPress attack surface, WAF fingerprinting, directory discovery, spidering, Google dorks",
   "author": "dezthejackal",
   "executable": "python3 websec.py",
 
@@ -34,7 +34,7 @@
           "ssl",
           "waf",
           "full",
-          "vulnlib"
+          "wordpress"
         ],
         "default": "recon",
         "examples": [
@@ -272,7 +272,7 @@
   "inputs": {
     "operation": {
       "type": "string",
-      "description": "Operation: recon, headers, cors, cookies, dirs, sqli, xss, csrf, bypass_403, open_redirect, framework_cves, file_upload, rate_limit, spider, dork, ssl, waf, full",
+      "description": "Operation: recon, headers, cors, cookies, dirs, sqli, xss, csrf, bypass_403, open_redirect, framework_cves, file_upload, rate_limit, spider, dork, ssl, waf, wordpress, stealth, full",
       "required": false,
       "default": "recon"
     },
@@ -328,6 +328,41 @@
     "verbose": {
       "type": "boolean",
       "description": "Verbose output",
+      "required": false,
+      "default": false
+    },
+    "stealth": {
+      "type": "boolean",
+      "description": "Enable stealth mode: UA rotation + browser-like headers on every request",
+      "required": false,
+      "default": false
+    },
+    "rotate_ua": {
+      "type": "boolean",
+      "description": "Rotate User-Agent on every request from a pool of 20+ real browser UAs",
+      "required": false,
+      "default": false
+    },
+    "delay": {
+      "type": "number",
+      "description": "Fixed delay in seconds between requests (e.g. 0.5)",
+      "required": false,
+      "default": 0
+    },
+    "jitter": {
+      "type": "number",
+      "description": "Add 0-N seconds of random jitter to each request delay (e.g. 1.5)",
+      "required": false,
+      "default": 0
+    },
+    "proxy": {
+      "type": "string",
+      "description": "Proxy URL to route traffic through (http://host:port or socks5://host:port)",
+      "required": false
+    },
+    "waf_evasion": {
+      "type": "boolean",
+      "description": "Use obfuscated/encoded payloads to bypass WAF filters during SQLi and XSS tests",
       "required": false,
       "default": false
     }

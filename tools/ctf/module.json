@@ -1,0 +1,196 @@
+{
+  "name": "ctfpwn",
+  "version": "1.0.0",
+  "category": "ctf",
+  "description": "CTF autopwn module — syncs github.com/0xb0rn3/CTFs, lists all rooms by platform, runs standalone exploitation scripts for TryHackMe and HackTheBox, auto-extracts flags, saves output to ~/ZX01C/CTF/<room>/",
+  "author": "dezthejackal | 0xb0rn3",
+  "executable": "python3 ctfpwn.py",
+
+  "dependencies": ["python3", "git"],
+
+  "optional_dependencies": {
+    "nmap":      "Port scanning — used by most autopwn scripts",
+    "gobuster":  "Directory enumeration — used by web-based CTF scripts",
+    "sshpass":   "Automated SSH login — used by privilege escalation scripts",
+    "node":      "JavaScript exploit execution",
+    "hydra":     "Brute force — used by some rooms"
+  },
+
+  "help": {
+    "description": "Pulls the latest autopwn scripts from 0xb0rn3/CTFs, presents them in a structured list, and runs them against a target machine. Supports TryHackMe and HackTheBox rooms. Automatically detects the latest added CTF, extracts flags from output, and saves everything to ~/ZX01C/CTF/<room>/",
+
+    "parameters": {
+      "operation": {
+        "description": "The operation to perform",
+        "type": "string",
+        "options": ["list", "pull", "latest", "run", "info", "search"],
+        "default": "list",
+        "examples": [
+          "list   — list all CTFs sorted newest first",
+          "pull   — clone/update repo + sync all rooms to ~/ZX01C/CTF/",
+          "latest — show newest CTF; run its script if target IP provided",
+          "run    — run a specific room's autopwn against target IP",
+          "info   — show README/writeup for a room",
+          "search — full-text search across room names, writeups, scripts"
+        ]
+      },
+      "ctf": {
+        "description": "Room name for run/info operations (case-insensitive, partial match supported)",
+        "type": "string",
+        "required": false,
+        "examples": ["simplectf", "Rabbit_Store", "0day", "Silver_Platter"]
+      },
+      "platform": {
+        "description": "CTF platform filter",
+        "type": "string",
+        "default": "THM",
+        "options": ["THM", "HTB", "ALL"]
+      },
+      "query": {
+        "description": "Search term for 'search' operation — searched across room names, writeups, and scripts",
+        "type": "string",
+        "required": false,
+        "examples": ["sqli", "ssti", "shellshock", "CVE-2019", "privesc", "sudo"]
+      }
+    },
+
+    "examples": [
+      {
+        "description": "List all CTFs newest first",
+        "commands": [
+          "use ctfpwn",
+          "set operation list",
+          "run none"
+        ]
+      },
+      {
+        "description": "Pull all CTFs to ~/ZX01C/CTF/",
+        "commands": [
+          "use ctfpwn",
+          "set operation pull",
+          "run none"
+        ]
+      },
+      {
+        "description": "Show latest CTF and auto-run if target provided",
+        "commands": [
+          "use ctfpwn",
+          "set operation latest",
+          "run 10.10.85.42"
+        ]
+      },
+      {
+        "description": "Run a specific room's autopwn script",
+        "commands": [
+          "use ctfpwn",
+          "set operation run",
+          "set ctf simplectf",
+          "run 10.10.85.42"
+        ]
+      },
+      {
+        "description": "Show README / writeup for a room",
+        "commands": [
+          "use ctfpwn",
+          "set operation info",
+          "set ctf Rabbit_Store",
+          "run none"
+        ]
+      },
+      {
+        "description": "Search for SSTI-related rooms",
+        "commands": [
+          "use ctfpwn",
+          "set operation search",
+          "set query ssti",
+          "run none"
+        ]
+      },
+      {
+        "description": "Search for rooms with sudo privilege escalation",
+        "commands": [
+          "use ctfpwn",
+          "set operation search",
+          "set query sudo",
+          "run none"
+        ]
+      }
+    ],
+
+    "notes": [
+      "Repo is cloned to ~/.secv/ctfs/ on first use and pulled on every subsequent run",
+      "All room files are mirrored to ~/ZX01C/CTF/<room_name>/ during pull",
+      "Run logs saved to ~/ZX01C/CTF/<room>/run_<timestamp>.log",
+      "Flags are automatically extracted from output (THM{}, HTB{}, flag{} patterns)",
+      "Scripts accept <target_ip> as first positional argument",
+      "Connect to the platform VPN before running any script",
+      "search scans room names, README writeups, AND the exploit scripts themselves"
+    ],
+
+    "rooms": {
+      "THM": [
+        "0day",
+        "agent_sudo",
+        "AttacktiveDirectory",
+        "Biohazard",
+        "Blog",
+        "bounty_hacker",
+        "Cheese-CTF",
+        "chill-hack",
+        "crypto_failures",
+        "Dogcat",
+        "Ghizer",
+        "Hidden_Deep_Into_My_Heart",
+        "pickle-rick",
+        "Rabbit_Store",
+        "Relevant",
+        "rootmeCTF",
+        "Silver_Platter",
+        "simplectf",
+        "sticker_shop",
+        "UltraTech",
+        "VulnNet-Internal",
+        "W1seGuy",
+        "Wgel",
+        "Wonderland",
+        "Year of the pig"
+      ],
+      "HTB": []
+    }
+  },
+
+  "inputs": {
+    "operation": {
+      "type": "string",
+      "description": "list | pull | latest | run | info | search",
+      "required": false,
+      "default": "list"
+    },
+    "ctf": {
+      "type": "string",
+      "description": "Room name for run/info (case-insensitive, partial match)",
+      "required": false
+    },
+    "platform": {
+      "type": "string",
+      "description": "Platform filter: THM | HTB | ALL",
+      "required": false,
+      "default": "THM"
+    },
+    "query": {
+      "type": "string",
+      "description": "Search term for search operation",
+      "required": false
+    }
+  },
+
+  "outputs": {
+    "findings": {
+      "type": "array",
+      "description": "Per-operation results: room metadata, run log path, extracted flags"
+    }
+  },
+
+  "timeout": 3600,
+  "concurrent": false
+}

