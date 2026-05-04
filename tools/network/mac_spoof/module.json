@@ -33,7 +33,7 @@
       "action": {
         "description": "Operation to perform",
         "type": "string",
-        "options": ["start", "stop", "status"],
+        "options": ["start", "stop", "status", "vendor", "restore", "history"],
         "default": "start"
       },
       "mode": {
@@ -78,9 +78,27 @@
         "type": "boolean",
         "options": ["true", "false"],
         "default": "false"
+      },
+      "vendor": {
+        "description": "Vendor name for vendor_spoof action (apple, samsung, intel, cisco, dell)",
+        "type": "string",
+        "options": ["apple", "samsung", "intel", "cisco", "dell"],
+        "default": ""
+      },
+      "stealth": {
+        "description": "Rotate MAC only on reconnect events instead of a fixed interval",
+        "type": "boolean",
+        "options": ["true", "false"],
+        "default": "false"
+      },
+      "persistent": {
+        "description": "Write a systemd user service so mac_spoof starts at login",
+        "type": "boolean",
+        "options": ["true", "false"],
+        "default": "false"
       }
     },
-    
+
     "examples": [
       {
         "description": "Smart mode - safest for daily use",
@@ -230,7 +248,7 @@
     },
     "action": {
       "type": "string",
-      "description": "Action: start, stop, or status",
+      "description": "Action: start, stop, status, vendor, restore, or history",
       "required": false,
       "default": "start"
     },
@@ -269,9 +287,27 @@
       "description": "Preview mode without changes",
       "required": false,
       "default": false
+    },
+    "vendor": {
+      "type": "string",
+      "description": "Vendor name for vendor action (apple, samsung, intel, cisco, dell)",
+      "required": false,
+      "default": ""
+    },
+    "stealth": {
+      "type": "boolean",
+      "description": "Rotate only on reconnect events, not on a fixed timer",
+      "required": false,
+      "default": false
+    },
+    "persistent": {
+      "type": "boolean",
+      "description": "Install a systemd user service for login persistence",
+      "required": false,
+      "default": false
     }
   },
-  
+
   "outputs": {
     "action": {
       "type": "string",

@@ -1,6 +1,6 @@
 {
   "name": "ctfpwn",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "category": "ctf",
   "description": "CTF autopwn module — syncs github.com/0xb0rn3/CTFs, lists all rooms by platform, runs standalone exploitation scripts for TryHackMe and HackTheBox, auto-extracts flags, saves output to ~/ZX01C/CTF/<room>/",
   "author": "dezthejackal | 0xb0rn3",
@@ -23,7 +23,7 @@
       "operation": {
         "description": "The operation to perform",
         "type": "string",
-        "options": ["list", "pull", "latest", "run", "info", "search"],
+        "options": ["list", "pull", "latest", "run", "info", "search", "new"],
         "default": "list",
         "examples": [
           "list   — list all CTFs sorted newest first",
@@ -31,7 +31,8 @@
           "latest — show newest CTF; run its script if target IP provided",
           "run    — run a specific room's autopwn against target IP",
           "info   — show README/writeup for a room",
-          "search — full-text search across room names, writeups, scripts"
+          "search — full-text search across room names, writeups, scripts",
+          "new    — show rooms added to the repo since the last pull"
         ]
       },
       "ctf": {

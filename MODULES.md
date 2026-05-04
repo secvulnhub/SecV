@@ -2,8 +2,8 @@
 
 Complete reference of all SecV security modules.
 
-**Version:** 2.4.0  
-**Total Modules:** 6  
+**Version:** 2.4.1  
+**Total Modules:** 7  
 **Categories:** network (3), mobile (2), web (1)
 
 ---
@@ -55,10 +55,10 @@ secV (netrecon) ❯ run 192.168.1.0/24
 
 ---
 
-### `mac_spoof` v2.1.0
+### `mac_spoof` v2.2.0
 **Connection-Aware MAC Address Rotator**
 
-Per-interface background daemons with multiple rotation strategies, active connection tracking (no drops), locally-administered OUI prefix (`02:00:00`), and state persistence across restarts.
+Per-interface background daemons with multiple rotation strategies, active connection tracking (no drops), locally-administered OUI prefix (`02:00:00`), vendor OUI spoofing, rotation history, stealth mode (rotate on disconnect only), and persistent systemd service support.
 
 **Parameters:**
 
@@ -66,19 +66,27 @@ Per-interface background daemons with multiple rotation strategies, active conne
 |-----------|------|---------|-------------|
 | `iface` | string | — | Interface name or comma-separated list |
 | `all_up` | boolean | `false` | Target all UP non-loopback interfaces |
-| `action` | string | `start` | `start`, `stop`, `status` |
+| `action` | string | `start` | `start`, `stop`, `status`, `vendor`, `restore`, `history` |
 | `mode` | string | `smart` | `smart`, `session`, `periodic`, `aggressive` |
 | `interval` | float | `30.0` | Rotation interval (seconds, periodic mode) |
+| `vendor` | string | — | Vendor OUI pool: `apple`, `samsung`, `intel`, `cisco`, `dell` |
+| `stealth` | boolean | `false` | Only rotate on disconnect events |
+| `persistent` | boolean | `false` | Write a systemd user service to auto-start on login |
 | `preserve_connections` | boolean | `true` | Skip change when active TCP connections exist |
 | `wait_for_quiet` | boolean | `true` | Wait for connections to drop before rotating |
 | `max_wait` | integer | `30` | Max wait time (seconds) before forcing change |
 | `dry_run` | boolean | `false` | Preview without applying changes |
 
-**Modes:**
-- `smart` — changes only when no active connections (safest)
-- `session` — changes between connection sessions
-- `periodic` — fixed interval with connection checks
-- `aggressive` — rapid rotation regardless of connections
+**Actions:**
+
+| Action | Description |
+|--------|-------------|
+| `start` | Start rotation daemon (locally-administered OUI or vendor if set) |
+| `stop` | Kill daemon and restore original MAC |
+| `status` | Show current MAC, original, PID, uptime, rotation count |
+| `vendor` | Apply a single vendor-spoofed MAC without starting a daemon |
+| `restore` | Restore original MAC from state file (or ethtool -P fallback) |
+| `history` | Show the rotation log for the interface |
 
 **Quick Start:**
 ```
@@ -86,6 +94,11 @@ sudo secV
 secV ❯ use mac_spoof
 secV (mac_spoof) ❯ set iface wlan0
 secV (mac_spoof) ❯ set interval 300
+secV (mac_spoof) ❯ run localhost
+
+# Spoof as Apple hardware
+secV (mac_spoof) ❯ set action vendor
+secV (mac_spoof) ❯ set vendor apple
 secV (mac_spoof) ❯ run localhost
 ```
 
@@ -247,16 +260,16 @@ run connected
 
 ---
 
-### `ctfpwn` v1.0.0
+### `ctfpwn` v1.1.0
 **CTF Autopwn**
 
-Syncs `github.com/0xb0rn3/CTFs`, lists all rooms newest first, and runs standalone autopwn scripts. Extracts flags (THM{}/HTB{} patterns), saves output to `~/ZX01C/CTF/<room>/`.
+Syncs `github.com/0xb0rn3/CTFs`, lists all rooms newest first, and runs standalone autopwn scripts. Extracts flags (THM{}/HTB{} patterns), saves output to `~/ZX01C/CTF/<room>/`. Tracks room state between pulls so new rooms are automatically detected and flagged.
 
 **Parameters:**
 
 | Parameter  | Type   | Default | Description |
 |------------|--------|---------|-------------|
-| `operation`| string | `list`  | `list` \| `pull` \| `latest` \| `run` \| `info` \| `search` |
+| `operation`| string | `list`  | `list` \| `pull` \| `latest` \| `run` \| `info` \| `search` \| `new` |
 | `ctf`      | string | —       | Room name (case-insensitive, partial match) |
 | `platform` | string | `THM`   | `THM` \| `HTB` \| `ALL` |
 | `query`    | string | —       | Search term for `search` operation |
@@ -265,12 +278,13 @@ Syncs `github.com/0xb0rn3/CTFs`, lists all rooms newest first, and runs standalo
 
 | Operation | Description |
 |-----------|-------------|
-| `list`    | List all CTFs sorted newest first |
-| `pull`    | Clone/update repo + mirror to `~/ZX01C/CTF/` |
+| `list`    | List all CTFs sorted newest first; new rooms since last pull are marked |
+| `pull`    | Clone/update repo + mirror to `~/ZX01C/CTF/`; saves state for new-room detection |
 | `latest`  | Show newest CTF; auto-run if target IP given |
 | `run`     | Run specific room's autopwn against target IP |
 | `info`    | Show README/writeup for a room |
-| `search`  | Full-text search across names, writeups, scripts |
+| `search`  | Full-text search across names, writeups, and exploit scripts |
+| `new`     | Show rooms added to the repo since the last pull |
 
 **Quick Start:**
 ```
@@ -284,7 +298,12 @@ secV (ctfpwn) ❯ run 10.10.85.42
 secV (ctfpwn) ❯ set operation run
 secV (ctfpwn) ❯ set ctf Rabbit_Store
 secV (ctfpwn) ❯ run 10.10.85.42
+
+secV (ctfpwn) ❯ set operation new
+secV (ctfpwn) ❯ run none
 ```
+
+**Dependencies:** `python3`, `git` (required); `nmap`, `gobuster`, `sshpass`, `hydra`, `nodejs` (optional, used by individual room scripts)
 
 ---
 
@@ -384,6 +403,10 @@ Full-stack web attack surface tool. DNS/WHOIS/SSL OSINT, security headers, CORS,
 | `waf`            | WAF fingerprinting: Cloudflare, AWS, ModSecurity, Akamai, Imperva, F5  |
 | `wordpress`      | WP attack surface: user enum (REST+author), xmlrpc, plugins, version   |
 | `stealth`        | Show stealth config, print live headers, test proxy reachability        |
+| `php_payload`    | Generate PHP reverse shell, webshell, cmd page, or obfuscated payload  |
+| `msf_payload`    | msfvenom web payloads (php/war/jsp/aspx) with a matching handler.rc    |
+| `fuzz`           | Directory/path fuzzing — auto-picks ffuf, gobuster, or dirbuster       |
+| `burp_export`    | Raw HTTP request file, Burp scope JSON, intruder payload list           |
 | `full`           | All checks in one pass                                                  |
 
 **Quick Start:**
@@ -399,6 +422,17 @@ secV (websec) ❯ set proxy socks5://127.0.0.1:9050
 secV (websec) ❯ set delay 0.5
 secV (websec) ❯ set jitter 1.5
 secV (websec) ❯ set waf_evasion true
+secV (websec) ❯ run https://example.com
+
+# Generate all PHP payload types
+secV (websec) ❯ set operation php_payload
+secV (websec) ❯ set php_type all
+secV (websec) ❯ set lhost 10.10.14.1
+secV (websec) ❯ run https://example.com
+
+# Directory fuzzing with custom wordlist
+secV (websec) ❯ set operation fuzz
+secV (websec) ❯ set extensions php,html,txt
 secV (websec) ❯ run https://example.com
 ```
 

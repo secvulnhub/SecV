@@ -36,6 +36,60 @@ secV (netrecon) ❯ run 192.168.1.0/24
 
 ---
 
+## Requirements
+
+The installer takes care of most of this automatically. Run `./install.sh` and it figures out your distro and installs what's missing. The table below is for anyone who wants to know exactly what goes where.
+
+**Core**
+
+- Go 1.21+ — compiles the secV binary
+- Python 3.8+ — runs all modules
+- git — CTF repo sync, secV self-update
+
+**Quick install**
+
+```bash
+# Arch
+sudo pacman -S go python python-pip git nmap masscan arp-scan gobuster hydra sshpass nodejs
+
+# Debian / Ubuntu / Kali
+sudo apt install golang-go python3 python3-pip git nmap masscan arp-scan gobuster hydra sshpass nodejs
+
+# Python packages (covers all modules)
+pip3 install requests beautifulsoup4 dnspython scapy psutil netifaces frida-tools objection flask websockets cryptography shodan
+```
+
+**Per-module breakdown**
+
+| Module | System packages | Python packages |
+|--------|----------------|-----------------|
+| `netrecon` | `nmap`, `masscan`, `rustscan`¹, `arp-scan` | `requests`, `scapy`, `shodan` |
+| `android_pentest` | `adb`, `apktool`, `msfvenom`, `qrencode`, `nodejs`, `bore`², `cloudflared`³ | `frida-tools`, `objection`, `flask`, `websockets`, `cryptography` |
+| `ctfpwn` | `nmap`, `gobuster`, `sshpass`, `hydra`, `nodejs` | — |
+| `websec` | `ffuf`⁴, `gobuster`, `msfvenom` (for msf_payload), `tor` (optional) | `requests`, `beautifulsoup4`, `dnspython` |
+| `mac_spoof` | `iproute2` (pre-installed on most distros) | `psutil`, `netifaces` |
+| `wifi_monitor` | `nmap` | `scapy`, `psutil` |
+| `ios_pentest` | `libimobiledevice`, `ideviceinstaller` | `requests` |
+
+¹ rustscan: `cargo install rustscan` — or grab a binary from [GitHub releases](https://github.com/RustScan/RustScan/releases)
+
+² bore v0.5.1 (required for WAN mode and bore tunnel fallback):
+```bash
+curl -sL https://github.com/ekzhang/bore/releases/download/v0.5.1/bore-v0.5.1-x86_64-unknown-linux-musl.tar.gz | tar xz -C ~/.local/bin
+```
+
+³ cloudflared: optional, used by `wan_expose`. If it's not installed, the module falls back to bore automatically.
+
+⁴ ffuf: `go install github.com/ffuf/ffuf/v2@latest` — or from [GitHub releases](https://github.com/ffuf/ffuf/releases)
+
+**Optional extras**
+
+- `jadx` — Java decompiler for APK analysis in `android_pentest app_scan`. Grab from [GitHub releases](https://github.com/skylot/jadx/releases).
+- Shodan API key — enriches `netrecon` with Shodan data. `pip3 install shodan`, then `set shodan_key YOUR_KEY`.
+- Tor — enables proxy routing in `websec` via `socks5://127.0.0.1:9050`. `sudo apt install tor && sudo systemctl start tor`.
+
+---
+
 ## Installation
 
 ```bash
@@ -375,13 +429,40 @@ run device
 
 ### `mac_spoof` — MAC Address Rotation
 
-Per-interface background daemons with locally-administered address generation, configurable rotation interval, and state persistence.
+Per-interface background daemons with locally-administered address generation, configurable rotation interval, and state persistence. Vendor spoofing lets you pick an OUI prefix from real hardware (Apple, Samsung, Intel, Cisco, Dell) so your address looks like a legitimate device on the network.
+
+| Action | Description |
+|--------|-------------|
+| `start` | Start rotation daemon for the selected interface |
+| `stop` | Kill daemon and restore original MAC from state |
+| `status` | Show current MAC, original MAC, PID, uptime, and rotation count |
+| `restore` | Restore the original MAC without killing a running daemon |
+| `history` | Show the rotation log for the interface |
+| `vendor` | Spoof as a real vendor using OUI prefix + random suffix |
+
+| Parameter    | Default | Description |
+|-------------|---------|-------------|
+| `iface`     | —       | Interface name, comma-separated list, or omit with `all_up true` |
+| `all_up`    | `false` | Auto-select all non-loopback interfaces that are UP |
+| `action`    | `start` | Action to run (see table above) |
+| `interval`  | `0.5`   | Seconds between MAC rotations |
+| `dry_run`   | `false` | Preview changes without applying |
+| `vendor`    | —       | Vendor name: `apple`, `samsung`, `intel`, `cisco`, `dell` |
+| `stealth`   | `false` | Only rotate on disconnect events instead of a fixed interval |
+| `persistent`| `false` | Write a systemd user service so the daemon starts on login |
 
 ```bash
 sudo secV
 use mac_spoof
 set iface wlan0
 set interval 300
+run localhost
+
+# spoof as Apple hardware
+use mac_spoof
+set iface wlan0
+set action vendor
+set vendor apple
 run localhost
 ```
 
@@ -424,6 +505,10 @@ Full-stack web attack surface tool. DNS/WHOIS/SSL OSINT, security headers, CORS,
 | `waf`            | WAF fingerprinting: Cloudflare, AWS, ModSecurity, Akamai, Imperva, F5  |
 | `wordpress`      | WP attack surface: user enum (REST+author), xmlrpc, plugins, version   |
 | `stealth`        | Show stealth config, print live headers, test proxy reachability        |
+| `php_payload`    | PHP reverse shell, webshell, cmd page, or obfuscated payload           |
+| `msf_payload`    | msfvenom web payloads (php/war/jsp/aspx) and a matching handler.rc     |
+| `fuzz`           | Directory/path fuzzing with ffuf, gobuster, or dirbuster (auto-picked) |
+| `burp_export`    | Raw HTTP request capture, Burp scope JSON, intruder payload list        |
 | `full`           | All checks in one pass                                                  |
 
 **Stealth parameters:**
@@ -436,6 +521,26 @@ Full-stack web attack surface tool. DNS/WHOIS/SSL OSINT, security headers, CORS,
 | `jitter`      | 0       | Random 0–N second offset added to each delay                  |
 | `proxy`       | —       | Proxy URL: `http://host:port` or `socks5://host:port`         |
 | `waf_evasion` | false   | Obfuscated SQLi/XSS payload variants to bypass WAF signatures |
+
+**Payload parameters (php_payload / msf_payload):**
+
+| Parameter      | Default | Description |
+|----------------|---------|-------------|
+| `php_type`     | `reverse` | PHP payload type: `reverse`, `webshell`, `cmd`, `obfuscated`, `all` |
+| `lhost`        | —       | Your listener IP |
+| `lport`        | `4444`  | Your listener port |
+| `php_obfuscate`| `false` | Layer base64/chr/hex obfuscation on top of the chosen type |
+| `payload_type` | `php/meterpreter/reverse_tcp` | msfvenom payload string |
+| `format`       | `raw`   | msfvenom format: `raw`, `war`, `jsp`, `aspx` |
+
+**Fuzz parameters:**
+
+| Parameter     | Default   | Description |
+|---------------|-----------|-------------|
+| `wordlist`    | built-in  | Path to a custom wordlist |
+| `threads`     | `40`      | Concurrent threads |
+| `extensions`  | —         | File extensions to try, e.g. `php,html,txt` |
+| `fuzz_engine` | auto      | Force a specific tool: `ffuf`, `gobuster`, `dirbuster` |
 
 ```bash
 # SQLi with stealth + Tor + WAF evasion

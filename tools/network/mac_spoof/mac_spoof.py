@@ -29,6 +29,14 @@ from typing import Optional, List, Dict
 STATE_DIR = Path.home() / ".secv" / "mac_spoof"
 STATE_DIR.mkdir(parents=True, exist_ok=True)
 
+VENDOR_OUIS = {
+    "apple":   ["00:1C:B3","00:17:F2","AC:DE:48","3C:07:54","A8:86:DD","00:25:00","98:01:A7","D4:9A:20","B8:FF:61","F0:18:98"],
+    "samsung": ["00:26:37","00:1D:25","00:12:47","B4:EF:FA","A0:07:98","70:F9:27","94:51:03","30:CD:A7","78:40:E4","F8:04:2E"],
+    "intel":   ["00:1B:21","00:13:02","00:16:EA","8C:8D:28","A4:C3:F0","10:02:B5","F8:16:54","B0:6E:BF","94:65:9C","48:51:B7"],
+    "cisco":   ["00:0A:41","00:1B:D4","00:1C:0F","00:23:04","5C:50:15","00:26:CB","A4:18:75","70:CA:9B","00:0E:84","2C:36:F8"],
+    "dell":    ["00:14:22","18:03:73","F8:DB:88","B0:83:FE","D4:BE:D9","00:21:70","00:1E:4F","00:23:AE","14:FE:B5","78:2B:CB"],
+}
+
 class ConnectionTracker:
     """Track active network connections to prevent disruption"""
     
@@ -100,6 +108,9 @@ class MACSpoofer:
         self.wait_for_quiet = self._parse_bool(self.params.get('wait_for_quiet', True))
         self.max_wait = int(self.params.get('max_wait', 30))
         self.preserve_connections = self._parse_bool(self.params.get('preserve_connections', True))
+        self.vendor = self.params.get('vendor', '').lower()
+        self.stealth = self._parse_bool(self.params.get('stealth', False))
+        self.persistent = self._parse_bool(self.params.get('persistent', False))
         
         self.errors = []
         self.results = {}
@@ -360,11 +371,12 @@ class MACSpoofer:
                 os.setsid()
                 sys.stdout = open('/dev/null', 'w')
                 sys.stderr = open('/dev/null', 'w')
-                
-                # Spoofing loop based on mode
+
                 changes = 0
-                
-                if self.mode == 'aggressive':
+
+                if self.stealth:
+                    self._stealth_mode(iface, changes)
+                elif self.mode == 'aggressive':
                     self._aggressive_mode(iface, changes)
                 elif self.mode == 'smart':
                     self._smart_mode(iface, changes)
@@ -374,12 +386,16 @@ class MACSpoofer:
                     self._periodic_mode(iface, changes)
                 else:
                     self._smart_mode(iface, changes)
-                    
+
             except:
                 sys.exit(1)
         else:
             # Parent process
             self.save_state(iface, pid, original_mac, self.mode)
+
+            if self.persistent:
+                self._write_persistent_service(iface)
+
             return {
                 'success': True,
                 'message': f"Started {self.mode} spoofer for {iface}",
@@ -387,7 +403,9 @@ class MACSpoofer:
                 'original_mac': original_mac,
                 'mode': self.mode,
                 'interval': self.interval,
-                'preserve_connections': self.preserve_connections
+                'preserve_connections': self.preserve_connections,
+                'stealth': self.stealth,
+                'persistent': self.persistent
             }
     
     def _aggressive_mode(self, iface: str, changes: int):
@@ -456,7 +474,150 @@ class MACSpoofer:
             if self.set_mac_graceful(iface, new_mac):
                 changes += 1
                 self.update_state(iface, changes)
-    
+
+    def _stealth_mode(self, iface: str, changes: int):
+        """Rotate only when a reconnect (DOWN -> UP transition) is detected."""
+        was_down = False
+        while True:
+            try:
+                result = subprocess.run(
+                    ['ip', 'link', 'show', iface],
+                    capture_output=True, text=True
+                )
+                is_down = 'state DOWN' in result.stdout or 'state UNKNOWN' in result.stdout
+                if was_down and not is_down:
+                    new_mac = self.generate_mac()
+                    if self.set_mac_graceful(iface, new_mac):
+                        changes += 1
+                        self.update_state(iface, changes)
+                was_down = is_down
+            except Exception:
+                pass
+            time.sleep(2)
+
+    def _write_persistent_service(self, iface: str):
+        """Write and enable a systemd user service that starts mac_spoof at login."""
+        service_dir = Path.home() / '.config' / 'systemd' / 'user'
+        service_dir.mkdir(parents=True, exist_ok=True)
+        service_name = f"mac_spoof_{iface}"
+        service_file = service_dir / f"{service_name}.service"
+
+        script_path = Path(__file__).resolve()
+        exec_cmd = (
+            f"python3 {script_path} "
+            f"iface={iface} action=start mode={self.mode} interval={self.interval}"
+        )
+
+        content = (
+            "[Unit]\n"
+            f"Description=MAC Spoofer for {iface}\n"
+            "After=network.target\n\n"
+            "[Service]\n"
+            "Type=forking\n"
+            f"ExecStart={exec_cmd}\n"
+            "Restart=on-failure\n\n"
+            "[Install]\n"
+            "WantedBy=default.target\n"
+        )
+
+        with open(service_file, 'w') as f:
+            f.write(content)
+
+        try:
+            subprocess.run(
+                ['systemctl', '--user', 'daemon-reload'],
+                capture_output=True, check=True
+            )
+            subprocess.run(
+                ['systemctl', '--user', 'enable', service_name],
+                capture_output=True, check=True
+            )
+        except Exception:
+            pass
+
+    def vendor_spoof(self, iface):
+        """Spoof MAC using a real vendor OUI prefix."""
+        if self.vendor not in VENDOR_OUIS:
+            return {
+                'success': False,
+                'message': f"Unknown vendor '{self.vendor}'. Valid: {', '.join(VENDOR_OUIS)}"
+            }
+
+        oui = random.choice(VENDOR_OUIS[self.vendor])
+        b1, b2, b3 = random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)
+        mac = f"{oui}:{b1:02x}:{b2:02x}:{b3:02x}"
+
+        if self.dry_run:
+            return {
+                'success': True,
+                'message': f"[DRY RUN] Would set {iface} to {mac}",
+                'vendor': self.vendor,
+                'applied_mac': mac
+            }
+
+        try:
+            subprocess.run(['ip', 'link', 'set', iface, 'down'], capture_output=True, check=True)
+            subprocess.run(['ip', 'link', 'set', iface, 'address', mac], capture_output=True, check=True)
+            subprocess.run(['ip', 'link', 'set', iface, 'up'], capture_output=True, check=True)
+        except subprocess.CalledProcessError as e:
+            return {'success': False, 'message': f"Failed to set MAC on {iface}: {e}"}
+
+        self._append_history(iface, mac, 'vendor')
+        return {'success': True, 'vendor': self.vendor, 'applied_mac': mac}
+
+    def restore_mac(self, iface):
+        """Restore the original or permanent MAC address."""
+        state = self.load_state(iface)
+        original_mac = state.get('original_mac') if state else None
+
+        if not original_mac:
+            try:
+                result = subprocess.run(
+                    ['ethtool', '-P', iface],
+                    capture_output=True, text=True, check=True
+                )
+                for part in result.stdout.split():
+                    if ':' in part and len(part) == 17:
+                        original_mac = part
+                        break
+            except Exception:
+                pass
+
+        if not original_mac:
+            return {'success': False, 'message': f"Could not determine original MAC for {iface}"}
+
+        try:
+            subprocess.run(['ip', 'link', 'set', iface, 'down'], capture_output=True, check=True)
+            subprocess.run(['ip', 'link', 'set', iface, 'address', original_mac], capture_output=True, check=True)
+            subprocess.run(['ip', 'link', 'set', iface, 'up'], capture_output=True, check=True)
+        except subprocess.CalledProcessError as e:
+            return {'success': False, 'message': f"Failed to restore MAC on {iface}: {e}"}
+
+        return {'success': True, 'restored_mac': original_mac}
+
+    def get_history(self, iface):
+        """Return rotation history for an interface."""
+        history_file = STATE_DIR / f"{iface}_history.json"
+        if not history_file.exists():
+            return []
+        try:
+            with open(history_file) as f:
+                return json.load(f)
+        except Exception:
+            return []
+
+    def _append_history(self, iface: str, mac: str, method: str):
+        """Append a rotation event to the interface history file."""
+        history_file = STATE_DIR / f"{iface}_history.json"
+        history = self.get_history(iface)
+        history.append({
+            'timestamp': datetime.utcnow().isoformat(),
+            'mac': mac,
+            'method': method
+        })
+        with open(history_file, 'w') as f:
+            json.dump(history, f)
+
     def stop_spoofer(self, iface):
         """Stop spoofer and restore original MAC"""
         state = self.load_state(iface)
@@ -573,6 +734,12 @@ class MACSpoofer:
                 result = self.stop_spoofer(iface)
             elif self.action == 'status':
                 result = self.status_spoofer(iface)
+            elif self.action == 'vendor':
+                result = self.vendor_spoof(iface)
+            elif self.action == 'restore':
+                result = self.restore_mac(iface)
+            elif self.action == 'history':
+                result = {'success': True, 'history': self.get_history(iface)}
             else:
                 result = {
                     'success': False,
