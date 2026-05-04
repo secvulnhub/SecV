@@ -540,14 +540,320 @@ def _merge(existing: dict, generated: dict) -> dict:
     return merged
 
 
+# ─── ANSI colour helpers (wizard) ────────────────────────────────────────────
+
+_C_CYAN    = "\033[0;36m"
+_C_GREEN   = "\033[0;32m"
+_C_YELLOW  = "\033[1;33m"
+_C_RED     = "\033[0;31m"
+_C_BOLD    = "\033[1m"
+_C_DIM     = "\033[2m"
+_C_RESET   = "\033[0m"
+
+_VALID_CATEGORIES = {"web", "network", "mobile", "ctf", "misc"}
+_VALID_PARAM_TYPES = {"string", "boolean", "number", "integer", "float", "array"}
+
+
+def _cprint(color: str, text: str, **kwargs) -> None:
+    """Print text wrapped in an ANSI color code."""
+    print(f"{color}{text}{_C_RESET}", **kwargs)
+
+
+def _ask(prompt: str, default: str = "", required: bool = False,
+         choices: Optional[List[str]] = None) -> str:
+    """
+    Display a coloured prompt, read a line from stdin, and validate it.
+
+    - If the user presses Enter with no input and *default* is set, return *default*.
+    - If *required* is True and the user gives no input (and there is no default),
+      keep asking.
+    - If *choices* is given, validate the answer against the list (case-insensitive).
+    """
+    default_hint = f" {_C_DIM}[{default}]{_C_RESET}" if default else ""
+    choices_hint = (
+        f" {_C_DIM}({'/'.join(choices)}){_C_RESET}" if choices else ""
+    )
+    full_prompt = (
+        f"{_C_CYAN}{prompt}{_C_RESET}{choices_hint}{default_hint}: "
+    )
+    while True:
+        try:
+            raw = input(full_prompt).strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            sys.exit(0)
+
+        if raw == "" and default:
+            return default
+        if raw == "" and required:
+            _cprint(_C_YELLOW, "  (this field is required)")
+            continue
+        if choices and raw.lower() not in [c.lower() for c in choices]:
+            _cprint(_C_YELLOW, f"  choices: {', '.join(choices)}")
+            continue
+        return raw
+
+
+def _ask_name(prompt: str, default: str = "") -> str:
+    """Like _ask() but validates alphanumeric + underscore."""
+    default_hint = f" {_C_DIM}[{default}]{_C_RESET}" if default else ""
+    full_prompt = f"{_C_CYAN}{prompt}{_C_RESET}{default_hint}: "
+    while True:
+        try:
+            raw = input(full_prompt).strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            sys.exit(0)
+        if raw == "" and default:
+            return default
+        if not re.match(r'^[a-zA-Z0-9_]+$', raw):
+            _cprint(_C_YELLOW, "  name must be alphanumeric/underscore only")
+            continue
+        return raw
+
+
+def _wizard(out_dir: Optional[Path] = None) -> None:
+    """
+    Interactive Q&A wizard that builds module.json from scratch.
+    Loops until the user confirms, edits, or cancels.
+    """
+
+    defaults: Dict[str, Any] = {}
+
+    while True:
+        print()
+        _cprint(_C_BOLD + _C_CYAN, "  secV module wizard")
+        _cprint(_C_DIM, "  ─" * 30)
+        print()
+
+        # ── Step 1/9 – name ──────────────────────────────────────────────────
+        name = _ask_name(
+            "[1/9] Module name (e.g. myscan)",
+            default=defaults.get("name", ""),
+        )
+        defaults["name"] = name
+
+        # ── Step 2/9 – version ───────────────────────────────────────────────
+        version = _ask(
+            "[2/9] Version",
+            default=defaults.get("version", "1.0.0"),
+        ) or "1.0.0"
+        defaults["version"] = version
+
+        # ── Step 3/9 – category ──────────────────────────────────────────────
+        category = _ask(
+            "[3/9] Category",
+            default=defaults.get("category", "misc"),
+            choices=sorted(_VALID_CATEGORIES),
+        )
+        defaults["category"] = category
+
+        # ── Step 4/9 – description ───────────────────────────────────────────
+        description = _ask(
+            "[4/9] One-line description",
+            default=defaults.get("description", ""),
+            required=True,
+        )
+        defaults["description"] = description
+
+        # ── Step 5/9 – author ────────────────────────────────────────────────
+        author = _ask(
+            "[5/9] Author",
+            default=defaults.get("author", "anonymous"),
+        ) or "anonymous"
+        defaults["author"] = author
+
+        # ── Step 6/9 – executable ────────────────────────────────────────────
+        executable = _ask(
+            f"[6/9] Executable command (e.g. python3 {name}.py)",
+            default=defaults.get("executable", f"python3 {name}.py"),
+            required=True,
+        )
+        defaults["executable"] = executable
+
+        # ── Step 7/9 – operations ────────────────────────────────────────────
+        ops_raw = _ask(
+            "[7/9] Operations this module supports (comma-separated, or Enter to skip)",
+            default=defaults.get("operations_raw", ""),
+        )
+        defaults["operations_raw"] = ops_raw
+        operations: List[str] = [o.strip() for o in ops_raw.split(",") if o.strip()]
+
+        # ── Step 8/9 – dependencies ──────────────────────────────────────────
+        deps_raw = _ask(
+            "[8/9] Dependencies (comma-separated tools, e.g. nmap,python3)",
+            default=defaults.get("deps_raw", ""),
+        )
+        defaults["deps_raw"] = deps_raw
+        dependencies: List[str] = [d.strip() for d in deps_raw.split(",") if d.strip()]
+
+        # ── Step 9/9 – timeout ───────────────────────────────────────────────
+        timeout_str = _ask(
+            "[9/9] Timeout in seconds",
+            default=str(defaults.get("timeout", 120)),
+        )
+        try:
+            timeout = int(timeout_str)
+        except ValueError:
+            timeout = 120
+        defaults["timeout"] = timeout
+
+        # ── Parameters wizard ────────────────────────────────────────────────
+        print()
+        _cprint(_C_CYAN, "Now let's add parameters. Press Enter with no name to finish.")
+        print()
+
+        prev_params: Dict[str, dict] = dict(defaults.get("parameters", {}))
+        parameters: Dict[str, dict] = {}
+
+        while True:
+            pname_raw = _ask_name(
+                "  Parameter name (or Enter to finish)",
+                default="",
+            )
+            if pname_raw == "":
+                # User pressed Enter with empty input — done with params.
+                break
+
+            prev = prev_params.get(pname_raw, {})
+
+            ptype = _ask(
+                "  > Type",
+                default=prev.get("type", "string"),
+                choices=["string", "boolean", "number", "integer"],
+            )
+            req_str = _ask(
+                "  > Required?",
+                default="yes" if prev.get("required") else "no",
+                choices=["yes", "no"],
+            )
+            required_flag = req_str.lower() in ("yes", "y")
+
+            default_val_str = _ask(
+                "  > Default value (Enter to skip)",
+                default=str(prev.get("default", "")) if prev.get("default") is not None else "",
+            )
+            default_val: Any = None
+            if default_val_str:
+                # Attempt to coerce to the right type
+                if ptype in ("boolean",):
+                    default_val = default_val_str.lower() in ("true", "1", "yes")
+                elif ptype in ("number", "integer"):
+                    try:
+                        default_val = int(default_val_str)
+                    except ValueError:
+                        try:
+                            default_val = float(default_val_str)
+                        except ValueError:
+                            default_val = default_val_str
+                else:
+                    default_val = default_val_str
+
+            pdesc = _ask(
+                "  > Description",
+                default=prev.get("description", ""),
+            )
+            print()
+
+            parameters[pname_raw] = {
+                "description": pdesc,
+                "type": ptype,
+                "required": required_flag,
+                "default": default_val,
+                "examples": [],
+                "options": [],
+            }
+            prev_params[pname_raw] = parameters[pname_raw]
+
+        defaults["parameters"] = prev_params
+
+        # ── Inject "operation" parameter if operations were specified ─────────
+        if operations:
+            parameters["operation"] = {
+                "description": "Operation to run",
+                "type": "string",
+                "required": True,
+                "default": operations[0],
+                "examples": operations[:3],
+                "options": operations,
+            }
+
+        # ── Build module dict ─────────────────────────────────────────────────
+        module: Dict[str, Any] = {
+            "name":        name,
+            "version":     version,
+            "category":    category,
+            "description": description,
+            "author":      author,
+            "executable":  executable,
+            "dependencies": dependencies,
+            "optional_dependencies": {},
+            "help": {
+                "description": description,
+                "parameters":  parameters,
+                "examples":    [],
+                "features":    [],
+                "installation_tiers": {},
+                "notes":       [],
+            },
+            "inputs":  {},
+            "outputs": {},
+            "timeout": timeout,
+        }
+
+        # ── Preview ───────────────────────────────────────────────────────────
+        pretty = json.dumps(module, indent=2)
+        print()
+        _cprint(_C_BOLD, "Preview:")
+        _cprint(_C_DIM, pretty)
+        print()
+
+        # ── Confirm ───────────────────────────────────────────────────────────
+        choice = _ask(
+            "Write to ./module.json?",
+            default="yes",
+            choices=["yes", "no", "edit"],
+        ).lower()
+
+        if choice in ("no", "n"):
+            _cprint(_C_YELLOW, "Cancelled.")
+            return
+
+        if choice == "edit":
+            # Loop again with the current answers as defaults.
+            continue
+
+        # ── Write ─────────────────────────────────────────────────────────────
+        dest_dir = out_dir if out_dir is not None else Path(".")
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest = dest_dir / "module.json"
+        dest.write_text(pretty + "\n", encoding="utf-8")
+
+        _cprint(_C_GREEN, f"\n  module.json written → run:  secV ❯ use {name}\n")
+        return
+
+
 def main():
     ap = _ap.ArgumentParser(description="Generate secV module.json from tool source")
-    ap.add_argument("path", help="Tool directory or main script file")
+    ap.add_argument("path", nargs="?", default=None,
+                    help="Tool directory or main script file (not needed for --wizard)")
     ap.add_argument("--write",  action="store_true",
                     help="Write module.json into the tool directory")
     ap.add_argument("--update", action="store_true",
                     help="Merge new params into existing module.json (implies --write)")
+    ap.add_argument("--wizard", action="store_true",
+                    help="Interactive Q&A wizard to build module.json from scratch")
     args = ap.parse_args()
+
+    # ── Wizard mode ───────────────────────────────────────────────────────────
+    if args.wizard:
+        out_dir = Path(args.path).expanduser().resolve() if args.path else None
+        _wizard(out_dir=out_dir)
+        return
+
+    # ── Normal scan mode ──────────────────────────────────────────────────────
+    if args.path is None:
+        ap.error("path is required unless --wizard is used")
 
     tool_path = Path(args.path).expanduser().resolve()
     if not tool_path.exists():

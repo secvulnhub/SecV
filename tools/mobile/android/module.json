@@ -1,6 +1,6 @@
 {
   "name": "android_pentest",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "category": "mobile",
   "description": "Complete Android penetration testing suite with device reconnaissance, app analysis, vulnerability scanning, exploitation, network capture, and forensics",
   "author": "SecVulnHub Team | 0xb0rn3",
@@ -66,14 +66,14 @@
           "frida_hook     \u2014 Deploy frida-server, SSL unpin, root bypass, dump creds, trace",
           "objection_patch \u2014 Embed Frida gadget via Objection (no root at runtime)",
           "backdoor_apk   \u2014 Pull APK, inject msfvenom payload (-x template), sign, reinstall",
-          "rebuild        \u2014 Rebuild Termux:Boot backdoor APK via build_bootbuddy.py (proven WAN C2)",
+          "rebuild        \u2014 Rebuild boot persistence APK via build_bootbuddy.py (proven WAN C2)",
           "deploy_shell   \u2014 Generate fresh msfvenom APK and install via adb",
           "adb_wifi       \u2014 Enable ADB over TCP/WiFi (adb tcpip 5555)",
           "get_root       \u2014 Multi-vector root: Magisk/su, adb root, CVE-2024-0044, mtk-su, KernelSU",
           "exploit_cve    \u2014 Targeted CVE: CVE-2024-0044, CVE-2023-45866, CVE-2024-31317",
           "cve_chain      \u2014 Chain multiple CVE exploits for privilege escalation",
           "zero_click     \u2014 Zero-interaction vectors: NFC, BLE, WiFi",
-          "persist        \u2014 Termux:Boot (no root), Magisk post-fs-data.d / service module",
+          "persist        \u2014 Boot Receiver persistence (no root), Magisk post-fs-data.d / service module",
           "hook           \u2014 secV hook layer: monitor calls + C2 relay",
           "unhook         \u2014 Remove secV hooks cleanly",
           "device_net_scan \u2014 Scan device WiFi IP via netrecon",
@@ -347,7 +347,7 @@
         "default": false
       },
       "apk_path": {
-        "description": "Path to original Termux:Boot APK for rebuild operation (auto-pulled from device if omitted)",
+        "description": "Path to original boot persistence APK for rebuild operation (auto-pulled from device if omitted)",
         "type": "string",
         "required": false,
         "default": ""
@@ -421,7 +421,7 @@
         ]
       },
       {
-        "description": "Boot persistence (no root via Termux:Boot)",
+        "description": "Boot persistence (no root via Boot Receiver)",
         "commands": [
           "use android_pentest",
           "set operation persist",
@@ -452,7 +452,7 @@
         ]
       },
       {
-        "description": "Rebuild Termux:Boot backdoor APK with WAN meterpreter (proven)",
+        "description": "Rebuild boot persistence APK with WAN meterpreter (proven)",
         "commands": [
           "use android_pentest",
           "set operation rebuild",

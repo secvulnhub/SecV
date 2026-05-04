@@ -1,6 +1,6 @@
 # apk_backdoor
 
-Patches Termux:Boot to plant a secV agent and/or a Meterpreter stager that calls back over WAN via bore tunnels on every reboot.
+Patches a boot persistence APK to plant a secV agent and/or a Meterpreter stager that calls back over WAN via bore tunnels on every reboot.
 
 **Status: working.** BOOT_COMPLETED fires after reboot, s.dex fetches from the bore tunnel, Meterpreter session comes in over SIM/WAN without port forwarding.
 
@@ -10,7 +10,7 @@ Patches Termux:Boot to plant a secV agent and/or a Meterpreter stager that calls
 
 1. Pulls the original `com.termux.boot` APK from the connected device (or use `--apk`)
 2. Patches `BootReceiver.smali` to call `plantAgent()` on `BOOT_COMPLETED`
-3. `plantAgent()` writes `~/.termux/boot/._secv.sh` once, sets it executable
+3. `plantAgent()` writes a boot script to the device boot directory once, sets it executable
 4. Optionally (`--msf`) merges a Meterpreter `Payload.smali` that connects to `LHOST:LPORT` on every boot
 5. Signs the patched APK with `secv.keystore` and writes to `output/`
 
@@ -53,7 +53,7 @@ python3 build_bootbuddy.py \
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `--apk PATH` | auto-pulled from device | Source Termux:Boot APK |
+| `--apk PATH` | auto-pulled from device | Source boot persistence APK |
 | `--device SERIAL` | first connected | ADB device serial |
 | `--lhost IP` | auto-detected | Callback IP for agent + meterpreter |
 | `--lport PORT` | `8889` | secV agent TCP C2 port |

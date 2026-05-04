@@ -34,7 +34,11 @@
           "ssl",
           "waf",
           "full",
-          "wordpress"
+          "wordpress",
+          "php_payload",
+          "msf_payload",
+          "fuzz",
+          "burp_export"
         ],
         "default": "recon",
         "examples": [
@@ -272,7 +276,7 @@
   "inputs": {
     "operation": {
       "type": "string",
-      "description": "Operation: recon, headers, cors, cookies, dirs, sqli, xss, csrf, bypass_403, open_redirect, framework_cves, file_upload, rate_limit, spider, dork, ssl, waf, wordpress, stealth, full",
+      "description": "Operation: recon, headers, cors, cookies, dirs, sqli, xss, csrf, bypass_403, open_redirect, framework_cves, file_upload, rate_limit, spider, dork, ssl, waf, wordpress, stealth, php_payload, msf_payload, fuzz, burp_export, full",
       "required": false,
       "default": "recon"
     },
@@ -365,6 +369,68 @@
       "description": "Use obfuscated/encoded payloads to bypass WAF filters during SQLi and XSS tests",
       "required": false,
       "default": false
+    },
+    "php_type": {
+      "type": "string",
+      "description": "PHP payload type for php_payload operation: reverse, webshell, cmd, obfuscated",
+      "required": false,
+      "default": "reverse",
+      "options": ["reverse", "webshell", "cmd", "obfuscated"]
+    },
+    "lhost": {
+      "type": "string",
+      "description": "Attacker IP/hostname for reverse shell payloads (php_payload, msf_payload)",
+      "required": false
+    },
+    "lport": {
+      "type": "string",
+      "description": "Listener port for reverse shell payloads (php_payload, msf_payload)",
+      "required": false,
+      "default": "4444"
+    },
+    "php_obfuscate": {
+      "type": "boolean",
+      "description": "Wrap generated PHP payloads in base64 eval encoder",
+      "required": false,
+      "default": false
+    },
+    "msf_type": {
+      "type": "string",
+      "description": "msfvenom payload type for msf_payload operation: php, war, jsp, aspx",
+      "required": false,
+      "default": "php",
+      "options": ["php", "war", "jsp", "aspx"]
+    },
+    "msf_format": {
+      "type": "string",
+      "description": "msfvenom output format (default: type-specific raw/war/aspx)",
+      "required": false,
+      "default": "raw"
+    },
+    "fuzz_tool": {
+      "type": "string",
+      "description": "Fuzzing tool to use: auto (detects ffuf→gobuster→dirbuster), ffuf, gobuster, dirbuster, or builtin",
+      "required": false,
+      "default": "auto",
+      "options": ["auto", "ffuf", "gobuster", "dirbuster"]
+    },
+    "wordlist": {
+      "type": "string",
+      "description": "Path to wordlist for fuzz operation (auto-detects seclists/dirbuster paths if not set)",
+      "required": false
+    },
+    "extensions": {
+      "type": "string",
+      "description": "Comma-separated file extensions to fuzz (fuzz operation)",
+      "required": false,
+      "default": "php,html,txt,js,bak"
+    },
+    "fuzz_mode": {
+      "type": "string",
+      "description": "Fuzzing mode: dir (path brute-force), vhost (virtual host discovery), dns (subdomain brute-force)",
+      "required": false,
+      "default": "dir",
+      "options": ["dir", "vhost", "dns"]
     }
   },
 

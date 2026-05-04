@@ -159,8 +159,8 @@ Device recon to active exploitation and persistence. Supports rooted and non-roo
 | `adb_wifi`         | Enable ADB over WiFi, drop USB dependency                                          |
 | `deploy_shell`     | Generate and install Meterpreter APK (no root required)                            |
 | `backdoor_apk`     | Pull APK, inject msfvenom payload (-x template), sign, optionally install          |
-| `rebuild`          | Build Termux:Boot WAN C2 APK with BootReceiver + DexClassLoader + bore + QR       |
-| `persist`          | Termux:Boot + Magisk module persistence                                            |
+| `rebuild`          | Build BootBuddy WAN C2 APK with BootReceiver + DexClassLoader + bore + QR       |
+| `persist`          | Boot Receiver + Magisk module persistence                                            |
 | `hook`             | Three-vector hook: Magisk service.sh injection, SharedUID shell, LSPosed/Zygote    |
 | `unhook`           | Remove all persistence hooks planted by the hook operation                         |
 | `exploit_cve`      | Targeted CVE exploitation (CVE-2024-0044, CVE-2023-45866, CVE-2024-31317, etc.)   |

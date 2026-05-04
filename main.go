@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -17,7 +18,8 @@ import (
 	"github.com/chzyer/readline"
 )
 
-const VERSION = "2.4.0"
+const VERSION = "2.4.1"
+const CODENAME = "tauri"
 
 // ANSI colors
 const (
@@ -385,6 +387,124 @@ func (s *SecV) UnsetParam(key string) {
 	}
 }
 
+// renderFindings parses the captured stdout of a module run and renders a
+// structured findings table if the JSON output contains a "findings" array.
+func renderFindings(output []byte) {
+	// Attempt to find a JSON object in the output (modules may print non-JSON
+	// lines before the final JSON blob).
+	start := bytes.IndexByte(output, '{')
+	if start == -1 {
+		return
+	}
+	var result map[string]interface{}
+	if err := json.Unmarshal(output[start:], &result); err != nil {
+		// Try scanning line by line for the first parseable JSON object
+		for _, line := range bytes.Split(output, []byte("\n")) {
+			line = bytes.TrimSpace(line)
+			if len(line) == 0 || line[0] != '{' {
+				continue
+			}
+			if err2 := json.Unmarshal(line, &result); err2 == nil {
+				break
+			}
+		}
+		if result == nil {
+			return
+		}
+	}
+
+	// ── Errors ────────────────────────────────────────────────────────────────
+	if errs, ok := result["errors"].([]interface{}); ok && len(errs) > 0 {
+		fmt.Printf("\n%s%s errors%s\n", RED, BOLD, RESET)
+		for _, e := range errs {
+			fmt.Printf("  %s%s %v%s\n", RED, CROSS, e, RESET)
+		}
+	}
+
+	// ── Findings ──────────────────────────────────────────────────────────────
+	findings, ok := result["findings"].([]interface{})
+	if !ok || len(findings) == 0 {
+		return
+	}
+
+	severityColor := func(sev string) string {
+		switch strings.ToLower(sev) {
+		case "critical":
+			return RED + BOLD
+		case "high":
+			return RED
+		case "medium":
+			return YELLOW
+		case "low":
+			return CYAN
+		default: // info, unknown
+			return DIM
+		}
+	}
+
+	counts := map[string]int{"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
+
+	fmt.Printf("\n%s%s findings%s\n", BOLD, CYAN, RESET)
+	fmt.Printf("%s%s%s\n", DIM, strings.Repeat("─", 72), RESET)
+	fmt.Printf("%s%-12s %-18s %s%s\n", BOLD, "SEVERITY", "CATEGORY", "DESCRIPTION", RESET)
+	fmt.Printf("%s%s%s\n", DIM, strings.Repeat("─", 72), RESET)
+
+	for _, raw := range findings {
+		f, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		sev, _ := f["severity"].(string)
+		if sev == "" {
+			sev = "info"
+		}
+		cat, _ := f["category"].(string)
+		desc, _ := f["description"].(string)
+		if desc == "" {
+			desc, _ = f["title"].(string)
+		}
+		if desc == "" {
+			desc, _ = f["message"].(string)
+		}
+		if len(desc) > 46 {
+			desc = desc[:43] + "..."
+		}
+
+		col := severityColor(sev)
+		sevLower := strings.ToLower(sev)
+		if _, tracked := counts[sevLower]; tracked {
+			counts[sevLower]++
+		} else {
+			counts["info"]++
+		}
+
+		badge := fmt.Sprintf("%s[%s]%s", col, strings.ToUpper(sev), RESET)
+		fmt.Printf("%-22s %-18s %s\n", badge, cat, desc)
+	}
+
+	fmt.Printf("%s%s%s\n", DIM, strings.Repeat("─", 72), RESET)
+
+	// Summary line
+	total := len(findings)
+	summary := fmt.Sprintf("%s%d finding(s):%s", BOLD, total, RESET)
+	if counts["critical"] > 0 {
+		summary += fmt.Sprintf("  %s%d critical%s", RED+BOLD, counts["critical"], RESET)
+	}
+	if counts["high"] > 0 {
+		summary += fmt.Sprintf("  %s%d high%s", RED, counts["high"], RESET)
+	}
+	if counts["medium"] > 0 {
+		summary += fmt.Sprintf("  %s%d medium%s", YELLOW, counts["medium"], RESET)
+	}
+	if counts["low"] > 0 {
+		summary += fmt.Sprintf("  %s%d low%s", CYAN, counts["low"], RESET)
+	}
+	if counts["info"] > 0 {
+		summary += fmt.Sprintf("  %s%d info%s", DIM, counts["info"], RESET)
+	}
+	fmt.Printf("\n  %s\n", summary)
+}
+
 func (s *SecV) Run(target string) error {
 	if s.currentModule == nil {
 		return fmt.Errorf("no module loaded")
@@ -408,11 +528,17 @@ func (s *SecV) Run(target string) error {
 	cmd := exec.Command("bash", "-c", s.currentModule.Executable)
 	cmd.Dir = s.currentModule.Path
 	cmd.Stdin = strings.NewReader(string(jsonData))
-	cmd.Stdout = os.Stdout
+
+	// Capture stdout into a buffer while simultaneously streaming to terminal.
+	var outBuf bytes.Buffer
+	cmd.Stdout = io.MultiWriter(os.Stdout, &outBuf)
 	cmd.Stderr = os.Stderr
 
 	err = cmd.Run()
 	elapsed := time.Since(start)
+
+	// Render structured findings table from captured output.
+	renderFindings(outBuf.Bytes())
 
 	if err != nil {
 		fmt.Printf("\n%s%s %s (%v)%s\n", RED, CROSS, elapsed.Round(time.Millisecond), err, RESET)
@@ -445,13 +571,28 @@ func (s *SecV) ShowModules() {
 	for _, cat := range order {
 		mods := categories[cat]
 		fmt.Printf("\n%s%s%s%s\n", BOLD, YELLOW, cat, RESET)
-		fmt.Printf("%s%s%s\n", DIM, strings.Repeat("─", 60), RESET)
+		fmt.Printf("%s%-22s %-9s %-5s %s%s\n", DIM, "NAME", "VERSION", "OPS", "DESCRIPTION", RESET)
+		fmt.Printf("%s%s%s\n", DIM, strings.Repeat("─", 70), RESET)
 		for _, m := range mods {
 			desc := m.Description
-			if len(desc) > 40 {
-				desc = desc[:37] + "..."
+			if len(desc) > 36 {
+				desc = desc[:33] + "..."
 			}
-			fmt.Printf("  %s%-22s%s %s%s\n", CYAN, m.Name, RESET, DIM+desc, RESET)
+			ver := m.Version
+			if ver == "" {
+				ver = "—"
+			}
+			opCount := "—"
+			if m.Help != nil {
+				if opParam, ok := m.Help.Parameters["operation"]; ok && len(opParam.Options) > 0 {
+					opCount = fmt.Sprintf("%d", len(opParam.Options))
+				}
+			}
+			fmt.Printf("  %s%-20s%s %s%-9s%s %-5s %s%s%s\n",
+				CYAN, m.Name, RESET,
+				DIM, ver, RESET,
+				opCount,
+				DIM, desc, RESET)
 		}
 	}
 	fmt.Printf("\n%s%d modules%s\n\n", DIM, len(s.modules), RESET)
@@ -625,14 +766,48 @@ func (s *SecV) ShowInfo(moduleName string) {
 			}
 		}
 
-		// Examples
+		// Full parameters table
+		if len(m.Help.Parameters) > 0 {
+			printSection("parameters")
+			fmt.Printf("  %s%-22s %-10s %-5s %-12s %s%s\n", BOLD, "PARAM", "TYPE", "REQ", "DEFAULT", "DESCRIPTION", RESET)
+			fmt.Printf("  %s%s%s\n", DIM, strings.Repeat("─", 80), RESET)
+			for pname, pi := range m.Help.Parameters {
+				if pname == "operation" {
+					continue // already shown above
+				}
+				reqStr := "no"
+				reqCol := DIM
+				if pi.Required {
+					reqStr = "YES"
+					reqCol = RED
+				}
+				defStr := ""
+				if pi.Default != nil {
+					dv := fmt.Sprintf("%v", pi.Default)
+					if dv != "" && dv != "false" && dv != "<nil>" {
+						defStr = dv
+					}
+				}
+				if len(defStr) > 12 {
+					defStr = defStr[:9] + "..."
+				}
+				desc := pi.Description
+				if len(desc) > 34 {
+					desc = desc[:31] + "..."
+				}
+				nameStr := fmt.Sprintf("%s%s%s", CYAN, pname, RESET)
+				fmt.Printf("  %-30s %-10s %s%-5s%s %-12s %s%s%s\n",
+					nameStr, pi.Type, reqCol, reqStr, RESET, defStr, DIM, desc, RESET)
+				if len(pi.Options) > 0 {
+					fmt.Printf("    %soptions: %s%s\n", DIM, strings.Join(pi.Options, " | "), RESET)
+				}
+			}
+		}
+
+		// All examples
 		if len(m.Help.Examples) > 0 {
 			printSection("examples")
-			limit := 3
-			if len(m.Help.Examples) < limit {
-				limit = len(m.Help.Examples)
-			}
-			for _, ex := range m.Help.Examples[:limit] {
+			for _, ex := range m.Help.Examples {
 				fmt.Printf("  %s%s%s\n", DIM, ex.Description, RESET)
 				for _, cmd := range ex.Commands {
 					fmt.Printf("    %s%s%s\n", CYAN, cmd, RESET)
@@ -641,15 +816,28 @@ func (s *SecV) ShowInfo(moduleName string) {
 			}
 		}
 
-		// Notes (first 3)
+		// Features
+		if len(m.Help.Features) > 0 {
+			printSection("features")
+			for _, feat := range m.Help.Features {
+				fmt.Printf("  %s%s %s%s\n", GREEN, CHECK, feat, RESET)
+			}
+		}
+
+		// All notes
 		if len(m.Help.Notes) > 0 {
 			printSection("notes")
-			limit := 3
-			if len(m.Help.Notes) < limit {
-				limit = len(m.Help.Notes)
+			for _, note := range m.Help.Notes {
+				fmt.Printf("  %s%s %s%s\n", DIM, BULLET, note, RESET)
 			}
-			for _, note := range m.Help.Notes[:limit] {
-				fmt.Printf("  %s%s%s\n", DIM, note, RESET)
+		}
+
+		// Vulnerability coverage (if present in InstallationTiers as a proxy, or
+		// look for a "vulnerability_coverage" key in the raw help map)
+		if len(m.Help.InstallationTiers) > 0 {
+			printSection("vulnerability coverage")
+			for tier, desc := range m.Help.InstallationTiers {
+				fmt.Printf("  %s%-16s%s %s\n", YELLOW, tier, RESET, desc)
 			}
 		}
 	}
@@ -657,8 +845,8 @@ func (s *SecV) ShowInfo(moduleName string) {
 	// Inputs (from module.json inputs block)
 	if len(m.Inputs) > 0 {
 		printSection("inputs")
-		fmt.Printf("  %s%-20s %-10s %s%s\n", BOLD, "PARAM", "TYPE", "DESCRIPTION", RESET)
-		fmt.Printf("  %s%s%s\n", DIM, strings.Repeat("─", 60), RESET)
+		fmt.Printf("  %s%-20s %-10s %-8s %s%s\n", BOLD, "PARAM", "TYPE", "REQUIRED", "DESCRIPTION", RESET)
+		fmt.Printf("  %s%s%s\n", DIM, strings.Repeat("─", 70), RESET)
 		for k, v := range m.Inputs {
 			if vm, ok := v.(map[string]interface{}); ok {
 				typ := fmt.Sprintf("%v", vm["type"])
@@ -669,11 +857,18 @@ func (s *SecV) ShowInfo(moduleName string) {
 					}
 					desc = d
 				}
+				reqStr := "no"
+				reqCol := DIM
+				if r, _ := vm["required"].(bool); r {
+					reqStr = "YES"
+					reqCol = RED
+				}
 				def := ""
 				if dv, ok := vm["default"]; ok && dv != nil && fmt.Sprintf("%v", dv) != "" && fmt.Sprintf("%v", dv) != "false" {
 					def = fmt.Sprintf(" %s(default: %v)%s", DIM, dv, RESET)
 				}
-				fmt.Printf("  %s%-20s%s %-10s %s%s\n", CYAN, k, RESET, typ, desc, def)
+				nameStr := fmt.Sprintf("%s%s%s", CYAN, k, RESET)
+				fmt.Printf("  %-28s %-10s %s%-8s%s %s%s\n", nameStr, typ, reqCol, reqStr, RESET, desc, def)
 			}
 		}
 	}
@@ -1106,6 +1301,48 @@ func (s *SecV) buildCompleter() *readline.PrefixCompleter {
 	return readline.NewPrefixCompleter(topCmds...)
 }
 
+// promptHint prints a brief status line above the prompt showing which params
+// are currently set, so the user can see context at a glance without running
+// "show options". Only printed when a module is loaded and params are set.
+func (s *SecV) promptHint() {
+	if s.currentModule == nil || len(s.params) == 0 {
+		return
+	}
+
+	// Build a compact list of key=value pairs, truncated if too wide.
+	parts := make([]string, 0, len(s.params))
+	for k, v := range s.params {
+		if len(v) > 20 {
+			v = v[:17] + "..."
+		}
+		parts = append(parts, fmt.Sprintf("%s%s%s=%s%s%s", BOLD, k, RESET+DIM, RESET+CYAN, v, RESET))
+	}
+	hint := strings.Join(parts, fmt.Sprintf("  %s·%s  ", DIM, RESET))
+
+	// Count required params that are still missing (red warning).
+	missingReq := 0
+	if s.currentModule.Help != nil {
+		for pname, pi := range s.currentModule.Help.Parameters {
+			if pi.Required {
+				if _, ok := s.params[pname]; !ok {
+					missingReq++
+				}
+			}
+		}
+	}
+
+	statusIcon := GREEN + CHECK + RESET
+	statusMsg := ""
+	if missingReq > 0 {
+		statusIcon = YELLOW + WARNING + RESET
+		statusMsg = fmt.Sprintf("  %s%d required unset%s", YELLOW, missingReq, RESET)
+	}
+
+	fmt.Printf("%s  %d params:%s  %s%s\n",
+		DIM, len(s.params), RESET, hint, statusMsg)
+	_ = statusIcon // included in hint line above via icon choice
+}
+
 func (s *SecV) prompt() string {
 	base := fmt.Sprintf("%s%ssecV%s", BOLD, GREEN, RESET)
 	if s.currentModule != nil {
@@ -1116,7 +1353,7 @@ func (s *SecV) prompt() string {
 		}
 		paramPart := ""
 		if n := len(s.params); n > 0 {
-			paramPart = fmt.Sprintf(" %s[%d params]%s", DIM, n, RESET)
+			paramPart = fmt.Sprintf(" %s[%d]%s", DIM, n, RESET)
 		}
 		return fmt.Sprintf("%s%s%s%s ❯ ", base, modPart, opPart, paramPart)
 	}
@@ -1126,6 +1363,31 @@ func (s *SecV) prompt() string {
 // ============================================================================
 // Banner + startup
 // ============================================================================
+
+// vpnIP returns the IPv4 address of tun0 if the interface is up, else "".
+func vpnIP() string {
+	iface, err := net.InterfaceByName("tun0")
+	if err != nil {
+		return ""
+	}
+	addrs, err := iface.Addrs()
+	if err != nil {
+		return ""
+	}
+	for _, addr := range addrs {
+		var ip net.IP
+		switch v := addr.(type) {
+		case *net.IPNet:
+			ip = v.IP
+		case *net.IPAddr:
+			ip = v.IP
+		}
+		if ip != nil && ip.To4() != nil {
+			return ip.String()
+		}
+	}
+	return ""
+}
 
 func printBanner() {
 	fmt.Print(BOLD + CYAN)
@@ -1138,7 +1400,14 @@ func printBanner() {
 	fmt.Println("║   ╚══════╝╚══════╝ ╚═════╝  ╚═══╝                               ║")
 	fmt.Println("╚═══════════════════════════════════════════════════════════════════╝")
 	fmt.Print(RESET)
-	fmt.Printf("%s   v%s%s\n\n", DIM, VERSION, RESET)
+	fmt.Printf("%s   v%s  %s%s%s\n", DIM, VERSION, YELLOW, CODENAME, RESET)
+
+	// VPN indicator
+	if ip := vpnIP(); ip != "" {
+		fmt.Printf("  %s vpn%s  %s%s%s\n\n", GREEN+BOLD, RESET, GREEN, ip, RESET)
+	} else {
+		fmt.Printf("  %s vpn%s  %snot connected%s\n\n", YELLOW+BOLD, RESET, YELLOW, RESET)
+	}
 }
 
 func printHeader(title string) {
@@ -1195,6 +1464,7 @@ func main() {
 	defer rl.Close()
 
 	for {
+		secv.promptHint()
 		rl.SetPrompt(secv.prompt())
 		line, err := rl.Readline()
 		if err != nil {

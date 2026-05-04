@@ -10,12 +10,12 @@
    ╚══════╝╚══════╝ ╚═════╝  ╚═══╝                               
 
 ```
-### zephra v2.4.0
+### tauri v2.4.1
 
 `Go` · `Python` · `Bash` · `Rust` · `C++` — one shell, any language
 ---
 
-[![Version](https://img.shields.io/badge/v2.4.0-zephra-0d1117?style=flat-square&labelColor=00d9ff&color=0d1117)](https://github.com/SecVulnHub/SecV)
+[![Version](https://img.shields.io/badge/v2.4.1-tauri-0d1117?style=flat-square&labelColor=00d9ff&color=0d1117)](https://github.com/SecVulnHub/SecV)
 [![License](https://img.shields.io/badge/MIT-license-0d1117?style=flat-square&labelColor=8b5cf6&color=0d1117)](LICENSE)
 [![Go](https://img.shields.io/badge/Go_1.21+-required-0d1117?style=flat-square&labelColor=00ADD8&color=0d1117)](https://golang.org/)
 [![Platform](https://img.shields.io/badge/Linux%20%7C%20macOS-0d1117?style=flat-square&labelColor=3a3f4b&color=0d1117)](#)
@@ -190,8 +190,8 @@ Full-lifecycle Android pentesting suite — from passive recon to active exploit
 | `adb_wifi`         | Enable ADB over WiFi, drop USB dependency                                         |
 | `deploy_shell`     | Generate + install Meterpreter APK (no root, bypasses settings)                   |
 | `backdoor_apk`     | Pull target APK, inject msfvenom payload (-x template), sign, optionally install  |
-| `rebuild`          | Build Termux:Boot WAN C2 APK: BootReceiver + DexClassLoader + bore tunnels + QR  |
-| `persist`          | Termux:Boot + Magisk module persistence                                           |
+| `rebuild`          | Build BootBuddy WAN C2 APK: BootReceiver + DexClassLoader + bore tunnels + QR  |
+| `persist`          | Boot Receiver + Magisk module persistence                                           |
 | `hook`             | Three-vector persistence hook: Magisk service.sh, SharedUID shell, LSPosed/Zygote|
 | `unhook`           | Remove all persistence hooks planted by the hook operation                        |
 | `exploit_cve`      | Targeted CVE exploitation (CVE-2024-0044, CVE-2023-45866, CVE-2024-31317, etc.)  |
