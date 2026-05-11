@@ -17,14 +17,10 @@ import os
 import re
 import socket
 import shutil
-import struct
 import time
 import base64
 import subprocess
-import tempfile
 import threading
-import ipaddress
-import zipfile
 from pathlib import Path
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -82,8 +78,8 @@ CAPS: Dict[str, Any] = {
 
 try:
     import ldap3
-    from ldap3 import Server, Connection, ALL, NTLM, SIMPLE, KERBEROS, SASL, SUBTREE
-    from ldap3.core.exceptions import LDAPException, LDAPBindError
+    from ldap3 import Server, Connection, ALL, NTLM, KERBEROS, SUBTREE
+    from ldap3.core.exceptions import LDAPBindError
     CAPS['ldap3'] = True
 except ImportError:
     CAPS['ldap3'] = False
@@ -98,14 +94,12 @@ except ImportError:
 try:
     import impacket
     from impacket.smbconnection import SMBConnection, SessionError
-    from impacket.dcerpc.v5 import transport, samr, lsat, lsad, nrpc, epm
-    from impacket.dcerpc.v5.dtypes import NULL, MAXIMUM_ALLOWED
-    from impacket.dcerpc.v5.rpcrt import DCERPCException, RPC_C_AUTHN_LEVEL_PKT_PRIVACY
+    from impacket.dcerpc.v5 import transport, samr
+    from impacket.dcerpc.v5.dtypes import NULL
     from impacket.krb5.kerberosv5 import getKerberosTGT, getKerberosTGS, sendReceive, KerberosError
     from impacket.krb5.types import Principal, KerberosTime, Ticket
     from impacket.krb5 import constants
-    from impacket.krb5.asn1 import AS_REQ, KERB_PA_PAC_REQUEST, KRB_ERROR, AS_REP, seq_set, seq_set_iter, TGS_REP, EncTicketPart
-    from impacket.ntlm import compute_lmhash, compute_nthash
+    from impacket.krb5.asn1 import AS_REQ, KERB_PA_PAC_REQUEST, AS_REP, seq_set, seq_set_iter, TGS_REP
     CAPS['impacket'] = True
 except ImportError:
     CAPS['impacket'] = False

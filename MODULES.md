@@ -517,7 +517,7 @@ run connected
 
 ---
 
-### `iot_pwn` v1.0.0
+### `iot_pwn` v1.0.1
 **IoT and Router Exploitation Module**
 
 Tests default credentials across SSH, Telnet, FTP, and HTTP admin panels. Performs SNMP community string brute-force, UPnP SSDP exposure detection, RTSP no-auth checks, and known router CVE probing. Inspired by routersploit toolset capabilities, embedded entirely in Python with no external framework dependency.
@@ -685,7 +685,7 @@ secV (ctfpwn) ❯ run none
 
 ---
 
-### `ios_pentest` v1.0.0
+### `ios_pentest` v1.0.1
 **iOS Security Testing**
 
 IPA static analysis, binary protection checks (PIE, stack canary, ARC, encryption), ATS/Info.plist audit, keychain dumping, Frida SSL bypass, and live iOS CVE assessment via NVD. Covers non-jailbroken and jailbroken paths.

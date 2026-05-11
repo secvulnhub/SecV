@@ -1,6 +1,6 @@
 {
   "name": "mac_spoof",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "category": "network",
   "description": "MAC spoofer with per-interface rotation modes and active connection tracking",
   "author": "0xb0rn3 (oxbv1) - Connection-Preserving Edition",

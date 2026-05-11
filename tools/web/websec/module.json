@@ -5,16 +5,18 @@
   "description": "Full-stack web offensive tool: OSINT, headers, CORS, cookies, SQLi (error+time-blind), XSS, CSRF, 403 bypass, open redirect, framework CVEs, WordPress attack surface, WAF fingerprinting, directory discovery, spidering, Google dorks",
   "author": "dezthejackal",
   "executable": "python3 websec.py",
-  "dependencies": [
-    "python3"
-  ],
+
+  "dependencies": ["python3"],
+
   "optional_dependencies": {
     "requests": "Better HTTP handling, session management - pip3 install requests",
     "beautifulsoup4": "HTML parsing for spider/form detection - pip3 install beautifulsoup4",
     "dnspython": "Advanced DNS lookups - pip3 install dnspython"
   },
+
   "help": {
     "description": "A terminal-based web security research tool for bug bounty hunters and security researchers. Covers web OSINT, security header auditing, CORS testing, cookie analysis, directory discovery, SQL injection detection, XSS detection, web spidering, and WAF fingerprinting. Every operation includes educational explanations so users understand what they're doing and why it matters. For authorized testing only.",
+
     "parameters": {
       "operation": {
         "description": "The security testing operation to perform",
@@ -27,10 +29,17 @@
           "dirs",
           "sqli",
           "xss",
+          "csrf",
+          "bypass_403",
+          "open_redirect",
+          "framework_cves",
+          "file_upload",
+          "rate_limit",
           "spider",
           "dork",
           "ssl",
           "waf",
+          "stealth",
           "full",
           "wordpress",
           "php_payload",
@@ -48,13 +57,20 @@
           "dirs - Brute-force common paths: .env, .git, admin panels, backups",
           "sqli - SQL injection detection via error patterns",
           "xss - Reflected XSS detection via input reflection",
+          "csrf - Scan all forms for missing anti-CSRF tokens",
+          "bypass_403 - Path traversal and header tricks to bypass 403 responses",
+          "open_redirect - Test redirect parameters for open redirect vulnerabilities",
+          "framework_cves - Detect framework/CMS version and match against CVE database",
+          "file_upload - Test file upload endpoints for unrestricted upload vulnerabilities",
+          "rate_limit - Probe endpoints for missing rate limiting",
           "spider - Crawl the site, discover all URLs, forms, JS files",
           "dork - Generate Google dorks and OSINT resource links for the target",
           "ssl - Deep SSL/TLS analysis: cipher suites, version, cert info",
           "waf - Detect WAF presence and type (Cloudflare, ModSecurity, etc)",
+          "stealth - Show/validate stealth config: UA rotation, jitter, proxy reachability",
           "full - Run all non-intrusive operations",
           "vulnlib - Browse built-in vulnerability knowledge base",
-          "shell - Generate reverse shell payloads; start OnlyShell handler for web exploit delivery"
+          "shell - Generate reverse shell payload and start listener"
         ]
       },
       "test_url": {
@@ -97,37 +113,9 @@
         "description": "Enable verbose output",
         "type": "boolean",
         "default": false
-      },
-      "lhost": {
-        "description": "Attacker IP for shell LHOST (auto-detected if omitted)",
-        "type": "string",
-        "required": false
-      },
-      "lport": {
-        "description": "Shell listener port (default 4444)",
-        "type": "integer",
-        "required": false,
-        "default": 4444
-      },
-      "serve": {
-        "description": "Interactive TUI (true) or headless JSON mode (false)",
-        "type": "boolean",
-        "required": false,
-        "default": true
-      },
-      "duration": {
-        "description": "Headless listen seconds (serve=false only)",
-        "type": "integer",
-        "required": false,
-        "default": 60
-      },
-      "payload_type": {
-        "description": "Payload: bash_tcp, python3, php_exec, all (no auto-delivery; pair with file_upload or sqli)",
-        "type": "string",
-        "required": false,
-        "default": "all"
       }
     },
+
     "examples": [
       {
         "description": "Web OSINT - gather everything publicly available (start here)",
@@ -212,17 +200,9 @@
           "set operation vulnlib",
           "run https://example.com"
         ]
-      },
-      {
-        "description": "Generate payloads and start handler (pair with file_upload or SQLi exploitation)",
-        "commands": [
-          "use websec",
-          "set operation shell",
-          "set lhost 10.10.10.10",
-          "run https://target.com"
-        ]
       }
     ],
+
     "features": [
       "Web OSINT: DNS records, WHOIS, SSL cert inspection, Wayback Machine, crt.sh",
       "Security headers audit: HSTS, CSP, X-Frame-Options, X-Content-Type-Options",
@@ -233,7 +213,7 @@
       "Reflected XSS detection: HTML encoding bypass detection",
       "Web spider/crawler: URL mapping, form discovery, JS file enumeration",
       "Google dork generation: 18+ dork queries, OSINT resource links",
-      "SSL/TLS analysis: version, cipher, cert details, HTTP\u2192HTTPS redirect",
+      "SSL/TLS analysis: version, cipher, cert details, HTTP→HTTPS redirect",
       "WAF detection: Cloudflare, AWS WAF, ModSecurity, Akamai, Imperva, F5, Sucuri",
       "Built-in vulnerability knowledge base: OWASP Top 10 with educational context",
       "Educational [LEARN] context at every step - teaches users as they test",
@@ -241,6 +221,7 @@
       "Structured JSON output for integration with other SecV tools",
       "Graceful degradation: works with stdlib only, enhanced with requests/bs4"
     ],
+
     "vulnerability_coverage": {
       "OWASP_A01_Broken_Access_Control": [
         "Open redirect detection",
@@ -275,11 +256,13 @@
         "Technology fingerprinting for CVE correlation"
       ]
     },
+
     "installation_tiers": {
       "basic": "Core functionality with Python stdlib - DNS, WHOIS, SSL, headers, dirs, dork, WAF",
       "standard": "Full functionality with requests - better HTTP, session handling, CORS testing",
       "full": "All features with bs4 - HTML parsing, form detection, spider, XSS/SQLi form testing"
     },
+
     "learning_resources": [
       "PortSwigger Web Security Academy (free): https://portswigger.net/web-security",
       "OWASP Testing Guide: https://owasp.org/www-project-web-security-testing-guide/",
@@ -288,21 +271,24 @@
       "HackTheBox (practice): https://www.hackthebox.com",
       "TryHackMe (learning): https://tryhackme.com"
     ],
+
     "notes": [
-      "\u26a0\ufe0f  AUTHORIZATION REQUIRED: Only test systems you own or have written permission to test",
-      "\u26a0\ufe0f  Bug bounty scope: always read the program's scope before testing",
-      "\u26a0\ufe0f  SQLi/XSS tests only use safe, error-detection payloads - no data modification",
-      "\ud83d\udca1 Start with 'recon' - it's non-intrusive and reveals the most information",
-      "\ud83d\udca1 Run 'vulnlib' to learn about vulnerabilities before testing for them",
-      "\ud83d\udca1 Use 'dork' to find OSINT without touching the target server",
-      "\ud83d\udca1 For SSL testing, also use: https://www.ssllabs.com/ssltest/",
-      "\ud83d\udca1 For deep testing, pair with Burp Suite Community (free): manual proxy + repeater",
-      "\ud83d\udca1 Always try manual testing after automated tools - logic flaws need human eyes",
-      "\ud83d\udca1 Responsible disclosure: follow the program's rules, report clearly, be patient",
-      "\ud83d\udcda Every operation prints [LEARN] context explaining what we're doing and why"
+      "⚠️  AUTHORIZATION REQUIRED: Only test systems you own or have written permission to test",
+      "⚠️  Bug bounty scope: always read the program's scope before testing",
+      "⚠️  SQLi/XSS tests only use safe, error-detection payloads - no data modification",
+      "💡 Start with 'recon' - it's non-intrusive and reveals the most information",
+      "💡 Run 'vulnlib' to learn about vulnerabilities before testing for them",
+      "💡 Use 'dork' to find OSINT without touching the target server",
+      "💡 For SSL testing, also use: https://www.ssllabs.com/ssltest/",
+      "💡 For deep testing, pair with Burp Suite Community (free): manual proxy + repeater",
+      "💡 Always try manual testing after automated tools - logic flaws need human eyes",
+      "💡 Responsible disclosure: follow the program's rules, report clearly, be patient",
+      "📚 Every operation prints [LEARN] context explaining what we're doing and why"
     ],
+
     "legal_disclaimer": "This tool is designed exclusively for authorized security testing, bug bounty research, and educational purposes. Users must obtain explicit written permission before testing any system they do not own. Unauthorized testing may violate the Computer Fraud and Abuse Act (CFAA), Computer Misuse Act, and similar laws globally. The authors assume no liability for misuse. Always follow responsible disclosure practices and bug bounty program rules."
   },
+
   "inputs": {
     "operation": {
       "type": "string",
@@ -405,24 +391,18 @@
       "description": "PHP payload type for php_payload operation: reverse, webshell, cmd, obfuscated",
       "required": false,
       "default": "reverse",
-      "options": [
-        "reverse",
-        "webshell",
-        "cmd",
-        "obfuscated"
-      ]
+      "options": ["reverse", "webshell", "cmd", "obfuscated"]
     },
     "lhost": {
       "type": "string",
-      "description": "Attacker IP for LHOST (auto-detected if omitted)",
-      "required": false,
-      "default": ""
+      "description": "Attacker IP/hostname for reverse shell payloads (php_payload, msf_payload)",
+      "required": false
     },
     "lport": {
-      "type": "integer",
-      "description": "Shell listener port",
+      "type": "string",
+      "description": "Listener port for reverse shell payloads (php_payload, msf_payload)",
       "required": false,
-      "default": 4444
+      "default": "4444"
     },
     "php_obfuscate": {
       "type": "boolean",
@@ -435,12 +415,7 @@
       "description": "msfvenom payload type for msf_payload operation: php, war, jsp, aspx",
       "required": false,
       "default": "php",
-      "options": [
-        "php",
-        "war",
-        "jsp",
-        "aspx"
-      ]
+      "options": ["php", "war", "jsp", "aspx"]
     },
     "msf_format": {
       "type": "string",
@@ -450,15 +425,10 @@
     },
     "fuzz_tool": {
       "type": "string",
-      "description": "Fuzzing tool to use: auto (detects ffuf\u2192gobuster\u2192dirbuster), ffuf, gobuster, dirbuster, or builtin",
+      "description": "Fuzzing tool to use: auto (detects ffuf→gobuster→dirbuster), ffuf, gobuster, dirbuster, or builtin",
       "required": false,
       "default": "auto",
-      "options": [
-        "auto",
-        "ffuf",
-        "gobuster",
-        "dirbuster"
-      ]
+      "options": ["auto", "ffuf", "gobuster", "dirbuster"]
     },
     "wordlist": {
       "type": "string",
@@ -476,31 +446,10 @@
       "description": "Fuzzing mode: dir (path brute-force), vhost (virtual host discovery), dns (subdomain brute-force)",
       "required": false,
       "default": "dir",
-      "options": [
-        "dir",
-        "vhost",
-        "dns"
-      ]
-    },
-    "serve": {
-      "type": "boolean",
-      "description": "true = interactive OnlyShell TUI (blocks), false = headless JSON",
-      "required": false,
-      "default": true
-    },
-    "duration": {
-      "type": "integer",
-      "description": "Headless listen duration in seconds (serve=false only)",
-      "required": false,
-      "default": 60
-    },
-    "payload_type": {
-      "type": "string",
-      "description": "Payload type: bash_tcp, python3, powershell_b64, all, etc.",
-      "required": false,
-      "default": "bash_tcp"
+      "options": ["dir", "vhost", "dns"]
     }
   },
+
   "outputs": {
     "target": {
       "type": "string",
@@ -523,6 +472,7 @@
       "description": "Count of findings by severity: critical, high, medium, low, info"
     }
   },
+
   "timeout": 300,
   "concurrent": true
 }

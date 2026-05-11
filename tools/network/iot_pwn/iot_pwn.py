@@ -14,10 +14,9 @@ import ftplib
 import threading
 import time
 import re
-import struct
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Tuple
 import importlib.util as _ilu
 
 # ── OnlyShell reverse shell handler ──────────────────────────────────────────

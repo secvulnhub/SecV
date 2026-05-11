@@ -10,7 +10,6 @@ Direct CLI:     python3 badusb.py <script.ps1> [--adv]
 
 import base64
 import json
-import os
 import sys
 from pathlib import Path
 

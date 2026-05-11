@@ -1,6 +1,6 @@
 {
   "name": "android_pentest",
-  "version": "2.0.1",
+  "version": "2.2.0",
   "category": "mobile",
   "description": "Complete Android penetration testing suite with device reconnaissance, app analysis, vulnerability scanning, exploitation, network capture, and forensics",
   "author": "SecVulnHub Team | 0xb0rn3",

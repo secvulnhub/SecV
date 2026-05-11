@@ -23,7 +23,6 @@ import time
 import psutil
 from pathlib import Path
 from datetime import datetime
-from typing import Optional, List, Dict
 
 # State directory for tracking spoofers
 STATE_DIR = Path.home() / ".secv" / "mac_spoof"

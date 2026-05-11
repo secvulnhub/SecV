@@ -29,7 +29,6 @@
           "run",
           "info",
           "search",
-          "new",
           "shell"
         ],
         "default": "list",
@@ -40,7 +39,6 @@
           "run    \u2014 run a specific room's autopwn against target IP",
           "info   \u2014 show README/writeup for a room",
           "search \u2014 full-text search across room names, writeups, scripts",
-          "new    \u2014 show rooms added to the repo since the last pull",
           "shell  \u2014 generate payloads for all 30+ reverse shell types; start handler"
         ]
       },
@@ -222,7 +220,7 @@
   "inputs": {
     "operation": {
       "type": "string",
-      "description": "list | pull | latest | run | info | search",
+      "description": "list | pull | latest | run | info | search | shell",
       "required": false,
       "default": "list"
     },

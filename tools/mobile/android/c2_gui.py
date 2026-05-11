@@ -10,7 +10,7 @@ Standalone:
 Via android_pentest:
   set c2_gui true; run
 """
-import argparse, base64, gzip, hashlib, http.client, json, os, re, shutil
+import argparse, base64, gzip, hashlib, http.client, json, os, re
 import signal, socket, subprocess, sys, threading, time
 from datetime import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
