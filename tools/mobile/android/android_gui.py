@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse, parse_qs
 
+_SERIAL_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+
 # ── Globals ────────────────────────────────────────────────────────────────────
 _GUI_PORT    = 8897
 _C2_PORT     = 8891
@@ -248,6 +250,12 @@ class _Handler(BaseHTTPRequestHandler):
         raw    = self.rfile.read(length) if length else b"{}"
         try:    return json.loads(raw)
         except: return {}
+
+    def _validated_serial(self, raw: str) -> Optional[str]:
+        serial = (raw or "").strip()
+        if not serial:
+            return ""
+        return serial if _SERIAL_RE.fullmatch(serial) else None
 
     # ── endpoints ─────────────────────────────────────────────────────────────
 
@@ -689,8 +697,12 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _api_proc_list(self):
         """One-shot JSON process list for the current device."""
-        qs     = parse_qs(urlparse(self.path).query)
-        serial = (qs.get("serial") or [""])[0]
+        qs         = parse_qs(urlparse(self.path).query)
+        serial_raw = (qs.get("serial") or [""])[0]
+        serial     = self._validated_serial(serial_raw)
+        if serial is None:
+            self._send(400, "application/json", b'{"error":"invalid serial"}')
+            return
         filt   = (qs.get("filter") or [""])[0].lower()
         prefix = ["-s", serial] if serial else []
         out    = _adb(*prefix, "shell", "ps", "-A", "2>/dev/null")
@@ -709,8 +721,12 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _api_proc_stream(self):
         """SSE stream — pushes updated process list every 2 s."""
-        qs     = parse_qs(urlparse(self.path).query)
-        serial = (qs.get("serial") or [""])[0]
+        qs         = parse_qs(urlparse(self.path).query)
+        serial_raw = (qs.get("serial") or [""])[0]
+        serial     = self._validated_serial(serial_raw)
+        if serial is None:
+            self._send(400, "application/json", b'{"error":"invalid serial"}')
+            return
         filt   = (qs.get("filter") or [""])[0].lower()
         prefix = ["-s", serial] if serial else []
         self.send_response(200)
@@ -742,8 +758,12 @@ class _Handler(BaseHTTPRequestHandler):
     # ── devinfo ────────────────────────────────────────────────────────────────
 
     def _api_devinfo(self):
-        qs     = parse_qs(urlparse(self.path).query)
-        serial = (qs.get("serial") or [""])[0]
+        qs         = parse_qs(urlparse(self.path).query)
+        serial_raw = (qs.get("serial") or [""])[0]
+        serial     = self._validated_serial(serial_raw)
+        if serial is None:
+            self._send(400, "application/json", b'{"error":"invalid serial"}')
+            return
         prefix = ["-s", serial] if serial else []
         props  = {}
         for prop in ["ro.product.model", "ro.product.brand", "ro.build.version.release",
@@ -753,8 +773,12 @@ class _Handler(BaseHTTPRequestHandler):
         self._json(props)
 
     def _api_applist(self):
-        qs       = parse_qs(urlparse(self.path).query)
-        serial   = (qs.get("serial") or [""])[0]
+        qs         = parse_qs(urlparse(self.path).query)
+        serial_raw = (qs.get("serial") or [""])[0]
+        serial     = self._validated_serial(serial_raw)
+        if serial is None:
+            self._send(400, "application/json", b'{"error":"invalid serial"}')
+            return
         prefix   = ["-s", serial] if serial else []
         out      = _adb(*prefix, "shell", "pm", "list", "packages", "-3")
         packages = sorted(l.replace("package:", "").strip() for l in out.splitlines() if l.startswith("package:"))
