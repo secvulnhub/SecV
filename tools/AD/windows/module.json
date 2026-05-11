@@ -1,150 +1,439 @@
 {
   "name": "winadsec",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "category": "AD",
   "description": "Windows AD pentest + post-exploitation: full attack chain from unauthenticated discovery through UAC bypass, persistence, Sliver C2 bridge, and payload delivery generation",
   "author": "0xb0rn3 | 0xbv1 | github.com/0xb0rn3",
   "executable": "python3 winadsec.py",
-
-  "dependencies": ["python3"],
+  "dependencies": [
+    "python3"
+  ],
   "optional_dependencies": {
-    "impacket":        "Core AD exploitation — pip install impacket",
-    "ldap3":           "LDAP enumeration — pip install ldap3",
-    "nmap":            "NSE DC fingerprinting — apt install nmap",
-    "smbclient":       "SMB fallback — apt install smbclient",
-    "rpcclient":       "RPC enum — apt install samba-client",
-    "nxc":             "Swiss-army knife — pip install netexec",
-    "kerbrute":        "Kerberos enum — go install github.com/ropnop/kerbrute@latest",
-    "bloodhound-python":"Graph collection — pip install bloodhound",
-    "zig":             "Cross-compiler for DLL payloads — /tmp/zig-linux-x86_64-0.14.0/zig",
-    "donut":           "PE→shellcode — /tmp/donut-1.0/donut",
-    "xorriso":         "ISO builder — apt install xorriso",
-    "sliver-client":   "C2 bridge — ~/sliver/sliver-client"
+    "impacket": "Core AD exploitation \u2014 pip install impacket",
+    "ldap3": "LDAP enumeration \u2014 pip install ldap3",
+    "nmap": "NSE DC fingerprinting \u2014 apt install nmap",
+    "smbclient": "SMB fallback \u2014 apt install smbclient",
+    "rpcclient": "RPC enum \u2014 apt install samba-client",
+    "nxc": "Swiss-army knife \u2014 pip install netexec",
+    "kerbrute": "Kerberos enum \u2014 go install github.com/ropnop/kerbrute@latest",
+    "bloodhound-python": "Graph collection \u2014 pip install bloodhound",
+    "zig": "Cross-compiler for DLL payloads \u2014 /tmp/zig-linux-x86_64-0.14.0/zig",
+    "donut": "PE\u2192shellcode \u2014 /tmp/donut-1.0/donut",
+    "xorriso": "ISO builder \u2014 apt install xorriso",
+    "sliver-client": "C2 bridge \u2014 ~/sliver/sliver-client"
   },
-
   "inputs": {
-    "operation":          {"type": "string",  "default": "discover",           "required": false},
-    "domain":             {"type": "string",  "default": "",                   "required": false},
-    "username":           {"type": "string",  "default": "",                   "required": false},
-    "password":           {"type": "string",  "default": "",                   "required": false},
-    "hash":               {"type": "string",  "default": "",                   "required": false},
-    "dc_ip":              {"type": "string",  "default": "",                   "required": false},
-    "timeout":            {"type": "number",  "default": 30,                   "required": false},
-    "threads":            {"type": "number",  "default": 20,                   "required": false},
-    "output_dir":         {"type": "string",  "default": "./winadsec-loot",    "required": false},
-    "userlist":           {"type": "string",  "default": "",                   "required": false},
-    "passlist":           {"type": "string",  "default": "",                   "required": false},
-    "single_password":    {"type": "string",  "default": "",                   "required": false},
-    "safe_spray":         {"type": "boolean", "default": true,                 "required": false},
-    "exclude_users":      {"type": "string",  "default": "",                   "required": false},
-    "rid_max":            {"type": "number",  "default": 4000,                 "required": false},
-    "command":            {"type": "string",  "default": "whoami /all",        "required": false},
-    "bloodhound_collection":{"type":"string", "default": "Default",            "required": false},
-    "uac_method":         {"type": "string",  "default": "fodhelper",          "required": false},
-    "uac_payload":        {"type": "string",  "default": "lsa_fix",            "required": false},
-    "payload_cmd":        {"type": "string",  "default": "",                   "required": false},
-    "exe":                {"type": "string",  "default": "C:\\Windows\\Temp\\svcx.exe", "required": false},
-    "persist_method":     {"type": "string",  "default": "run_key",            "required": false},
-    "persist_name":       {"type": "string",  "default": "WindowsDefenderHelper","required": false},
-    "persist_delay":      {"type": "number",  "default": 0,                    "required": false},
-    "remove":             {"type": "boolean", "default": false,                "required": false},
-    "session_id":         {"type": "string",  "default": "",                   "required": false},
-    "local_path":         {"type": "string",  "default": "",                   "required": false},
-    "remote_path":        {"type": "string",  "default": "",                   "required": false},
-    "dll_path":           {"type": "string",  "default": "",                   "required": false},
-    "pid":                {"type": "number",  "default": 0,                    "required": false},
-    "hive":               {"type": "string",  "default": "HKCU",               "required": false},
-    "reg_key":            {"type": "string",  "default": "",                   "required": false},
-    "reg_name":           {"type": "string",  "default": "",                   "required": false},
-    "reg_value":          {"type": "string",  "default": "",                   "required": false},
-    "reg_type":           {"type": "string",  "default": "string",             "required": false},
-    "impersonate_user":   {"type": "string",  "default": "",                   "required": false},
-    "c2_host":            {"type": "string",  "default": "192.168.1.114",      "required": false},
-    "c2_port":            {"type": "number",  "default": 9000,                 "required": false},
-    "c2_http_port":       {"type": "number",  "default": 8443,                 "required": false},
-    "c2_path":            {"type": "string",  "default": "/update.bin",        "required": false},
-    "xor_key":            {"type": "string",  "default": "",                   "required": false},
-    "exe_path":           {"type": "string",  "default": "",                   "required": false},
-    "shellcode_path":     {"type": "string",  "default": "",                   "required": false},
-    "sliver_exe":         {"type": "string",  "default": "",                   "required": false},
-    "legit_exe":          {"type": "string",  "default": "",                   "required": false},
-    "payload_exe":        {"type": "string",  "default": "C:\\Windows\\Temp\\svcx.exe","required": false},
-    "iso_label":          {"type": "string",  "default": "OneDriveUpdate",     "required": false},
-    "implant_format":     {"type": "string",  "default": "exe",                "required": false},
-    "implant_out":        {"type": "string",  "default": "",                   "required": false}
-  },
-
-  "operations": {
-    "discover":           "Unauthenticated DC fingerprint: ports, SMB, LDAP rootDSE, OS, domain",
-    "users":              "Enumerate domain users via LDAP or SAMR RID brute",
-    "groups":             "Enumerate groups + membership",
-    "shares":             "SMB share enum with READ/WRITE tests",
-    "passpol":            "Domain password policy (lockout threshold, min-length, complexity)",
-    "kerberoast":         "Find SPN accounts, request TGS hashes (hashcat $krb5tgs$)",
-    "asreproast":         "Dump AS-REP hashes for no-preauth users (hashcat $krb5asrep$)",
-    "spray":              "Lockout-aware SMB credential spray",
-    "vulncheck":          "Zerologon, PetitPotam, NoPac, MachineAccountQuota, AD CS, SMBv1, signing",
-    "bloodhound":         "Run bloodhound-python, output BH-compatible JSON zip",
-    "loot":               "Scrape shares for cred files, GPP cpassword, SSH keys, .kdbx, configs",
-    "secrets":            "Dump SAM/LSA/NTDS via secretsdump (admin required)",
-    "exec":               "Remote command via WMI (impacket-wmiexec or native)",
-    "privesc_check":      "PowerShell privesc audit with AMSI bypass: unquoted services, writable binaries, UAC, AlwaysInstallElevated, stored creds, PATH hijack, autoruns",
-    "uac_bypass":         "HKCU registry hijack → auto-elevating binary (fodhelper/eventvwr/wsreset) → arbitrary elevated payload",
-    "lsa_fix":            "UAC bypass → set LimitBlankPasswordUse=0 (fixes blank-password SMB auth)",
-    "persistence":        "Install/remove payload persistence: run_key | startup_folder | scheduled_task | service | wmi_sub | all_user",
-    "sliver_sessions":    "List active Sliver C2 sessions",
-    "sliver_exec":        "Execute command via Sliver session",
-    "sliver_upload":      "Upload file via Sliver session",
-    "sliver_download":    "Download file via Sliver session",
-    "sliver_ps":          "List remote processes via Sliver",
-    "sliver_spawndll":    "Reflective DLL injection via Sliver spawndll",
-    "sliver_getsystem":   "Escalate to SYSTEM via Sliver getsystem",
-    "sliver_registry":    "Read/write Windows registry via Sliver",
-    "sliver_whoami":      "Get current user context via Sliver",
-    "sliver_screenshot":  "Capture desktop screenshot via Sliver",
-    "sliver_impersonate": "Impersonate logged-in user token via Sliver",
-    "sliver_make_token":  "Create logon session with given credentials via Sliver",
-    "gen_proxy_dll":      "Compile version.dll proxy sideloading DLL (AMSI+ETW patch + WinHTTP C2 loader + explorer.exe injection)",
-    "gen_uac_dll":        "Compile UAC bypass DLL (fodhelper + COM IShellDispatch2 auto-elevate)",
-    "gen_shellcode":      "Convert PE/EXE to raw shellcode via donut",
-    "gen_payload":        "XOR-encrypt shellcode with 4-byte LE length prefix → update.bin",
-    "gen_sliver":         "Generate Sliver implant (EXE/DLL/shellcode) via sliver-client generate",
-    "gen_iso":            "Create delivery ISO: signed legit EXE + malicious version.dll",
-    "gen_all":            "Full chain: Sliver implant → donut → XOR payload + proxy DLL + UAC DLL + ISO",
-    "auto":               "Safe pipeline: discover → vulncheck → users → groups → shares → passpol → asreproast [+ kerberoast/bloodhound/privesc_check/lsa_fix if creds]"
-  },
-
-  "help": {
-    "attack_chain": [
-      "1. gen_sliver — generate Sliver EXE implant (C2 callback to c2_http_port)",
-      "2. gen_shellcode — convert to raw shellcode via donut",
-      "3. gen_payload — XOR encrypt → update.bin, serve on c2_port",
-      "4. gen_proxy_dll — compile version.dll that downloads + injects update.bin",
-      "5. gen_iso — bundle version.dll + signed OneDriveSetup.exe into ISO",
-      "6. Deliver ISO to target; user double-clicks signed EXE → DLL loads → C2 back",
-      "7. sliver_sessions — confirm session, get session_id",
-      "8. sliver_whoami — verify identity (medium integrity Aprosa)",
-      "9. uac_bypass/lsa_fix — escalate or fix LimitBlankPasswordUse",
-      "10. persistence — install wmi_sub or run_key for reboot survival",
-      "11. sliver_getsystem — escalate to SYSTEM",
-      "12. secrets — dump domain hashes",
-      "13. auto — full AD assessment pipeline"
-    ],
-    "persistence_methods": {
-      "run_key":       "HKCU Run key — fires on user logon, no admin needed",
-      "startup_folder":"User Startup folder copy — fires on logon, no admin",
-      "scheduled_task":"schtasks onlogon task — no admin for user scope",
-      "service":       "Windows service auto-start — requires admin",
-      "wmi_sub":       "WMI EventFilter+CommandLineEventConsumer — fires 60s after boot, requires admin, stealthiest",
-      "all_user":      "HKLM Run key — fires for every user, requires admin"
+    "operation": {
+      "type": "string",
+      "default": "discover",
+      "required": false
     },
-    "uac_methods": {
-      "fodhelper": "ms-settings HKCU hijack → fodhelper.exe auto-elevates → PAYLOAD runs as high-integrity",
-      "eventvwr":  "mscfile HKCU hijack → eventvwr.exe → elevated payload",
-      "wsreset":   "AppX HKCU hijack → wsreset.exe → elevated payload"
+    "domain": {
+      "type": "string",
+      "default": "",
+      "required": false
+    },
+    "username": {
+      "type": "string",
+      "default": "",
+      "required": false
+    },
+    "password": {
+      "type": "string",
+      "default": "",
+      "required": false
+    },
+    "hash": {
+      "type": "string",
+      "default": "",
+      "required": false
+    },
+    "dc_ip": {
+      "type": "string",
+      "default": "",
+      "required": false
+    },
+    "timeout": {
+      "type": "number",
+      "default": 30,
+      "required": false
+    },
+    "threads": {
+      "type": "number",
+      "default": 20,
+      "required": false
+    },
+    "output_dir": {
+      "type": "string",
+      "default": "./winadsec-loot",
+      "required": false
+    },
+    "userlist": {
+      "type": "string",
+      "default": "",
+      "required": false
+    },
+    "passlist": {
+      "type": "string",
+      "default": "",
+      "required": false
+    },
+    "single_password": {
+      "type": "string",
+      "default": "",
+      "required": false
+    },
+    "safe_spray": {
+      "type": "boolean",
+      "default": true,
+      "required": false
+    },
+    "exclude_users": {
+      "type": "string",
+      "default": "",
+      "required": false
+    },
+    "rid_max": {
+      "type": "number",
+      "default": 4000,
+      "required": false
+    },
+    "command": {
+      "type": "string",
+      "default": "whoami /all",
+      "required": false
+    },
+    "bloodhound_collection": {
+      "type": "string",
+      "default": "Default",
+      "required": false
+    },
+    "uac_method": {
+      "type": "string",
+      "default": "fodhelper",
+      "required": false
+    },
+    "uac_payload": {
+      "type": "string",
+      "default": "lsa_fix",
+      "required": false
+    },
+    "payload_cmd": {
+      "type": "string",
+      "default": "",
+      "required": false
+    },
+    "exe": {
+      "type": "string",
+      "default": "C:\\Windows\\Temp\\svcx.exe",
+      "required": false
+    },
+    "persist_method": {
+      "type": "string",
+      "default": "run_key",
+      "required": false
+    },
+    "persist_name": {
+      "type": "string",
+      "default": "WindowsDefenderHelper",
+      "required": false
+    },
+    "persist_delay": {
+      "type": "number",
+      "default": 0,
+      "required": false
+    },
+    "remove": {
+      "type": "boolean",
+      "default": false,
+      "required": false
+    },
+    "session_id": {
+      "type": "string",
+      "default": "",
+      "required": false
+    },
+    "local_path": {
+      "type": "string",
+      "default": "",
+      "required": false
+    },
+    "remote_path": {
+      "type": "string",
+      "default": "",
+      "required": false
+    },
+    "dll_path": {
+      "type": "string",
+      "default": "",
+      "required": false
+    },
+    "pid": {
+      "type": "number",
+      "default": 0,
+      "required": false
+    },
+    "hive": {
+      "type": "string",
+      "default": "HKCU",
+      "required": false
+    },
+    "reg_key": {
+      "type": "string",
+      "default": "",
+      "required": false
+    },
+    "reg_name": {
+      "type": "string",
+      "default": "",
+      "required": false
+    },
+    "reg_value": {
+      "type": "string",
+      "default": "",
+      "required": false
+    },
+    "reg_type": {
+      "type": "string",
+      "default": "string",
+      "required": false
+    },
+    "impersonate_user": {
+      "type": "string",
+      "default": "",
+      "required": false
+    },
+    "c2_host": {
+      "type": "string",
+      "default": "192.168.1.114",
+      "required": false
+    },
+    "c2_port": {
+      "type": "number",
+      "default": 9000,
+      "required": false
+    },
+    "c2_http_port": {
+      "type": "number",
+      "default": 8443,
+      "required": false
+    },
+    "c2_path": {
+      "type": "string",
+      "default": "/update.bin",
+      "required": false
+    },
+    "xor_key": {
+      "type": "string",
+      "default": "",
+      "required": false
+    },
+    "exe_path": {
+      "type": "string",
+      "default": "",
+      "required": false
+    },
+    "shellcode_path": {
+      "type": "string",
+      "default": "",
+      "required": false
+    },
+    "sliver_exe": {
+      "type": "string",
+      "default": "",
+      "required": false
+    },
+    "legit_exe": {
+      "type": "string",
+      "description": "Path to legitimate EXE to use as wrapper (inject_exe)",
+      "required": false
+    },
+    "payload_exe": {
+      "type": "string",
+      "default": "C:\\Windows\\Temp\\svcx.exe",
+      "required": false
+    },
+    "iso_label": {
+      "type": "string",
+      "default": "OneDriveUpdate",
+      "required": false
+    },
+    "implant_format": {
+      "type": "string",
+      "default": "exe",
+      "required": false
+    },
+    "implant_out": {
+      "type": "string",
+      "default": "",
+      "required": false
+    },
+    "lhost": {
+      "type": "string",
+      "default": "",
+      "required": false,
+      "description": "Attacker IP for LHOST"
+    },
+    "lport": {
+      "type": "integer",
+      "default": 4444,
+      "required": false,
+      "description": "Shell listener port"
+    },
+    "serve": {
+      "type": "boolean",
+      "default": true,
+      "required": false,
+      "description": "Interactive TUI or headless"
+    },
+    "duration": {
+      "type": "integer",
+      "default": 120,
+      "required": false,
+      "description": "Headless duration seconds"
+    },
+    "payload_type": {
+      "type": "string",
+      "default": "powershell_b64",
+      "required": false,
+      "description": "Payload type"
+    },
+    "url": {
+      "type": "string",
+      "description": "URL of remote DLL/EXE (fileless_pe)",
+      "required": false
+    },
+    "file_type": {
+      "type": "string",
+      "description": "exe or dll (fileless_pe)",
+      "required": false,
+      "default": "exe"
+    },
+    "method": {
+      "type": "string",
+      "description": "DLL export method name (fileless_pe dll only)",
+      "required": false
+    },
+    "mal_exe": {
+      "type": "string",
+      "description": "Path to malicious EXE (inject_exe)",
+      "required": false
+    },
+    "macro_type": {
+      "type": "string",
+      "description": "download_exec|hidden_cmd_exec|persistence|pwsh_cmd|reverse_shell|all (office_macros)",
+      "required": false,
+      "default": "all"
+    },
+    "payload_url": {
+      "type": "string",
+      "description": "URL of payload EXE for download_exec/hidden_cmd_exec macros",
+      "required": false
+    },
+    "rev_url": {
+      "type": "string",
+      "description": "URL of reverse PS1 for reverse_shell macro",
+      "required": false
+    },
+    "reg_path": {
+      "type": "string",
+      "description": "VBS path for persistence macro registry key",
+      "required": false
+    },
+    "ps_command": {
+      "type": "string",
+      "description": "PowerShell command for pwsh_cmd macro",
+      "required": false
     }
   },
-
+  "operations": {
+    "discover": "Unauthenticated DC fingerprint: ports, SMB, LDAP rootDSE, OS, domain",
+    "users": "Enumerate domain users via LDAP or SAMR RID brute",
+    "groups": "Enumerate groups + membership",
+    "shares": "SMB share enum with READ/WRITE tests",
+    "passpol": "Domain password policy (lockout threshold, min-length, complexity)",
+    "kerberoast": "Find SPN accounts, request TGS hashes (hashcat $krb5tgs$)",
+    "asreproast": "Dump AS-REP hashes for no-preauth users (hashcat $krb5asrep$)",
+    "spray": "Lockout-aware SMB credential spray",
+    "vulncheck": "Zerologon, PetitPotam, NoPac, MachineAccountQuota, AD CS, SMBv1, signing",
+    "bloodhound": "Run bloodhound-python, output BH-compatible JSON zip",
+    "loot": "Scrape shares for cred files, GPP cpassword, SSH keys, .kdbx, configs",
+    "secrets": "Dump SAM/LSA/NTDS via secretsdump (admin required)",
+    "exec": "Remote command via WMI (impacket-wmiexec or native)",
+    "privesc_check": "PowerShell privesc audit with AMSI bypass: unquoted services, writable binaries, UAC, AlwaysInstallElevated, stored creds, PATH hijack, autoruns",
+    "uac_bypass": "HKCU registry hijack \u2192 auto-elevating binary (fodhelper/eventvwr/wsreset) \u2192 arbitrary elevated payload",
+    "lsa_fix": "UAC bypass \u2192 set LimitBlankPasswordUse=0 (fixes blank-password SMB auth)",
+    "persistence": "Install/remove payload persistence: run_key | startup_folder | scheduled_task | service | wmi_sub | all_user",
+    "sliver_sessions": "List active Sliver C2 sessions",
+    "sliver_exec": "Execute command via Sliver session",
+    "sliver_upload": "Upload file via Sliver session",
+    "sliver_download": "Download file via Sliver session",
+    "sliver_ps": "List remote processes via Sliver",
+    "sliver_spawndll": "Reflective DLL injection via Sliver spawndll",
+    "sliver_getsystem": "Escalate to SYSTEM via Sliver getsystem",
+    "sliver_registry": "Read/write Windows registry via Sliver",
+    "sliver_whoami": "Get current user context via Sliver",
+    "sliver_screenshot": "Capture desktop screenshot via Sliver",
+    "sliver_impersonate": "Impersonate logged-in user token via Sliver",
+    "sliver_make_token": "Create logon session with given credentials via Sliver",
+    "gen_proxy_dll": "Compile version.dll proxy sideloading DLL (AMSI+ETW patch + WinHTTP C2 loader + explorer.exe injection)",
+    "gen_uac_dll": "Compile UAC bypass DLL (fodhelper + COM IShellDispatch2 auto-elevate)",
+    "gen_shellcode": "Convert PE/EXE to raw shellcode via donut",
+    "gen_payload": "XOR-encrypt shellcode with 4-byte LE length prefix \u2192 update.bin",
+    "gen_sliver": "Generate Sliver implant (EXE/DLL/shellcode) via sliver-client generate",
+    "gen_iso": "Create delivery ISO: signed legit EXE + malicious version.dll",
+    "gen_all": "Full chain: Sliver implant \u2192 donut \u2192 XOR payload + proxy DLL + UAC DLL + ISO",
+    "auto": "Safe pipeline: discover \u2192 vulncheck \u2192 users \u2192 groups \u2192 shares \u2192 passpol \u2192 asreproast [+ kerberoast/bloodhound/privesc_check/lsa_fix if creds]",
+    "shell": {
+      "description": "Start OnlyShell reverse shell handler; auto-deliver payload via WMI/wmiexec if credentials are provided",
+      "params": {
+        "lhost": "Attacker IP (auto-detected if omitted)",
+        "lport": "Listener port (default 4444)",
+        "serve": "true = interactive TUI, false = headless JSON (default: true)",
+        "duration": "Headless listen seconds (serve=false, default 120)",
+        "payload_type": "powershell_b64 | powershell | bash_tcp | python3 | all (default: powershell_b64)"
+      }
+    },
+    "fileless_pe": {
+      "description": "Generate a PEloader.py that fetches and runs a DLL/EXE in memory without touching disk (pythonmemorymodule)"
+    },
+    "inject_exe": {
+      "description": "Bundle a malicious EXE + legitimate EXE into one PyInstaller binary; runs malware silently then launches legit app"
+    },
+    "office_macros": {
+      "description": "Generate Office VBA macro templates: download_exec, hidden_cmd_exec, persistence, pwsh_cmd, reverse_shell"
+    }
+  },
+  "help": {
+    "attack_chain": [
+      "1. gen_sliver \u2014 generate Sliver EXE implant (C2 callback to c2_http_port)",
+      "2. gen_shellcode \u2014 convert to raw shellcode via donut",
+      "3. gen_payload \u2014 XOR encrypt \u2192 update.bin, serve on c2_port",
+      "4. gen_proxy_dll \u2014 compile version.dll that downloads + injects update.bin",
+      "5. gen_iso \u2014 bundle version.dll + signed OneDriveSetup.exe into ISO",
+      "6. Deliver ISO to target; user double-clicks signed EXE \u2192 DLL loads \u2192 C2 back",
+      "7. sliver_sessions \u2014 confirm session, get session_id",
+      "8. sliver_whoami \u2014 verify identity (medium integrity Aprosa)",
+      "9. uac_bypass/lsa_fix \u2014 escalate or fix LimitBlankPasswordUse",
+      "10. persistence \u2014 install wmi_sub or run_key for reboot survival",
+      "11. sliver_getsystem \u2014 escalate to SYSTEM",
+      "12. secrets \u2014 dump domain hashes",
+      "13. auto \u2014 full AD assessment pipeline"
+    ],
+    "persistence_methods": {
+      "run_key": "HKCU Run key \u2014 fires on user logon, no admin needed",
+      "startup_folder": "User Startup folder copy \u2014 fires on logon, no admin",
+      "scheduled_task": "schtasks onlogon task \u2014 no admin for user scope",
+      "service": "Windows service auto-start \u2014 requires admin",
+      "wmi_sub": "WMI EventFilter+CommandLineEventConsumer \u2014 fires 60s after boot, requires admin, stealthiest",
+      "all_user": "HKLM Run key \u2014 fires for every user, requires admin"
+    },
+    "uac_methods": {
+      "fodhelper": "ms-settings HKCU hijack \u2192 fodhelper.exe auto-elevates \u2192 PAYLOAD runs as high-integrity",
+      "eventvwr": "mscfile HKCU hijack \u2192 eventvwr.exe \u2192 elevated payload",
+      "wsreset": "AppX HKCU hijack \u2192 wsreset.exe \u2192 elevated payload"
+    }
+  },
   "timeout": 1800,
   "concurrent": true
 }

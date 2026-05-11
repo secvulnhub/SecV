@@ -1,37 +1,546 @@
 {
   "name": "wifi_monitor",
-  "version": "1.0.0",
+  "version": "2.1.0",
   "category": "network",
-  "description": "LAN host discovery, async port scanning, device fingerprinting, CVE lookup via CIRCL, and threat detection",
+  "description": "Full WiFi pentesting toolkit: wifite-style automation, full aircrack-ng suite, injection, evil-twin, MITM, WPS, PMKID, WEP attacks, auto-crack pipeline, and LAN scanning",
   "author": "0xb0rn3 | github.com/0xb0rn3",
   "executable": "python3 wifi_monitor.py",
-
-  "dependencies": ["python3"],
-
+  "dependencies": [
+    "python3"
+  ],
   "optional_dependencies": {
-    "scapy":   "ARP host discovery — pip3 install scapy (requires root)",
-    "aiohttp": "Async CVE lookup via cve.circl.lu — pip3 install aiohttp"
+    "aircrack-ng": "Monitor mode, handshake capture, injection, WEP/WPA cracking",
+    "hcxdumptool": "Clientless PMKID capture",
+    "hcxpcapngtool": "Convert pcapng to hashcat .hc22000 format",
+    "hashcat": "GPU-accelerated WPA cracking",
+    "hostapd": "Evil-twin rogue AP",
+    "dnsmasq": "DHCP server for evil-twin / captive portal",
+    "reaver": "WPS Pixie-Dust and PIN brute-force",
+    "bully": "WPS brute-force fallback",
+    "bettercap": "ARP-MITM with SSL stripping",
+    "arpspoof": "ARP poisoning fallback (dsniff package)",
+    "scapy": "ARP host discovery \u2014 pip3 install scapy (requires root)",
+    "aiohttp": "Async CVE lookup via cve.circl.lu \u2014 pip3 install aiohttp"
   },
-
   "help": {
-    "description": "Discovers live hosts on a LAN using ARP (scapy) with TCP-ping fallback, then async-scans open ports, grabs service banners, and looks up CVEs via the CIRCL API. Fingerprints device type and OS from port/banner patterns. Flags threats: exposed databases, cleartext protocols, legacy SSH versions.",
-
+    "description": "Merges the full wifite automation pipeline and aircrack-ng suite into one secV module. Supports passive WiFi scanning, monitor mode management, packet injection, handshake capture, WEP attacks, PMKID capture, WPS Pixie-Dust/PIN, evil-twin with captive portal, ARP-MITM, cracking (aircrack-ng / hashcat / airolib), traffic decryption, raw packet forge/injection, and original LAN host-discovery with port scanning and CVE enrichment. All WiFi operations require a monitor-capable wireless interface and root/sudo.",
+    "modes": {
+      "auto": {
+        "description": "wifite-style full-auto pipeline: monitor_on \u2192 wifi_scan \u2192 rank by signal \u2192 per-AP: WEP/PMKID/capture+deauth/WPS \u2192 auto_crack",
+        "params": [
+          "iface",
+          "wordlist",
+          "scan_duration",
+          "attack_timeout",
+          "min_signal",
+          "skip_wep",
+          "skip_wps",
+          "bssid",
+          "essid"
+        ]
+      },
+      "monitor_on": {
+        "description": "Enable monitor mode via airmon-ng (with interfering-process kill) or iw fallback",
+        "params": [
+          "iface"
+        ]
+      },
+      "monitor_off": {
+        "description": "Restore managed mode and restart NetworkManager",
+        "params": [
+          "iface"
+        ]
+      },
+      "inject_test": {
+        "description": "Test packet injection capability with aireplay-ng --test, reports ACK count",
+        "params": [
+          "iface"
+        ]
+      },
+      "wifi_scan": {
+        "description": "Passive AP and client discovery via airodump-ng CSV; ranked by signal strength",
+        "params": [
+          "iface",
+          "duration",
+          "channel",
+          "band"
+        ]
+      },
+      "capture": {
+        "description": "WPA/WPA2 4-way handshake capture with staggered deauth waves",
+        "params": [
+          "iface",
+          "bssid",
+          "channel",
+          "duration",
+          "deauth",
+          "deauth_count",
+          "client_mac",
+          "essid",
+          "out_dir"
+        ]
+      },
+      "handshake_check": {
+        "description": "Verify that a .cap file contains a valid WPA handshake using aircrack-ng",
+        "params": [
+          "capture_file",
+          "bssid",
+          "essid"
+        ]
+      },
+      "deauth": {
+        "description": "802.11 deauthentication flood (aireplay-ng -0); 0 count = continuous",
+        "params": [
+          "iface",
+          "bssid",
+          "client_mac",
+          "deauth_count",
+          "channel",
+          "interval"
+        ]
+      },
+      "wep_attack": {
+        "description": "WEP attack: fake-auth + ARP-replay / chop-chop / fragmentation / caffe-latte, then auto-crack",
+        "params": [
+          "iface",
+          "bssid",
+          "channel",
+          "client_mac",
+          "wep_method",
+          "duration",
+          "out_dir"
+        ]
+      },
+      "forge_packet": {
+        "description": "Craft a raw ARP packet with packetforge-ng and inject it with aireplay-ng --interactive",
+        "params": [
+          "iface",
+          "bssid",
+          "smac",
+          "dmac",
+          "arp_ip",
+          "repeat",
+          "xor_file"
+        ]
+      },
+      "evil_twin": {
+        "description": "Rogue AP (hostapd + dnsmasq DHCP); optional embedded captive-portal server that captures submitted passwords",
+        "params": [
+          "iface",
+          "essid",
+          "channel",
+          "password",
+          "with_dhcp",
+          "ap_ip",
+          "duration",
+          "captive_portal",
+          "captive_port"
+        ]
+      },
+      "mitm": {
+        "description": "ARP-poisoning MITM via bettercap (preferred, with SSL-strip) or arpspoof; tcpdump pcap capture",
+        "params": [
+          "iface",
+          "victim",
+          "gateway",
+          "duration",
+          "capture",
+          "strip_ssl"
+        ]
+      },
+      "wps_scan": {
+        "description": "Enumerate WPS-enabled APs with wash; reports locked/unlocked status",
+        "params": [
+          "iface",
+          "channel",
+          "duration"
+        ]
+      },
+      "wps_attack": {
+        "description": "WPS Pixie-Dust and/or PIN brute-force via reaver; bully as fallback",
+        "params": [
+          "iface",
+          "bssid",
+          "channel",
+          "pixiedust",
+          "wps_pin",
+          "timeout"
+        ]
+      },
+      "pmkid": {
+        "description": "Clientless PMKID capture with hcxdumptool; auto-converts to .hc22000 for hashcat",
+        "params": [
+          "iface",
+          "bssid",
+          "duration",
+          "out_dir"
+        ]
+      },
+      "crack": {
+        "description": "Crack .cap / .hc22000 files using aircrack-ng, hashcat (GPU), or airolib precomputed PMK DB",
+        "params": [
+          "capture_file",
+          "wordlist",
+          "bssid",
+          "essid",
+          "use_hashcat",
+          "airolib_db",
+          "hashcat_rules"
+        ]
+      },
+      "auto_crack": {
+        "description": "Multi-method crack pipeline: airolib PMK DB \u2192 aircrack-ng \u2192 hashcat (auto-converts .cap to .hc22000)",
+        "params": [
+          "capture_file",
+          "wordlist",
+          "bssid",
+          "essid",
+          "airolib_db"
+        ]
+      },
+      "decrypt": {
+        "description": "Decrypt captured WPA or WEP traffic with airdecap-ng given the known key/passphrase",
+        "params": [
+          "capture_file",
+          "key",
+          "bssid",
+          "out_dir",
+          "wep"
+        ]
+      },
+      "airolib": {
+        "description": "Manage an airolib-ng precomputed PMK database: init, import ESSID, import wordlist, batch-compute PMKs, show stats",
+        "params": [
+          "airolib_db",
+          "action",
+          "essid",
+          "wordlist"
+        ]
+      },
+      "scan": {
+        "description": "LAN host discovery (ARP via scapy / TCP-ping fallback) + async port scanning, banner grab, CVE lookup",
+        "params": [
+          "target",
+          "ports",
+          "port_scan",
+          "cve_lookup",
+          "timeout",
+          "concurrency"
+        ]
+      },
+      "discover": {
+        "description": "LAN host discovery only \u2014 no port scan",
+        "params": [
+          "target",
+          "timeout"
+        ]
+      },
+      "check_tools": {
+        "description": "Report which external tools are installed, grouped by function",
+        "params": []
+      }
+    },
     "parameters": {
       "mode": {
-        "description": "Scan mode",
+        "description": "Operation mode",
         "type": "string",
         "required": false,
         "default": "scan",
-        "options": ["scan", "discover"]
+        "options": [
+          "auto",
+          "monitor_on",
+          "monitor_off",
+          "inject_test",
+          "wifi_scan",
+          "capture",
+          "handshake_check",
+          "deauth",
+          "wep_attack",
+          "forge_packet",
+          "evil_twin",
+          "mitm",
+          "wps_scan",
+          "wps_attack",
+          "pmkid",
+          "crack",
+          "auto_crack",
+          "decrypt",
+          "airolib",
+          "scan",
+          "discover",
+          "check_tools",
+          "shell"
+        ],
+        "examples": [
+          "shell          \u2014 reverse shell handler with optional evil-twin payload delivery"
+        ]
+      },
+      "iface": {
+        "description": "Wireless interface name (e.g. wlan0, wlan0mon). Used as 'target' for WiFi modes.",
+        "type": "string",
+        "required": "for all WiFi modes"
+      },
+      "bssid": {
+        "description": "Target AP MAC address (e.g. AA:BB:CC:DD:EE:FF)",
+        "type": "string",
+        "required": "for capture, deauth, wep_attack, wps_attack, pmkid"
+      },
+      "essid": {
+        "description": "Target network name / SSID",
+        "type": "string",
+        "required": false
+      },
+      "channel": {
+        "description": "WiFi channel number (1\u201314 for 2.4 GHz, 36\u2013165 for 5 GHz)",
+        "type": "string",
+        "required": "for capture, deauth, wep_attack, wps_attack"
+      },
+      "wordlist": {
+        "description": "Absolute path to a wordlist/dictionary file for cracking",
+        "type": "string",
+        "required": "for crack (aircrack-ng path), optional for auto/auto_crack"
+      },
+      "duration": {
+        "description": "Headless JSON listen seconds (serve=false)",
+        "type": "integer",
+        "required": false,
+        "default": 60
+      },
+      "deauth": {
+        "description": "Send deauth frames during handshake capture to force reconnects",
+        "type": "boolean",
+        "required": false,
+        "default": true
+      },
+      "deauth_count": {
+        "description": "Number of deauth frames per wave (0 = continuous flood in deauth mode)",
+        "type": "integer",
+        "required": false,
+        "default": 10
+      },
+      "client_mac": {
+        "description": "Target client MAC for directed deauth (default FF:FF:FF:FF:FF:FF = broadcast)",
+        "type": "string",
+        "required": false,
+        "default": "FF:FF:FF:FF:FF:FF"
+      },
+      "capture_file": {
+        "description": "Path to .cap, .pcap, .pcapng, or .hc22000 file",
+        "type": "string",
+        "required": "for crack, auto_crack, handshake_check, decrypt"
+      },
+      "victim": {
+        "description": "Victim IP for MITM ARP poisoning",
+        "type": "string",
+        "required": "for mitm"
+      },
+      "gateway": {
+        "description": "Gateway IP for MITM ARP poisoning",
+        "type": "string",
+        "required": "for mitm"
+      },
+      "strip_ssl": {
+        "description": "Enable HTTPS proxy / SSL stripping in bettercap MITM",
+        "type": "boolean",
+        "required": false,
+        "default": false
+      },
+      "capture": {
+        "description": "Write pcap during MITM session via tcpdump",
+        "type": "boolean",
+        "required": false,
+        "default": true
+      },
+      "password": {
+        "description": "WPA2 passphrase for evil-twin AP (omit for open AP)",
+        "type": "string",
+        "required": false
+      },
+      "captive_portal": {
+        "description": "Launch embedded captive-portal HTTP server; captured credentials saved to ~/.secv/wifi/evil_twin/",
+        "type": "boolean",
+        "required": false,
+        "default": false
+      },
+      "captive_port": {
+        "description": "TCP port for the captive portal HTTP server",
+        "type": "integer",
+        "required": false,
+        "default": 8080
+      },
+      "ap_ip": {
+        "description": "IP address assigned to the rogue AP interface",
+        "type": "string",
+        "required": false,
+        "default": "10.0.0.1"
+      },
+      "with_dhcp": {
+        "description": "Start dnsmasq DHCP server alongside evil-twin AP",
+        "type": "boolean",
+        "required": false,
+        "default": true
+      },
+      "pixiedust": {
+        "description": "Use WPS Pixie-Dust attack (-K 1) in reaver",
+        "type": "boolean",
+        "required": false,
+        "default": true
+      },
+      "wps_pin": {
+        "description": "Known/guessed 8-digit WPS PIN to try directly",
+        "type": "string",
+        "required": false
+      },
+      "use_hashcat": {
+        "description": "Force hashcat even for .cap files (auto-converts to .hc22000)",
+        "type": "boolean",
+        "required": false,
+        "default": false
+      },
+      "airolib_db": {
+        "description": "Path to airolib-ng SQLite database of precomputed PMKs",
+        "type": "string",
+        "required": "for airolib mode; optional for crack/auto_crack"
+      },
+      "hashcat_rules": {
+        "description": "Path to a hashcat rules file (.rule) for rule-based mutations",
+        "type": "string",
+        "required": false
+      },
+      "key": {
+        "description": "WPA passphrase or WEP hex key for traffic decryption (decrypt mode)",
+        "type": "string",
+        "required": "for decrypt"
+      },
+      "wep": {
+        "description": "Treat key as a WEP key in decrypt mode (default: WPA)",
+        "type": "boolean",
+        "required": false,
+        "default": false
+      },
+      "wep_method": {
+        "description": "WEP attack method",
+        "type": "string",
+        "required": false,
+        "default": "arp_replay",
+        "options": [
+          "arp_replay",
+          "chopchop",
+          "fragment",
+          "caffe_latte"
+        ]
+      },
+      "action": {
+        "description": "airolib management action",
+        "type": "string",
+        "required": "for airolib mode",
+        "options": [
+          "init",
+          "import_essid",
+          "import_passwd",
+          "batch",
+          "stats"
+        ]
+      },
+      "smac": {
+        "description": "Source MAC address for forged packet",
+        "type": "string",
+        "required": "for forge_packet (if xor_file not given)"
+      },
+      "dmac": {
+        "description": "Destination MAC address for forged packet",
+        "type": "string",
+        "required": false,
+        "default": "FF:FF:FF:FF:FF:FF"
+      },
+      "arp_ip": {
+        "description": "Destination IP embedded in forged ARP packet",
+        "type": "string",
+        "required": false,
+        "default": "255.255.255.255"
+      },
+      "repeat": {
+        "description": "Number of times to inject the forged packet",
+        "type": "integer",
+        "required": false,
+        "default": 1000
+      },
+      "xor_file": {
+        "description": "Path to .xor keystream file from chop-chop/fragment attack for packet forging",
+        "type": "string",
+        "required": false
+      },
+      "out_dir": {
+        "description": "Directory to save capture/output files (default: ~/.secv/wifi/<subdir>/)",
+        "type": "string",
+        "required": false
+      },
+      "band": {
+        "description": "WiFi bands to scan (airodump-ng --band)",
+        "type": "string",
+        "required": false,
+        "default": "bg",
+        "options": [
+          "bg",
+          "a",
+          "abg"
+        ]
+      },
+      "scan_duration": {
+        "description": "Seconds to scan for APs in auto mode",
+        "type": "integer",
+        "required": false,
+        "default": 15
+      },
+      "attack_timeout": {
+        "description": "Max seconds to spend per-target in auto mode",
+        "type": "integer",
+        "required": false,
+        "default": 90
+      },
+      "min_signal": {
+        "description": "Minimum signal strength (dBm) to include a target in auto mode",
+        "type": "integer",
+        "required": false,
+        "default": -80
+      },
+      "skip_wep": {
+        "description": "Skip WEP targets in auto mode",
+        "type": "boolean",
+        "required": false,
+        "default": false
+      },
+      "skip_wps": {
+        "description": "Skip WPS attacks in auto mode",
+        "type": "boolean",
+        "required": false,
+        "default": false
+      },
+      "interval": {
+        "description": "Deauth frame interval in seconds (0 = as fast as possible)",
+        "type": "number",
+        "required": false,
+        "default": 0.0
+      },
+      "timeout": {
+        "description": "WPS attack timeout in seconds",
+        "type": "integer",
+        "required": false,
+        "default": 3600
+      },
+      "target": {
+        "description": "For scan/discover: CIDR range or single IP. For WiFi modes: used as iface if iface param absent.",
+        "type": "string",
+        "required": "for scan, discover"
       },
       "ports": {
-        "description": "Ports to scan — comma-separated or range (e.g. '22,80,443' or '1-1024'). 'default' uses a common 23-port set.",
+        "description": "Ports to scan \u2014 comma-separated or range (e.g. '22,80,443' or '1-1024'). 'default' uses a 23-port common set.",
         "type": "string",
         "required": false,
         "default": "default"
       },
       "port_scan": {
-        "description": "Run port scan on discovered hosts",
+        "description": "Run async port scan on discovered LAN hosts",
         "type": "boolean",
         "required": false,
         "default": true
@@ -42,72 +551,307 @@
         "required": false,
         "default": true
       },
-      "timeout": {
-        "description": "ARP/TCP discovery timeout in seconds",
-        "type": "number",
-        "required": false,
-        "default": 3.0
-      },
       "concurrency": {
-        "description": "Concurrent port probe workers per host",
+        "description": "Concurrent port probe workers per LAN host",
         "type": "integer",
         "required": false,
         "default": 100
+      },
+      "lhost": {
+        "description": "Attacker IP for LHOST (auto-detected if omitted)",
+        "type": "string",
+        "required": false
+      },
+      "lport": {
+        "description": "Shell listener port (default 4444)",
+        "type": "integer",
+        "required": false,
+        "default": 4444
+      },
+      "serve": {
+        "description": "Interactive TUI (true) or headless JSON (false)",
+        "type": "boolean",
+        "required": false,
+        "default": true
+      },
+      "payload_type": {
+        "description": "Payload: bash_tcp, python3, all, etc.",
+        "type": "string",
+        "required": false,
+        "default": "all"
+      },
+      "deliver_via_evil_twin": {
+        "description": "Serve payload over HTTP via evil-twin captive portal on port 8080",
+        "type": "boolean",
+        "required": false,
+        "default": false
       }
     },
-
     "examples": [
       {
-        "description": "Scan local /24 for live hosts and open ports",
+        "description": "Full-auto attack all nearby WPA/WPA2/WEP networks",
+        "commands": [
+          "use wifi_monitor",
+          "set target wlan0",
+          "set mode auto",
+          "set wordlist /usr/share/wordlists/rockyou.txt",
+          "run"
+        ]
+      },
+      {
+        "description": "Enable monitor mode",
+        "commands": [
+          "use wifi_monitor",
+          "set target wlan0",
+          "set mode monitor_on",
+          "run"
+        ]
+      },
+      {
+        "description": "Scan for APs and rank by signal",
+        "commands": [
+          "use wifi_monitor",
+          "set target wlan0mon",
+          "set mode wifi_scan",
+          "set duration 20",
+          "run"
+        ]
+      },
+      {
+        "description": "Capture WPA handshake with deauth",
+        "commands": [
+          "use wifi_monitor",
+          "set target wlan0mon",
+          "set mode capture",
+          "set bssid AA:BB:CC:DD:EE:FF",
+          "set channel 6",
+          "set duration 60",
+          "run"
+        ]
+      },
+      {
+        "description": "Crack captured handshake with aircrack-ng",
+        "commands": [
+          "use wifi_monitor",
+          "set mode crack",
+          "set capture_file /root/.secv/wifi/captures/hs_20260101_120000-01.cap",
+          "set wordlist /usr/share/wordlists/rockyou.txt",
+          "run"
+        ]
+      },
+      {
+        "description": "Crack with hashcat GPU acceleration",
+        "commands": [
+          "use wifi_monitor",
+          "set mode crack",
+          "set capture_file /root/.secv/wifi/pmkid/pmkid_20260101_120000.hc22000",
+          "set wordlist /usr/share/wordlists/rockyou.txt",
+          "set use_hashcat true",
+          "run"
+        ]
+      },
+      {
+        "description": "Clientless PMKID capture against one AP",
+        "commands": [
+          "use wifi_monitor",
+          "set target wlan0mon",
+          "set mode pmkid",
+          "set bssid AA:BB:CC:DD:EE:FF",
+          "set duration 60",
+          "run"
+        ]
+      },
+      {
+        "description": "Evil-twin with captive portal (capture credentials)",
+        "commands": [
+          "use wifi_monitor",
+          "set target wlan1",
+          "set mode evil_twin",
+          "set essid FreeAirport_WiFi",
+          "set channel 6",
+          "set captive_portal true",
+          "set duration 300",
+          "run"
+        ]
+      },
+      {
+        "description": "ARP-MITM with bettercap and SSL stripping",
+        "commands": [
+          "use wifi_monitor",
+          "set target eth0",
+          "set mode mitm",
+          "set victim 192.168.1.50",
+          "set gateway 192.168.1.1",
+          "set strip_ssl true",
+          "set duration 120",
+          "run"
+        ]
+      },
+      {
+        "description": "WPS Pixie-Dust attack",
+        "commands": [
+          "use wifi_monitor",
+          "set target wlan0mon",
+          "set mode wps_attack",
+          "set bssid AA:BB:CC:DD:EE:FF",
+          "set channel 11",
+          "set pixiedust true",
+          "run"
+        ]
+      },
+      {
+        "description": "WEP ARP-replay attack with auto-crack",
+        "commands": [
+          "use wifi_monitor",
+          "set target wlan0mon",
+          "set mode wep_attack",
+          "set bssid AA:BB:CC:DD:EE:FF",
+          "set channel 1",
+          "set wep_method arp_replay",
+          "run"
+        ]
+      },
+      {
+        "description": "Build airolib PMK database and crack",
+        "commands": [
+          "use wifi_monitor",
+          "set mode airolib",
+          "set airolib_db /root/.secv/wifi/pmk.db",
+          "set action init",
+          "run",
+          "set action import_essid",
+          "set essid TargetNetwork",
+          "run",
+          "set action import_passwd",
+          "set wordlist /usr/share/wordlists/rockyou.txt",
+          "run",
+          "set action batch",
+          "run"
+        ]
+      },
+      {
+        "description": "Decrypt captured WPA traffic after cracking",
+        "commands": [
+          "use wifi_monitor",
+          "set mode decrypt",
+          "set capture_file /root/.secv/wifi/captures/hs_20260101-01.cap",
+          "set key mysecretpassword",
+          "run"
+        ]
+      },
+      {
+        "description": "LAN scan: discover hosts, open ports, CVE lookup",
         "commands": [
           "use wifi_monitor",
           "set target 192.168.1.0/24",
+          "set mode scan",
           "run"
         ]
       },
       {
-        "description": "Scan single host with custom port range",
+        "description": "Check which WiFi tools are installed",
         "commands": [
           "use wifi_monitor",
-          "set target 192.168.1.1",
-          "set ports 1-1024",
+          "set mode check_tools",
           "run"
         ]
       },
       {
-        "description": "Host discovery only, no port scan",
-        "commands": [
-          "use wifi_monitor",
-          "set target 10.0.0.0/24",
-          "set port_scan false",
-          "run"
-        ]
+        "description": "Shell handler with evil-twin delivery on FreeWiFi",
+        "params": {
+          "mode": "shell",
+          "iface": "wlan0",
+          "lhost": "10.0.0.1",
+          "lport": 4444,
+          "deliver_via_evil_twin": true,
+          "essid": "FreeWiFi",
+          "channel": "6"
+        }
       }
     ],
-
     "features": [
-      "ARP host discovery via scapy (requires root) with TCP-ping fallback",
-      "Async port scanning with banner grabbing (HTTP, HTTPS, SSH, generic)",
-      "Device fingerprinting: IoT camera, router, NAS, DB server, web server",
-      "OS inference from port/banner patterns",
+      "wifite-style op_auto: monitor \u2192 scan \u2192 rank \u2192 WEP/PMKID/handshake/WPS \u2192 crack pipeline",
+      "Full aircrack-ng suite: airmon-ng, airodump-ng, aireplay-ng, aircrack-ng, airdecap-ng, airolib-ng, packetforge-ng",
+      "Clientless PMKID capture via hcxdumptool with auto-conversion to .hc22000",
+      "GPU cracking via hashcat -m 22000 with optional rules file",
+      "Precomputed PMK tables via airolib-ng (init, import essid/passwd, batch, stats)",
+      "Auto-crack pipeline: airolib \u2192 aircrack-ng \u2192 hashcat in order",
+      "WEP attacks: fake-auth + arp_replay / chopchop / fragment / caffe_latte",
+      "Raw packet forge and injection via packetforge-ng + aireplay-ng --interactive",
+      "Evil-twin rogue AP (hostapd + dnsmasq DHCP) with embedded captive portal",
+      "ARP-MITM via bettercap (preferred, SSL strip) or arpspoof with tcpdump capture",
+      "WPS Pixie-Dust and PIN brute-force via reaver; bully fallback",
+      "Traffic decryption of WPA/WEP captures via airdecap-ng",
+      "LAN host discovery: ARP (scapy) with TCP-ping fallback",
+      "Async port scanning with banner grabbing (HTTP/HTTPS/SSH/generic)",
+      "Device fingerprinting: IoT, router, NAS, DB server, web server",
       "CVE lookup via CIRCL cve.circl.lu API with 24-hour cache",
-      "Threat detection: exposed databases, cleartext protocols, legacy SSH",
-      "Works without scapy/aiohttp at reduced capability"
+      "Threat detection: exposed databases, cleartext protocols, legacy SSH"
     ],
-
-    "installation_tiers": {
-      "basic":    "TCP-ping discovery only — no extra deps required",
-      "standard": "ARP discovery — requires scapy (pip3 install scapy, run as root)",
-      "full":     "CVE enrichment — requires aiohttp (pip3 install aiohttp)"
+    "tool_requirements": {
+      "required_for_wifi": "aircrack-ng suite (pacman -S aircrack-ng / apt install aircrack-ng)",
+      "required_for_pmkid": "hcxtools (pacman -S hcxtools / apt install hcxdumptool hcxtools)",
+      "required_for_evil_twin": "hostapd dnsmasq (pacman -S hostapd dnsmasq)",
+      "required_for_wps": "reaver (pacman -S reaver / apt install reaver)",
+      "required_for_gpu_crack": "hashcat (pacman -S hashcat / apt install hashcat)",
+      "required_for_mitm": "bettercap or dsniff (pacman -S bettercap / apt install dsniff)"
     },
-
+    "output_dirs": {
+      "captures": "~/.secv/wifi/captures/   \u2014 handshake .cap files",
+      "pmkid": "~/.secv/wifi/pmkid/       \u2014 .pcapng and .hc22000 files",
+      "wep": "~/.secv/wifi/wep/         \u2014 WEP .ivs/.cap files",
+      "mitm": "~/.secv/wifi/mitm/        \u2014 MITM .pcap captures",
+      "decrypted": "~/.secv/wifi/decrypted/   \u2014 airdecap-ng output",
+      "evil_twin": "~/.secv/wifi/evil_twin/   \u2014 captive portal credential files"
+    },
     "notes": [
-      "AUTHORIZATION REQUIRED: Only scan networks you own or have explicit permission to test",
-      "ARP scan requires root/sudo for raw socket access",
-      "CVE lookup requires internet access to cve.circl.lu",
-      "Large /16 or /8 subnets will be slow — use /24 or smaller"
+      "AUTHORIZATION REQUIRED: Only attack networks you own or have explicit written permission to test",
+      "All WiFi attack modes require root/sudo and a monitor-capable wireless adapter",
+      "Run monitor_on before wifi_scan, capture, pmkid, wep_attack, wps_attack, and deauth",
+      "auto mode calls monitor_on automatically",
+      "evil_twin requires a second interface (not the one in monitor mode) or a USB WiFi adapter",
+      "Captive portal credential file path is printed in the response credential_file field",
+      "PMKID attack is clientless \u2014 no clients need to be connected to the target AP",
+      "hashcat cracking requires a GPU; use aircrack-ng on CPU-only systems"
     ]
   },
-
-  "timeout": 300
+  "timeout": 7200,
+  "inputs": {
+    "lhost": {
+      "type": "string",
+      "description": "Attacker IP for LHOST",
+      "required": false,
+      "default": ""
+    },
+    "lport": {
+      "type": "integer",
+      "description": "Shell listener port",
+      "required": false,
+      "default": 4444
+    },
+    "serve": {
+      "type": "boolean",
+      "description": "Interactive TUI or headless JSON",
+      "required": false,
+      "default": true
+    },
+    "duration": {
+      "type": "integer",
+      "description": "Headless duration seconds",
+      "required": false,
+      "default": 60
+    },
+    "payload_type": {
+      "type": "string",
+      "description": "Payload type",
+      "required": false,
+      "default": "all"
+    },
+    "deliver_via_evil_twin": {
+      "type": "boolean",
+      "description": "HTTP evil-twin payload delivery",
+      "required": false,
+      "default": false
+    }
+  }
 }

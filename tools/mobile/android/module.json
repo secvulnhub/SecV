@@ -1,6 +1,6 @@
 {
   "name": "android_pentest",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "category": "mobile",
   "description": "Complete Android penetration testing suite with device reconnaissance, app analysis, vulnerability scanning, exploitation, network capture, and forensics",
   "author": "SecVulnHub Team | 0xb0rn3",
@@ -52,7 +52,8 @@
           "qr_exploit",
           "inject_agent",
           "full_pwn",
-          "multi_device"
+          "multi_device",
+          "shell"
         ],
         "default": "recon",
         "examples": [
@@ -192,17 +193,12 @@
         "default": ""
       },
       "lhost": {
-        "description": "Attacker IP or hostname for reverse shells and payload delivery (auto-detected from default route)",
+        "description": "Attacker IP for reverse shell (auto-detected if omitted)",
         "type": "string",
-        "required": false,
-        "default": "",
-        "examples": [
-          "192.168.1.42",
-          "attacker.example.com"
-        ]
+        "required": false
       },
       "lport": {
-        "description": "Listener port for reverse shells and MSF handler",
+        "description": "Shell listener port (default 4444)",
         "type": "integer",
         "required": false,
         "default": 4444
@@ -369,6 +365,24 @@
         "type": "integer",
         "required": false,
         "default": 4444
+      },
+      "serve": {
+        "description": "Interactive TUI (true) or headless JSON (false)",
+        "type": "boolean",
+        "required": false,
+        "default": true
+      },
+      "duration": {
+        "description": "Headless listen seconds",
+        "type": "integer",
+        "required": false,
+        "default": 60
+      },
+      "payload_type": {
+        "description": "Payload type: bash_tcp, python3, all (auto-delivered via ADB if device connected)",
+        "type": "string",
+        "required": false,
+        "default": "bash_tcp"
       }
     },
     "examples": [
@@ -478,6 +492,15 @@
           "use android_pentest",
           "set operation multi_device",
           "run device"
+        ]
+      },
+      {
+        "description": "Start reverse shell handler (auto-deliver via ADB if device connected)",
+        "commands": [
+          "use android_pentest",
+          "set op shell",
+          "set lhost 10.10.10.10",
+          "run <serial>"
         ]
       }
     ],
@@ -836,6 +859,36 @@
       "type": "int",
       "default": 8891,
       "description": "C2 GUI port"
+    },
+    "lhost": {
+      "type": "string",
+      "description": "Attacker IP for LHOST (auto-detected if omitted)",
+      "required": false,
+      "default": ""
+    },
+    "lport": {
+      "type": "integer",
+      "description": "Shell listener port",
+      "required": false,
+      "default": 4444
+    },
+    "serve": {
+      "type": "boolean",
+      "description": "true = interactive OnlyShell TUI (blocks), false = headless JSON",
+      "required": false,
+      "default": true
+    },
+    "duration": {
+      "type": "integer",
+      "description": "Headless listen duration in seconds (serve=false only)",
+      "required": false,
+      "default": 60
+    },
+    "payload_type": {
+      "type": "string",
+      "description": "Payload type: bash_tcp, python3, all, etc.",
+      "required": false,
+      "default": "bash_tcp"
     }
   },
   "outputs": {

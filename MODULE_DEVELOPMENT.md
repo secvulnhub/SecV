@@ -242,10 +242,12 @@ tools/
     └── mymodule/
         ├── module.json          # Module configuration
         ├── mymodule.py          # Main executable
-        ├── README.md            # Documentation
-        ├── test.sh              # Test script
-        └── requirements.txt     # Optional: module-specific deps
+        └── README.md            # Documentation (optional but recommended)
 ```
+
+**Valid categories:** `network`, `AD`, `mobile`, `web`, `ctf`, `phys`
+
+Add Python deps to `rqm.md` under `#python` **and** to `requirements.txt`. Add system packages to the relevant distro sections in `rqm.md` (`#pacman`, `#apt`, `#dnf`, etc.).
 
 ---
 

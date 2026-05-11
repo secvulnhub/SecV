@@ -227,11 +227,12 @@ Choose the most appropriate category for your module:
 
 | Category | Description | Examples |
 |----------|-------------|----------|
-| `network` | Network manipulation and analysis | netrecon, mac_spoof, wifi_monitor |
+| `network` | Network manipulation and analysis | netrecon, mac_spoof, wifi_monitor, iot_pwn, revshell |
 | `AD` | Active Directory attack and post-exploitation | adsec, winadsec |
 | `mobile` | Mobile device pentesting | android_pentest, ios_pentest |
 | `web` | Web application testing | websec |
 | `ctf` | CTF automation | ctfpwn |
+| `phys` | Physical / hardware security tools | badusb |
 
 ---
 

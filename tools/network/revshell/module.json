@@ -1,0 +1,307 @@
+{
+  "name": "revshell",
+  "version": "1.0.1",
+  "category": "network",
+  "description": "Multi-session reverse shell handler + payload generator. Python port of OnlyShell with 25+ language payloads, TLS, session stabilizer, and command broadcasting.",
+  "author": "0xb0rn3 | github.com/0xb0rn3",
+  "executable": "python3 revshell.py",
+  "dependencies": [
+    "python3"
+  ],
+  "optional_dependencies": {
+    "nc / ncat / socat": "For generated payload options \u2014 not required by the handler itself"
+  },
+  "help": {
+    "description": "Feature-complete Python port of OnlyShell (github.com/malwarekid/OnlyShell). Accepts unlimited simultaneous reverse shell connections, auto-detects shell type (bash/powershell/cmd/zsh/sh) and OS, supports backgrounding sessions, broadcasting commands, TLS-encrypted listeners, PTY stabilization, and session output buffering. Also generates 30+ ready-to-paste reverse shell payloads for bash, python, perl, ruby, php, nodejs, go, awk, lua, java, PowerShell, netcat, socat, and msfvenom stagers.",
+    "modes": {
+      "serve": {
+        "description": "Interactive OnlyShell-style TUI handler. Runs indefinitely accepting shells. Output goes to stdout directly (not JSON). Supports all sub-commands: list, interact, exec-all, stabilize, session, listen, listeners, cleanup.",
+        "params": [
+          "ports",
+          "lhost",
+          "tls_cert",
+          "tls_key"
+        ]
+      },
+      "listen": {
+        "description": "Headless listener \u2014 starts on port(s), collects shells for duration seconds, optionally runs initial_cmd on each, returns JSON report with all session details.",
+        "params": [
+          "ports",
+          "duration",
+          "lhost",
+          "tls_cert",
+          "tls_key",
+          "initial_cmd",
+          "max_sessions"
+        ]
+      },
+      "generate": {
+        "description": "Generate reverse shell one-liner payloads for a given LHOST:LPORT. Returns all 30+ payloads or a specific one.",
+        "params": [
+          "lhost",
+          "lport",
+          "shell"
+        ]
+      },
+      "check": {
+        "description": "Report which helper tools (nc, socat, python3, perl, ruby, php, node, msfvenom, etc.) are installed.",
+        "params": []
+      }
+    },
+    "serve_commands": {
+      "list": "List all connected shells with ID, hostname, shell type, OS, remote address, and status (Active/Stale/Dead)",
+      "interact <id>": "Drop into interactive session with shell. Inside: 'bg'/'background' to background, 'exit' to close shell.",
+      "exec-all <cmd>": "Broadcast a command to all currently active shells simultaneously",
+      "stabilize <id>": "Attempt PTY upgrade via python3 pty.spawn or script(1), then set TERM and stty",
+      "session <id>": "Print buffered output captured from a backgrounded shell",
+      "listen <port[,port]>": "Start additional listener(s) at runtime without stopping existing ones",
+      "listeners": "Show all currently active listening ports",
+      "cleanup": "Remove dead/disconnected shells from the session list",
+      "exit / quit": "Shutdown the handler (does not kill connected shells)"
+    },
+    "shell_status": {
+      "Active": "Connected and responsive \u2014 seen within last 60 seconds",
+      "Stale": "No activity for more than 60 seconds \u2014 may still be alive",
+      "Dead": "Connection lost or explicitly closed"
+    },
+    "parameters": {
+      "mode": {
+        "description": "Operation mode",
+        "type": "string",
+        "required": false,
+        "default": "serve",
+        "options": [
+          "serve",
+          "listen",
+          "generate",
+          "check",
+          "nim_backdoor"
+        ],
+        "examples": [
+          "nim_backdoor \u2014 compile a Nim reverse shell binary with reconnect loop (requires nim compiler)"
+        ]
+      },
+      "ports": {
+        "description": "Listening port(s), comma-separated (e.g. '4444' or '4444,8080,9001')",
+        "type": "string",
+        "required": false,
+        "default": "4444"
+      },
+      "lhost": {
+        "description": "IP address to bind listeners or embed in generated payloads",
+        "type": "string",
+        "required": "for generate mode; optional for listen/serve (default 0.0.0.0)"
+      },
+      "lport": {
+        "description": "Port to embed in generated payloads (generate mode)",
+        "type": "integer",
+        "required": "for generate mode"
+      },
+      "duration": {
+        "description": "How long (seconds) to listen in headless listen mode before returning",
+        "type": "integer",
+        "required": false,
+        "default": 60
+      },
+      "initial_cmd": {
+        "description": "Command to run on each new shell immediately after connect (listen mode); output captured in session result",
+        "type": "string",
+        "required": false
+      },
+      "max_sessions": {
+        "description": "Stop listening after this many shells connect (0 = unlimited)",
+        "type": "integer",
+        "required": false,
+        "default": 0
+      },
+      "tls_cert": {
+        "description": "Path to TLS certificate file (.pem) for encrypted listener",
+        "type": "string",
+        "required": false
+      },
+      "tls_key": {
+        "description": "Path to TLS private key file (.pem) for encrypted listener",
+        "type": "string",
+        "required": false
+      },
+      "shell": {
+        "description": "Specific payload type to generate (generate mode). 'all' returns every payload.",
+        "type": "string",
+        "required": false,
+        "default": "all",
+        "options": [
+          "bash_tcp",
+          "bash_196",
+          "bash_udp",
+          "bash_mkfifo",
+          "python3_pty",
+          "python3_proc",
+          "python2",
+          "perl",
+          "perl_noshell",
+          "ruby",
+          "php_exec",
+          "php_proc",
+          "php_web",
+          "netcat_e",
+          "netcat_noe",
+          "ncat",
+          "socat",
+          "socat_tty",
+          "nodejs",
+          "golang",
+          "awk",
+          "lua",
+          "java_rt",
+          "powershell",
+          "powershell_b64",
+          "powershell_iex",
+          "cmd_telnet",
+          "msf_elf",
+          "msf_exe",
+          "msf_asp",
+          "msf_war",
+          "msf_jar",
+          "msf_apk"
+        ]
+      },
+      "target_os": {
+        "description": "Target OS for nim_backdoor: linux or windows",
+        "type": "string",
+        "required": false,
+        "default": "linux"
+      },
+      "output": {
+        "description": "Output binary name for nim_backdoor (default: backdoor_<os>)",
+        "type": "string",
+        "required": false
+      }
+    },
+    "examples": [
+      {
+        "description": "Interactive handler on port 4444 (CLI shortcut)",
+        "commands": [
+          "python3 revshell.py 4444"
+        ]
+      },
+      {
+        "description": "Interactive handler via secV on multiple ports",
+        "commands": [
+          "use revshell",
+          "set target 0.0.0.0",
+          "set mode serve",
+          "set ports 4444,8080,9001",
+          "run"
+        ]
+      },
+      {
+        "description": "Headless: catch one shell in 120s and run 'id; uname -a'",
+        "commands": [
+          "use revshell",
+          "set mode listen",
+          "set ports 4444",
+          "set duration 120",
+          "set initial_cmd id; uname -a",
+          "set max_sessions 1",
+          "run"
+        ]
+      },
+      {
+        "description": "Generate all payloads for 10.10.14.5:4444",
+        "commands": [
+          "use revshell",
+          "set target 10.10.14.5",
+          "set mode generate",
+          "set lhost 10.10.14.5",
+          "set lport 4444",
+          "run"
+        ]
+      },
+      {
+        "description": "Generate only PowerShell base64 payload",
+        "commands": [
+          "use revshell",
+          "set mode generate",
+          "set lhost 192.168.1.10",
+          "set lport 4444",
+          "set shell powershell_b64",
+          "run"
+        ]
+      },
+      {
+        "description": "TLS-encrypted listener",
+        "commands": [
+          "use revshell",
+          "set mode serve",
+          "set ports 4443",
+          "set tls_cert /root/cert.pem",
+          "set tls_key /root/key.pem",
+          "run"
+        ]
+      },
+      {
+        "description": "Generate TLS self-signed cert for encrypted listener",
+        "commands": [
+          "! openssl req -x509 -newkey rsa:4096 -keyout /root/key.pem -out /root/cert.pem -days 365 -nodes -subj '/CN=revshell'"
+        ]
+      },
+      {
+        "description": "Check which payload helper tools are installed",
+        "commands": [
+          "use revshell",
+          "set mode check",
+          "run"
+        ]
+      },
+      {
+        "description": "Compile Nim reverse shell backdoor for Linux",
+        "commands": [
+          "use revshell",
+          "set mode nim_backdoor",
+          "set lhost 10.10.10.10",
+          "set lport 4444",
+          "set target_os linux",
+          "run target"
+        ]
+      }
+    ],
+    "features": [
+      "Unlimited simultaneous reverse shell connections",
+      "Auto-detects shell type: bash, zsh, sh, PowerShell, cmd",
+      "Auto-detects OS: linux, windows, macos",
+      "Background/foreground session management without losing connection",
+      "Silent keepalive (bash no-op ':') \u2014 does not pollute shell output",
+      "Status tracking: Active (<60s), Stale (>60s), Dead",
+      "Command broadcast to all active shells (exec-all)",
+      "PTY stabilizer: python3 pty.spawn + script(1) fallback + TERM/stty setup",
+      "Session output buffering for backgrounded shells",
+      "Multiple listeners on different ports, addable at runtime",
+      "TLS-encrypted listeners (provide cert + key)",
+      "30+ reverse shell payloads: bash, python, perl, ruby, php, nodejs, go, awk, lua, java, PowerShell (plain + b64), netcat, socat, msfvenom stagers",
+      "Listener hint printed alongside each generated payload",
+      "Color-coded output: green=active, yellow=stale, red=dead"
+    ],
+    "notes": [
+      "AUTHORIZATION REQUIRED: Only use against systems you own or have explicit written permission to test",
+      "serve mode outputs directly to the terminal (not JSON) \u2014 use it from CLI or terminal tab in the GUI",
+      "listen mode is the JSON-friendly mode \u2014 use it from the GUI for automated workflows",
+      "For a stable interactive shell, run stabilize <id> after receiving the connection",
+      "TLS listener requires a cert+key pair \u2014 generate with: openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes",
+      "Payloads with mkfifo or /tmp paths may require cleanup on the target after the session"
+    ]
+  },
+  "timeout": 0,
+  "inputs": {
+    "target_os": {
+      "type": "string",
+      "description": "linux or windows (nim_backdoor)",
+      "required": false,
+      "default": "linux"
+    },
+    "output": {
+      "type": "string",
+      "description": "Output binary name (nim_backdoor)",
+      "required": false
+    }
+  }
+}

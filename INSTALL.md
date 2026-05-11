@@ -114,7 +114,7 @@ The loader searches in this order:
 
 ```bash
 ./secV
-secV ❯ show modules    # lists: netrecon, mac_spoof, wifi_monitor, adsec, winadsec, android_pentest, ios_pentest, websec, ctfpwn
+secV ❯ show modules    # lists: netrecon, mac_spoof, wifi_monitor, iot_pwn, revshell, adsec, winadsec, android_pentest, ios_pentest, websec, ctfpwn, badusb
 secV ❯ show categories
 secV ❯ help
 secV ❯ exit
@@ -141,16 +141,20 @@ secV/
     ├── network/
     │   ├── netrecon/             # Multi-engine network recon
     │   ├── mac_spoof/            # Connection-aware MAC rotator
-    │   └── wifi_monitor/         # Smart WiFi monitor + threat detector
+    │   ├── wifi_monitor/         # Full-stack WiFi attack suite (23 modes)
+    │   ├── iot_pwn/              # IoT/router default-cred + CVE attacks
+    │   └── revshell/             # Multi-session reverse shell handler + payload generator
     ├── AD/
-    │   ├── linux/                # adsec — Linux-side AD pentest
-    │   └── windows/              # winadsec — Windows AD post-exploitation
+    │   ├── linux/                # adsec — Linux-side AD pentest + office macros
+    │   └── windows/              # winadsec — Windows AD post-exploitation + fileless PE + inject_exe
     ├── mobile/
     │   ├── android/              # Android pentesting suite
     │   └── ios/                  # iOS pentesting suite
     ├── web/
     │   └── websec/               # Full-stack web attack surface tool
-    └── ctf/                      # ctfpwn — CTF autopwn
+    ├── ctf/                      # ctfpwn — CTF autopwn
+    └── phys/
+        └── badusb/               # BadUSB / Rubber Ducky DuckyScript encoder
 ```
 
 **After system-wide install (`install.sh` → Y):**
@@ -162,11 +166,12 @@ secV/
 /var/lib/secv/
 ├── update.py                     # updater (secV update command targets this)
 └── tools/                        # full copy of tools/ from repo
-    ├── network/  ...
-    ├── AD/       ...
-    ├── mobile/   ...
-    ├── web/      ...
-    └── ctf/      ...
+    ├── network/  ...   (netrecon, mac_spoof, wifi_monitor, iot_pwn, revshell)
+    ├── AD/       ...   (adsec, winadsec)
+    ├── mobile/   ...   (android_pentest, ios_pentest)
+    ├── web/      ...   (websec)
+    ├── ctf/      ...   (ctfpwn)
+    └── phys/     ...   (badusb)
 
 ~/.secv/
 └── cache/                        # history file, per-user (auto-created)

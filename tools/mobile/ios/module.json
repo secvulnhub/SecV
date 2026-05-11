@@ -1,38 +1,46 @@
 {
   "name": "ios_pentest",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "category": "mobile",
   "description": "iOS penetration testing: IPA static analysis, binary protections, ATS/Info.plist checks, Frida SSL bypass, keychain dumping, iOS CVE assessment",
   "author": "0xb0rn3 | github.com/0xb0rn3",
   "executable": "python3 ios_pentest.py",
-
-  "dependencies": ["python3"],
-
+  "dependencies": [
+    "python3"
+  ],
   "optional_dependencies": {
-    "libimobiledevice": "Device comms (ideviceinfo, ideviceinstaller) — apt install libimobiledevice-utils",
-    "frida":            "Runtime instrumentation + SSL bypass — pip3 install frida-tools",
-    "objection":        "Automated Frida pentest framework — pip3 install objection",
-    "class-dump":       "ObjC class extraction from unencrypted binaries — brew install class-dump",
-    "jtool2":           "Binary analysis (PIE, encryption, entitlements) — download from jtool.io",
-    "otool":            "Binary protections (built into macOS Xcode tools)",
-    "plutil":           "Plist conversion to JSON (built into macOS)",
-    "sshpass":          "Password-based SSH to jailbroken device — apt install sshpass",
-    "frida-ios-dump":   "IPA extraction from encrypted apps — pip3 install frida-ios-dump"
+    "libimobiledevice": "Device comms (ideviceinfo, ideviceinstaller) \u2014 apt install libimobiledevice-utils",
+    "frida": "Runtime instrumentation + SSL bypass \u2014 pip3 install frida-tools",
+    "objection": "Automated Frida pentest framework \u2014 pip3 install objection",
+    "class-dump": "ObjC class extraction from unencrypted binaries \u2014 brew install class-dump",
+    "jtool2": "Binary analysis (PIE, encryption, entitlements) \u2014 download from jtool.io",
+    "otool": "Binary protections (built into macOS Xcode tools)",
+    "plutil": "Plist conversion to JSON (built into macOS)",
+    "sshpass": "Password-based SSH to jailbroken device \u2014 apt install sshpass",
+    "frida-ios-dump": "IPA extraction from encrypted apps \u2014 pip3 install frida-ios-dump"
   },
-
   "help": {
     "description": "iOS security testing suite covering non-jailbroken static analysis and jailbroken dynamic instrumentation. Performs IPA binary inspection (PIE, stack canary, ARC, encryption flags), ATS configuration audit, Info.plist analysis, Frida SSL bypass, keychain dumping, and live CVE assessment via NVD.",
-
     "parameters": {
       "operation": {
         "description": "Assessment operation to run",
         "type": "string",
         "required": false,
         "default": "recon",
-        "options": ["recon", "app_scan", "vuln_scan", "exploit", "full"]
+        "options": [
+          "recon",
+          "app_scan",
+          "vuln_scan",
+          "exploit",
+          "full",
+          "shell"
+        ],
+        "examples": [
+          "shell  \u2014 start reverse shell handler; auto-deliver via jailbreak SSH if ssh_host set"
+        ]
       },
       "udid": {
-        "description": "Device UDID — auto-detected when a single device is connected",
+        "description": "Device UDID \u2014 auto-detected when a single device is connected",
         "type": "string",
         "required": false,
         "default": ""
@@ -42,21 +50,30 @@
         "type": "string",
         "required": false,
         "default": "",
-        "examples": ["com.apple.mobilesafari", "com.target.app"]
+        "examples": [
+          "com.apple.mobilesafari",
+          "com.target.app"
+        ]
       },
       "ipa_path": {
         "description": "Path to local .ipa file for static-only analysis (no device required)",
         "type": "string",
         "required": false,
         "default": "",
-        "examples": ["/tmp/app.ipa", "/home/user/downloads/target.ipa"]
+        "examples": [
+          "/tmp/app.ipa",
+          "/home/user/downloads/target.ipa"
+        ]
       },
       "ssh_host": {
         "description": "IP address of jailbroken device for SSH-based deep testing",
         "type": "string",
         "required": false,
         "default": "",
-        "examples": ["192.168.1.50", "10.0.0.25"]
+        "examples": [
+          "192.168.1.50",
+          "10.0.0.25"
+        ]
       },
       "ssh_port": {
         "description": "SSH port on jailbroken device",
@@ -71,7 +88,7 @@
         "default": "root"
       },
       "ssh_pass": {
-        "description": "SSH password — default is 'alpine' for most jailbreaks (change it)",
+        "description": "SSH password \u2014 default is 'alpine' for most jailbreaks (change it)",
         "type": "string",
         "required": false,
         "default": "alpine"
@@ -105,13 +122,44 @@
         "type": "string",
         "required": false,
         "default": ""
+      },
+      "lhost": {
+        "description": "Attacker IP for reverse shell (auto-detected if omitted)",
+        "type": "string",
+        "required": false
+      },
+      "lport": {
+        "description": "Shell listener port (default 4444)",
+        "type": "integer",
+        "required": false,
+        "default": 4444
+      },
+      "serve": {
+        "description": "Interactive TUI (true) or headless JSON (false)",
+        "type": "boolean",
+        "required": false,
+        "default": true
+      },
+      "duration": {
+        "description": "Headless listen seconds",
+        "type": "integer",
+        "required": false,
+        "default": 60
+      },
+      "payload_type": {
+        "description": "Payload type: bash_tcp, python3, all (auto-delivered via jailbreak SSH if ssh_host set)",
+        "type": "string",
+        "required": false,
+        "default": "bash_tcp"
       }
     },
-
     "examples": [
       {
         "description": "Device recon over USB",
-        "commands": ["use ios_pentest", "run device"]
+        "commands": [
+          "use ios_pentest",
+          "run device"
+        ]
       },
       {
         "description": "Static analysis of a local IPA (no device needed)",
@@ -133,9 +181,18 @@
           "set frida true",
           "run device"
         ]
+      },
+      {
+        "description": "Reverse shell via jailbreak SSH",
+        "commands": [
+          "use ios_pentest",
+          "set op shell",
+          "set ssh_host 192.168.1.50",
+          "set lhost 10.10.10.10",
+          "run <target>"
+        ]
       }
     ],
-
     "features": [
       "IPA binary protection checks: PIE, stack canary, ARC, encryption flags",
       "ATS (App Transport Security) configuration audit",
@@ -146,22 +203,51 @@
       "Works without jailbreak for static IPA analysis",
       "Supports checkra1n, unc0ver, palera1n, dopamine jailbreaks"
     ],
-
     "installation_tiers": {
-      "basic":    "Static IPA analysis only — no device or tools required",
-      "standard": "Device recon — requires libimobiledevice (ideviceinfo)",
-      "full":     "Dynamic testing — requires frida-tools, objection, sshpass"
+      "basic": "Static IPA analysis only \u2014 no device or tools required",
+      "standard": "Device recon \u2014 requires libimobiledevice (ideviceinfo)",
+      "full": "Dynamic testing \u2014 requires frida-tools, objection, sshpass"
     },
-
     "notes": [
       "AUTHORIZATION REQUIRED: Only test apps and devices you have explicit permission to test",
       "Provide ipa_path for static-only analysis without a connected device",
-      "Default SSH credentials for common jailbreaks are root/alpine — change them immediately after jailbreaking",
+      "Default SSH credentials for common jailbreaks are root/alpine \u2014 change them immediately after jailbreaking",
       "frida-server must be running on the device for dynamic instrumentation",
       "frida-ios-dump handles FairPlay-encrypted IPAs automatically",
-      "Keychain dumps contain real user credentials — handle responsibly"
+      "Keychain dumps contain real user credentials \u2014 handle responsibly"
     ]
   },
-
-  "timeout": 300
+  "timeout": 300,
+  "inputs": {
+    "lhost": {
+      "type": "string",
+      "description": "Attacker IP for LHOST (auto-detected if omitted)",
+      "required": false,
+      "default": ""
+    },
+    "lport": {
+      "type": "integer",
+      "description": "Shell listener port",
+      "required": false,
+      "default": 4444
+    },
+    "serve": {
+      "type": "boolean",
+      "description": "true = interactive OnlyShell TUI (blocks), false = headless JSON",
+      "required": false,
+      "default": true
+    },
+    "duration": {
+      "type": "integer",
+      "description": "Headless listen duration in seconds (serve=false only)",
+      "required": false,
+      "default": 60
+    },
+    "payload_type": {
+      "type": "string",
+      "description": "Payload type: bash_tcp, python3, all, etc.",
+      "required": false,
+      "default": "bash_tcp"
+    }
+  }
 }

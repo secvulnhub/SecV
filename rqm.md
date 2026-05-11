@@ -1,7 +1,7 @@
 # secV Global Requirements Manifest
 # This is the ONE authoritative requirements file for ALL secV modules.
-# Modules covered: netrecon, mac_spoof, wifi_monitor, adsec, android_pentest,
-#                  ios_pentest, websec, webscan, ctfpwn, winadsec
+# Modules covered: netrecon, mac_spoof, wifi_monitor, iot_pwn, revshell, adsec,
+#                  android_pentest, ios_pentest, websec, ctfpwn, winadsec, badusb
 #
 # install.sh reads this file and installs everything listed.
 # If a section is empty or does not exist, it is silently skipped.
@@ -39,6 +39,7 @@ shodan>=1.31.0
 geoip2>=4.8.0
 mmh3>=4.1.0
 paramiko>=3.3.0
+pyinstaller>=6.0.0
 
 #pacman
 python
@@ -61,6 +62,14 @@ xorriso
 libimobiledevice
 ideviceinstaller
 python-pillow
+aircrack-ng
+hcxtools
+hostapd
+dnsmasq
+reaver
+hashcat
+bettercap
+dsniff
 
 #apt
 python3
@@ -83,6 +92,16 @@ rpcclient
 xorriso
 libimobiledevice-utils
 ideviceinstaller
+aircrack-ng
+hcxdumptool
+hcxtools
+hostapd
+dnsmasq
+reaver
+bully
+hashcat
+bettercap
+dsniff
 
 #dnf
 python3
@@ -100,6 +119,12 @@ nmap-ncat
 golang
 samba-client
 xorriso
+aircrack-ng
+hostapd
+dnsmasq
+reaver
+hashcat
+dsniff
 
 #zypper
 python3
@@ -117,6 +142,11 @@ ncat
 go
 samba-client
 xorriso
+aircrack-ng
+hostapd
+dnsmasq
+hashcat
+dsniff
 
 #apk
 python3
@@ -132,6 +162,10 @@ wget
 nmap-ncat
 go
 samba-client
+aircrack-ng
+hostapd
+dnsmasq
+hashcat
 
 #xbps
 python3
@@ -148,6 +182,11 @@ wget
 go
 samba
 xorriso
+aircrack-ng
+hostapd
+dnsmasq
+hashcat
+dsniff
 
 #binary
 bore,https://github.com/ekzhang/bore/releases/latest

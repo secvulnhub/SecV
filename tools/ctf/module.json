@@ -1,60 +1,113 @@
 {
   "name": "ctfpwn",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "category": "ctf",
-  "description": "CTF autopwn module — syncs github.com/0xb0rn3/CTFs, lists all rooms by platform, runs standalone exploitation scripts for TryHackMe and HackTheBox, auto-extracts flags, saves output to ~/ZX01C/CTF/<room>/",
+  "description": "CTF autopwn module \u2014 syncs github.com/0xb0rn3/CTFs, lists all rooms by platform, runs standalone exploitation scripts for TryHackMe and HackTheBox, auto-extracts flags, saves output to ~/ZX01C/CTF/<room>/",
   "author": "dezthejackal | 0xb0rn3",
   "executable": "python3 ctfpwn.py",
-
-  "dependencies": ["python3", "git"],
-
+  "dependencies": [
+    "python3",
+    "git"
+  ],
   "optional_dependencies": {
-    "nmap":      "Port scanning — used by most autopwn scripts",
-    "gobuster":  "Directory enumeration — used by web-based CTF scripts",
-    "sshpass":   "Automated SSH login — used by privilege escalation scripts",
-    "node":      "JavaScript exploit execution",
-    "hydra":     "Brute force — used by some rooms"
+    "nmap": "Port scanning \u2014 used by most autopwn scripts",
+    "gobuster": "Directory enumeration \u2014 used by web-based CTF scripts",
+    "sshpass": "Automated SSH login \u2014 used by privilege escalation scripts",
+    "node": "JavaScript exploit execution",
+    "hydra": "Brute force \u2014 used by some rooms"
   },
-
   "help": {
     "description": "Pulls the latest autopwn scripts from 0xb0rn3/CTFs, presents them in a structured list, and runs them against a target machine. Supports TryHackMe and HackTheBox rooms. Automatically detects the latest added CTF, extracts flags from output, and saves everything to ~/ZX01C/CTF/<room>/",
-
     "parameters": {
       "operation": {
         "description": "The operation to perform",
         "type": "string",
-        "options": ["list", "pull", "latest", "run", "info", "search", "new"],
+        "options": [
+          "list",
+          "pull",
+          "latest",
+          "run",
+          "info",
+          "search",
+          "new",
+          "shell"
+        ],
         "default": "list",
         "examples": [
-          "list   — list all CTFs sorted newest first",
-          "pull   — clone/update repo + sync all rooms to ~/ZX01C/CTF/",
-          "latest — show newest CTF; run its script if target IP provided",
-          "run    — run a specific room's autopwn against target IP",
-          "info   — show README/writeup for a room",
-          "search — full-text search across room names, writeups, scripts",
-          "new    — show rooms added to the repo since the last pull"
+          "list   \u2014 list all CTFs sorted newest first",
+          "pull   \u2014 clone/update repo + sync all rooms to ~/ZX01C/CTF/",
+          "latest \u2014 show newest CTF; run its script if target IP provided",
+          "run    \u2014 run a specific room's autopwn against target IP",
+          "info   \u2014 show README/writeup for a room",
+          "search \u2014 full-text search across room names, writeups, scripts",
+          "new    \u2014 show rooms added to the repo since the last pull",
+          "shell  \u2014 generate payloads for all 30+ reverse shell types; start handler"
         ]
       },
       "ctf": {
         "description": "Room name for run/info operations (case-insensitive, partial match supported)",
         "type": "string",
         "required": false,
-        "examples": ["simplectf", "Rabbit_Store", "0day", "Silver_Platter"]
+        "examples": [
+          "simplectf",
+          "Rabbit_Store",
+          "0day",
+          "Silver_Platter"
+        ]
       },
       "platform": {
         "description": "CTF platform filter",
         "type": "string",
         "default": "THM",
-        "options": ["THM", "HTB", "ALL"]
+        "options": [
+          "THM",
+          "HTB",
+          "ALL"
+        ]
       },
       "query": {
-        "description": "Search term for 'search' operation — searched across room names, writeups, and scripts",
+        "description": "Search term for 'search' operation \u2014 searched across room names, writeups, and scripts",
         "type": "string",
         "required": false,
-        "examples": ["sqli", "ssti", "shellshock", "CVE-2019", "privesc", "sudo"]
+        "examples": [
+          "sqli",
+          "ssti",
+          "shellshock",
+          "CVE-2019",
+          "privesc",
+          "sudo"
+        ]
+      },
+      "lhost": {
+        "description": "Attacker IP for reverse shell payloads (auto-detected if omitted)",
+        "type": "string",
+        "required": false
+      },
+      "lport": {
+        "description": "Listener port (default 4444)",
+        "type": "integer",
+        "required": false,
+        "default": 4444
+      },
+      "serve": {
+        "description": "Interactive TUI (true) or headless JSON (false)",
+        "type": "boolean",
+        "required": false,
+        "default": true
+      },
+      "duration": {
+        "description": "Headless listen seconds (serve=false only)",
+        "type": "integer",
+        "required": false,
+        "default": 60
+      },
+      "payload_type": {
+        "description": "Payload type: bash_tcp, python3, powershell_b64, all, etc.",
+        "type": "string",
+        "required": false,
+        "default": "all"
       }
     },
-
     "examples": [
       {
         "description": "List all CTFs newest first",
@@ -115,9 +168,17 @@
           "set query sudo",
           "run none"
         ]
+      },
+      {
+        "description": "Generate all reverse shell payloads for a CTF target",
+        "commands": [
+          "use ctfpwn",
+          "set operation shell",
+          "set payload_type all",
+          "run <target-ip>"
+        ]
       }
     ],
-
     "notes": [
       "Repo is cloned to ~/.secv/ctfs/ on first use and pulled on every subsequent run",
       "All room files are mirrored to ~/ZX01C/CTF/<room_name>/ during pull",
@@ -127,7 +188,6 @@
       "Connect to the platform VPN before running any script",
       "search scans room names, README writeups, AND the exploit scripts themselves"
     ],
-
     "rooms": {
       "THM": [
         "0day",
@@ -159,7 +219,6 @@
       "HTB": []
     }
   },
-
   "inputs": {
     "operation": {
       "type": "string",
@@ -182,16 +241,44 @@
       "type": "string",
       "description": "Search term for search operation",
       "required": false
+    },
+    "lhost": {
+      "type": "string",
+      "description": "Attacker IP for LHOST (auto-detected if omitted)",
+      "required": false,
+      "default": ""
+    },
+    "lport": {
+      "type": "integer",
+      "description": "Shell listener port",
+      "required": false,
+      "default": 4444
+    },
+    "serve": {
+      "type": "boolean",
+      "description": "true = interactive OnlyShell TUI (blocks), false = headless JSON",
+      "required": false,
+      "default": true
+    },
+    "duration": {
+      "type": "integer",
+      "description": "Headless listen duration in seconds (serve=false only)",
+      "required": false,
+      "default": 60
+    },
+    "payload_type": {
+      "type": "string",
+      "description": "Payload type: bash_tcp, python3, powershell_b64, all, etc.",
+      "required": false,
+      "default": "bash_tcp"
     }
   },
-
   "outputs": {
     "findings": {
       "type": "array",
       "description": "Per-operation results: room metadata, run log path, extracted flags"
     }
   },
-
   "timeout": 3600,
   "concurrent": false
 }

@@ -1,0 +1,163 @@
+{
+  "name": "badusb",
+  "version": "1.0.0",
+  "category": "phys",
+  "description": "BadUSB / Rubber Ducky payload encoder: base64-encodes a PowerShell script and wraps it in DuckyScript that opens Run→powershell, then decodes and executes via certutil",
+  "author": "malwarekid (contrib) | secV",
+  "executable": "python3 badusb.py",
+
+  "dependencies": ["python3"],
+  "optional_dependencies": {},
+
+  "help": {
+    "description": "Generates a Rubber Ducky / HID attack payload from a PowerShell script. The .ps1 file is base64-encoded (via Python, no certutil needed on the attacker side), then the DuckyScript payload uses Win+R → powershell → certutil to decode and run it on the target. Output is a .txt file ready to flash to a USB Rubber Ducky or any compatible HID device.",
+
+    "parameters": {
+      "mode": {
+        "description": "Operation mode",
+        "type": "string",
+        "options": ["generate", "preview", "encode"],
+        "default": "generate",
+        "examples": [
+          "generate — encode .ps1 to DuckyScript payload file",
+          "preview  — same as generate but also prints the payload to stdout",
+          "encode   — return only the base64 of the .ps1 (no DuckyScript wrapper)"
+        ]
+      },
+      "file_path": {
+        "description": "Path to the .ps1 PowerShell script to encode",
+        "type": "string",
+        "required": true,
+        "examples": ["/tmp/rev.ps1", "~/payloads/stager.ps1"]
+      },
+      "output": {
+        "description": "Output file path for the DuckyScript payload (default: ~/.secv/badusb/<stem>_badusb.txt)",
+        "type": "string",
+        "required": false,
+        "default": ""
+      },
+      "title": {
+        "description": "Payload metadata: title (added as REM comment)",
+        "type": "string",
+        "required": false
+      },
+      "description": {
+        "description": "Payload metadata: description (added as REM comment)",
+        "type": "string",
+        "required": false
+      },
+      "author": {
+        "description": "Payload metadata: author (added as REM comment)",
+        "type": "string",
+        "required": false
+      },
+      "version": {
+        "description": "Payload metadata: version (added as REM comment)",
+        "type": "string",
+        "required": false
+      },
+      "delay_after_ps": {
+        "description": "DELAY (ms) after PowerShell window opens — increase on slow targets",
+        "type": "integer",
+        "required": false,
+        "default": 500
+      },
+      "ducky_lang": {
+        "description": "Add 'DUCKY_LANG US' line (required for some firmware versions)",
+        "type": "boolean",
+        "required": false,
+        "default": false
+      }
+    },
+
+    "examples": [
+      {
+        "description": "Encode a PS1 reverse shell and save the DuckyScript payload",
+        "commands": [
+          "use badusb",
+          "set mode generate",
+          "set file_path /tmp/rev.ps1",
+          "run target"
+        ]
+      },
+      {
+        "description": "Preview the generated DuckyScript in terminal",
+        "commands": [
+          "use badusb",
+          "set mode preview",
+          "set file_path /tmp/stager.ps1",
+          "run target"
+        ]
+      },
+      {
+        "description": "Generate with full metadata headers and DUCKY_LANG",
+        "commands": [
+          "use badusb",
+          "set mode generate",
+          "set file_path /tmp/payload.ps1",
+          "set title 'Reverse Shell'",
+          "set author 'operator'",
+          "set ducky_lang true",
+          "set delay_after_ps 1000",
+          "run target"
+        ]
+      },
+      {
+        "description": "Get raw base64 of a PS1 for manual embedding",
+        "commands": [
+          "use badusb",
+          "set mode encode",
+          "set file_path /tmp/payload.ps1",
+          "run target"
+        ]
+      }
+    ],
+
+    "notes": [
+      "Only .ps1 (PowerShell) files are supported as source",
+      "DuckyScript uses certutil -f -decode on the target — certutil is present on all Windows versions",
+      "Adjust delay_after_ps for slower hardware (try 1000-2000ms on cold machines)",
+      "Test payload timing in a VM before deploying on a real device",
+      "Compatible with USB Rubber Ducky, Hak5 devices, and any tool that accepts DuckyScript",
+      "payload.txt output is saved to ~/.secv/badusb/ by default"
+    ]
+  },
+
+  "inputs": {
+    "mode": {
+      "type": "string",
+      "description": "generate | preview | encode",
+      "required": false,
+      "default": "generate"
+    },
+    "file_path": {
+      "type": "string",
+      "description": "Path to .ps1 script",
+      "required": true
+    },
+    "output": {
+      "type": "string",
+      "description": "Output file path",
+      "required": false,
+      "default": ""
+    },
+    "title": {"type": "string", "required": false, "default": ""},
+    "description": {"type": "string", "required": false, "default": ""},
+    "author": {"type": "string", "required": false, "default": ""},
+    "version": {"type": "string", "required": false, "default": ""},
+    "delay_after_ps": {"type": "integer", "required": false, "default": 500},
+    "ducky_lang": {"type": "boolean", "required": false, "default": false}
+  },
+
+  "outputs": {
+    "success": {"type": "boolean"},
+    "source": {"type": "string", "description": "Input .ps1 path"},
+    "payload": {"type": "string", "description": "Full DuckyScript payload text"},
+    "saved_to": {"type": "string", "description": "Path the payload file was written to"},
+    "b64_size": {"type": "integer", "description": "Length of base64-encoded script"},
+    "base64": {"type": "string", "description": "Raw base64 (encode mode only)"}
+  },
+
+  "timeout": 30,
+  "concurrent": true
+}
