@@ -27,7 +27,7 @@ detect_distro() {
     [[ -z "$id" && -f /etc/arch-release ]] && id="arch"
 
     case "$id" in
-        arch|archcraft|manjaro|endeavouros|cachyos|artix|garuda)
+        arch|blackarch|archcraft|manjaro|endeavouros|cachyos|artix|garuda)
             DISTRO="arch"; PKG_MGR="pacman"
             PKG_UPDATE="sudo pacman -Sy --noconfirm"
             PKG_INSTALL="sudo pacman -S --noconfirm --needed"
