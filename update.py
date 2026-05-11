@@ -25,6 +25,8 @@ UPDATE_LOG = CACHE_DIR / "update.log"
 BACKUP_DIR = CACHE_DIR / ".backup"
 MAIN_GO = SECV_HOME / "main.go"
 SECV_BINARY = SECV_HOME / "secV"
+RQM_FILE = SECV_HOME / "rqm.md"
+RESUME_ENV = "SECV_UPDATE_RESUME"
 
 # Update check interval (in hours)
 UPDATE_CHECK_INTERVAL = 24
@@ -57,9 +59,10 @@ VERSION_INFO = {
     "components": {
         "main.go": {"version": "2.4.0", "hash": None},
         "install.sh": {"version": "2.5.0", "hash": None},
-        "update.py": {"version": "4.2.0", "hash": None},
+        "update.py": {"version": "5.0.0", "hash": None},
         "dashboard.py": {"version": "1.0.0", "hash": None},
         "requirements.txt": {"version": "2.5.0", "hash": None},
+        "rqm.md": {"version": "2.5.0", "hash": None},
         "secV": {"version": "2.4.0", "hash": None, "type": "binary"},
         "android_gui.py": {"version": "1.0.0", "hash": None},
         "iot_pwn.py": {"version": "1.0.0", "hash": None}
@@ -543,12 +546,314 @@ def get_file_hash(filepath: Path) -> Optional[str]:
     """Calculate SHA256 hash of a file"""
     if not filepath.exists():
         return None
-    
+
     sha256_hash = hashlib.sha256()
     with open(filepath, "rb") as f:
         for byte_block in iter(lambda: f.read(4096), b""):
             sha256_hash.update(byte_block)
     return sha256_hash.hexdigest()
+
+
+# --- OS / dependency helpers ---
+
+def detect_os() -> str:
+    """Return the package-manager key matching rqm.md sections."""
+    if sys.platform == "darwin":
+        return "macos"
+    try:
+        with open("/etc/os-release") as _f:
+            _data = {}
+            for _line in _f:
+                _line = _line.strip()
+                if "=" in _line:
+                    _k, _v = _line.split("=", 1)
+                    _data[_k] = _v.strip('"').lower()
+        for _field in ("id", "id_like"):
+            _val = _data.get(_field, "")
+            if any(x in _val for x in ("arch", "cachyos", "manjaro", "endeavour")):
+                return "pacman"
+            if any(x in _val for x in ("debian", "ubuntu", "kali", "mint")):
+                return "apt"
+            if any(x in _val for x in ("fedora", "rhel", "rocky", "centos", "almalinux")):
+                return "dnf"
+            if any(x in _val for x in ("opensuse", "suse")):
+                return "zypper"
+            if "alpine" in _val:
+                return "apk"
+            if "void" in _val:
+                return "xbps"
+    except Exception:
+        pass
+    if Path("/etc/arch-release").exists():
+        return "pacman"
+    return "apt"
+
+
+def read_rqm_section(section: str) -> List[str]:
+    """Return non-blank, non-comment lines from a #section block in rqm.md."""
+    if not RQM_FILE.exists():
+        return []
+    packages: List[str] = []
+    in_section = False
+    with open(RQM_FILE) as _f:
+        for line in _f:
+            line = line.strip()
+            if line == f"#{section}":
+                in_section = True
+                continue
+            if in_section:
+                if line.startswith("#"):
+                    break
+                if line and not line.startswith("//"):
+                    packages.append(line)
+    return packages
+
+
+def install_system_packages() -> bool:
+    """Read rqm.md and install the appropriate system packages for this OS."""
+    pm = detect_os()
+    if pm == "macos":
+        pkgs = read_rqm_section("brew") or read_rqm_section("pacman")
+        if not pkgs:
+            print(f"{YELLOW}{WARNING} No macOS packages in rqm.md{NC}")
+            return True
+        cmd = ["brew", "install"] + pkgs
+    elif pm == "pacman":
+        pkgs = read_rqm_section("pacman")
+        if not pkgs:
+            return True
+        cmd = ["sudo", "pacman", "-S", "--needed", "--noconfirm"] + pkgs
+    elif pm == "apt":
+        pkgs = read_rqm_section("apt")
+        if not pkgs:
+            return True
+        subprocess.run(["sudo", "apt-get", "update", "-qq"], check=False)
+        cmd = ["sudo", "apt-get", "install", "-y", "--no-install-recommends"] + pkgs
+    elif pm == "dnf":
+        pkgs = read_rqm_section("dnf")
+        if not pkgs:
+            return True
+        cmd = ["sudo", "dnf", "install", "-y"] + pkgs
+    elif pm == "zypper":
+        pkgs = read_rqm_section("zypper")
+        if not pkgs:
+            return True
+        cmd = ["sudo", "zypper", "install", "-y"] + pkgs
+    elif pm == "apk":
+        pkgs = read_rqm_section("apk")
+        if not pkgs:
+            return True
+        cmd = ["sudo", "apk", "add"] + pkgs
+    elif pm == "xbps":
+        pkgs = read_rqm_section("xbps")
+        if not pkgs:
+            return True
+        cmd = ["sudo", "xbps-install", "-Sy"] + pkgs
+    else:
+        print(f"{YELLOW}{WARNING} Unknown package manager — skipping system packages{NC}")
+        return True
+
+    print(f"{CYAN}  Installing {len(pkgs)} system package(s) via {pm}...{NC}")
+    try:
+        result = subprocess.run(cmd, check=False, cwd=SECV_HOME)
+        if result.returncode == 0:
+            print(f"{GREEN}{CHECK} System packages installed{NC}")
+            Logger.log(f"System packages installed via {pm}")
+            return True
+        else:
+            print(f"{YELLOW}{WARNING} Some system packages may have failed (rc={result.returncode}){NC}")
+            Logger.log(f"System package partial failure rc={result.returncode}", "WARNING")
+            return False
+    except Exception as exc:
+        print(f"{RED}{CROSS} System package install error: {exc}{NC}")
+        Logger.log(f"System package error: {exc}", "ERROR")
+        return False
+
+
+def _install_bore() -> bool:
+    """Install bore binary via cargo or a prebuilt GitHub release download."""
+    install_dir = Path("/usr/local/bin")
+    # Try cargo
+    if shutil.which("cargo"):
+        print(f"{CYAN}  Installing bore via cargo...{NC}")
+        r = subprocess.run(["cargo", "install", "bore-cli"],
+                           check=False, capture_output=True, text=True)
+        if r.returncode == 0 and shutil.which("bore"):
+            return True
+    # Prebuilt download (Linux only)
+    import platform as _plat
+    if _plat.system().lower() != "linux":
+        return False
+    _arch = _plat.machine().lower()
+    arch_tag = ("x86_64" if _arch in ("x86_64", "amd64")
+                else "aarch64" if ("arm" in _arch or "aarch" in _arch)
+                else None)
+    if not arch_tag:
+        return False
+    api_url = "https://api.github.com/repos/ekzhang/bore/releases/latest"
+    try:
+        import urllib.request, tarfile, tempfile
+        with urllib.request.urlopen(api_url, timeout=15) as _r:
+            _rel = json.loads(_r.read())
+        tag = _rel["tag_name"].lstrip("v")
+        asset_name = f"bore-v{tag}-{arch_tag}-unknown-linux-musl.tar.gz"
+        asset_url = next(
+            (a["browser_download_url"] for a in _rel["assets"] if a["name"] == asset_name),
+            None
+        )
+        if not asset_url:
+            return False
+        with tempfile.TemporaryDirectory() as _td:
+            dl = Path(_td) / "bore.tar.gz"
+            urllib.request.urlretrieve(asset_url, dl)
+            with tarfile.open(dl) as _tf:
+                _tf.extractall(_td)
+            bore_bin = next(Path(_td).rglob("bore"), None)
+            if bore_bin and bore_bin.is_file():
+                dest = install_dir / "bore"
+                try:
+                    shutil.copy2(bore_bin, dest)
+                    os.chmod(dest, 0o755)
+                    return True
+                except PermissionError:
+                    subprocess.run(["sudo", "cp", str(bore_bin), str(dest)], check=False)
+                    subprocess.run(["sudo", "chmod", "0755", str(dest)], check=False)
+                    return shutil.which("bore") is not None
+    except Exception as exc:
+        Logger.log(f"bore download failed: {exc}", "WARNING")
+    return False
+
+
+def install_binary_deps() -> bool:
+    """Install binary tools listed in rqm.md #binary section."""
+    entries = read_rqm_section("binary")
+    if not entries:
+        return True
+    all_ok = True
+    for entry in entries:
+        parts = entry.split(",", 1)
+        if len(parts) != 2:
+            continue
+        name, url = parts[0].strip(), parts[1].strip()
+        if shutil.which(name):
+            print(f"{GREEN}{CHECK} {name} already installed{NC}")
+            continue
+        print(f"{CYAN}  Installing {name}...{NC}")
+        if name == "bore":
+            if not _install_bore():
+                print(f"{YELLOW}{WARNING} Could not auto-install bore — see {url}{NC}")
+                all_ok = False
+        else:
+            print(f"{YELLOW}{WARNING} Auto-install not implemented for {name} — see {url}{NC}")
+    return all_ok
+
+
+def install_all_deps(system: bool = True) -> bool:
+    """Install all deps: system packages (if system=True), pip packages, binary tools."""
+    ok = True
+    if system:
+        print(f"{CYAN}[deps] System packages...{NC}")
+        if not install_system_packages():
+            ok = False
+    print(f"{CYAN}[deps] Python packages...{NC}")
+    if not install_dependencies():
+        ok = False
+    if system:
+        print(f"{CYAN}[deps] Binary tools...{NC}")
+        if not install_binary_deps():
+            ok = False
+    return ok
+
+
+# --- Shared post-pull update steps ---
+
+_ALL_COMPONENTS = {
+    "main.go": MAIN_GO,
+    "install.sh": SECV_HOME / "install.sh",
+    "update.py": SECV_HOME / "update.py",
+    "dashboard.py": SECV_HOME / "dashboard.py",
+    "requirements.txt": SECV_HOME / REQUIREMENTS_FILE,
+    "rqm.md": RQM_FILE,
+    "secV": SECV_BINARY,
+    "android_gui.py": SECV_HOME / "tools/mobile/android/android_gui.py",
+    "iot_pwn.py": SECV_HOME / "tools/network/iot_pwn/iot_pwn.py",
+}
+
+
+def _post_pull_work(current_version: str, new_version: str, stashed_changes: bool) -> bool:
+    """Steps 4-8 of perform_update. Runs after git pull (and after any self-update restart)."""
+    version_info = VersionManager.load_version_info()
+
+    # Step 4: Restore stash
+    print(f"\n{YELLOW}[4/8] Restoring your changes...{NC}")
+    if stashed_changes:
+        GitManager.pop_stash()
+    else:
+        print(f"{GREEN}{CHECK} Skipped{NC}")
+
+    # Step 5: Clean obsolete files
+    print(f"\n{YELLOW}[5/8] Cleaning obsolete files...{NC}")
+    obsolete_files = ObsoleteFilesCleaner.find_obsolete_files(current_version, new_version)
+    if obsolete_files:
+        print(f"{DIM}Found {len(obsolete_files)} obsolete file(s){NC}")
+        for f in obsolete_files:
+            print(f"  {DIM}{BULLET} {f}{NC}")
+        response = input(f"\n{YELLOW}Remove obsolete files? [Y/n]: {NC}").strip().lower()
+        if not response or response == "y":
+            removed, failed = ObsoleteFilesCleaner.clean_obsolete_files(obsolete_files)
+            print(f"{GREEN}{CHECK} Removed {removed} file(s){NC}")
+            if failed:
+                print(f"{YELLOW}{WARNING} Failed to remove {failed} file(s){NC}")
+    else:
+        print(f"{GREEN}{CHECK} No obsolete files found{NC}")
+
+    # Step 5b: Sync tool permissions
+    print(f"\n{YELLOW}[5b/8] Syncing tool permissions...{NC}")
+    sync_tools()
+
+    # Step 6: Recompile Go binary
+    print(f"\n{YELLOW}[6/8] Recompiling Go binary...{NC}")
+    if GoBinaryManager.needs_recompilation(version_info):
+        print(f"{CYAN}main.go changed — recompiling...{NC}")
+        if not GoBinaryManager.compile_binary():
+            print(f"{YELLOW}{WARNING} Binary compilation failed, continuing...{NC}")
+    else:
+        print(f"{GREEN}{CHECK} Binary is up to date{NC}")
+
+    # Step 7: Install ALL dependencies
+    print(f"\n{YELLOW}[7/8] Updating dependencies...{NC}")
+    rqm_changed = VersionManager.check_component_changed("rqm.md", RQM_FILE, version_info)
+    pip_changed = VersionManager.check_component_changed("requirements.txt",
+                                                          SECV_HOME / REQUIREMENTS_FILE,
+                                                          version_info)
+    if rqm_changed or pip_changed:
+        label = "rqm.md + system packages" if rqm_changed else "requirements.txt"
+        print(f"{CYAN}Dependencies changed ({label}) — installing...{NC}")
+        if not install_all_deps(system=rqm_changed):
+            print(f"{YELLOW}{WARNING} Some dependencies failed, continuing...{NC}")
+    else:
+        print(f"{GREEN}{CHECK} No dependency changes{NC}")
+
+    # Step 8: Update version info
+    print(f"\n{YELLOW}[8/8] Updating version information...{NC}")
+    version_info["current_version"] = new_version
+    version_info["last_update"] = datetime.now().isoformat()
+    version_info["go_compiled"] = SECV_BINARY.exists()
+
+    for comp_name, comp_path in _ALL_COMPONENTS.items():
+        VersionManager.update_component_hash(comp_name, comp_path, version_info)
+
+    VersionManager.save_version_info(version_info)
+    print(f"{GREEN}{CHECK} Version info applied{NC}")
+
+    # Cleanup
+    print(f"\n{YELLOW}Cleaning up...{NC}")
+    BackupManager.cleanup_old_backups(keep=5)
+    Logger.cleanup_old_logs()
+    print(f"{GREEN}{CHECK} Cleanup complete{NC}")
+
+    Logger.log(f"Update completed successfully: {new_version}")
+    return True
 
 
 def check_git_repository() -> bool:
@@ -740,48 +1045,59 @@ def sync_tools():
 
 
 def perform_update(current_version: str, new_version: str) -> bool:
-    """Perform the actual update"""
+    """Perform the actual update, including self-update of update.py if needed."""
+
+    # --- Resume after self-update restart ---
+    resume_raw = os.environ.get(RESUME_ENV)
+    if resume_raw:
+        try:
+            state = json.loads(resume_raw)
+            new_version = state.get("new_version", new_version)
+            stashed = state.get("stashed", False)
+            os.environ.pop(RESUME_ENV, None)
+            print(f"\n{CYAN}Resumed with updated update.py — continuing update to {new_version}{NC}\n")
+            Logger.log(f"Resumed post-self-update → {new_version}")
+            return _post_pull_work(current_version, new_version, stashed)
+        except Exception:
+            pass
+
     print(f"\n{CYAN}updating {current_version} → {new_version or 'latest'}{NC}\n")
-    
     Logger.log(f"Starting update: {current_version} -> {new_version}")
-    
+
     stashed_changes = False
-    
+
     # Step 1: Create backup
     print(f"{YELLOW}[1/8] Creating backup...{NC}")
     critical_files = [
-        SECV_BINARY,
-        MAIN_GO,
+        SECV_BINARY, MAIN_GO,
         SECV_HOME / "install.sh",
         SECV_HOME / "update.py",
         SECV_HOME / "requirements.txt",
+        RQM_FILE,
         CACHE_DIR / ".requirements_hash",
-        VERSION_FILE
+        VERSION_FILE,
     ]
-    
     backup_path = BackupManager.create_backup(critical_files)
     if not backup_path:
         print(f"{RED}{CROSS} Backup failed. Aborting update.{NC}")
         return False
-    
+
     # Step 2: Handle local changes
     print(f"\n{YELLOW}[2/8] Checking for local changes...{NC}")
     has_changes, changed_files = GitManager.has_uncommitted_changes()
-    
     if has_changes:
         print(f"{YELLOW}{WARNING} Found {len(changed_files)} modified file(s):{NC}")
         for file in changed_files[:5]:
             print(f"  {DIM}{BULLET} {file}{NC}")
         if len(changed_files) > 5:
             print(f"  {DIM}{BULLET} ... and {len(changed_files) - 5} more{NC}")
-        
+
         print(f"\n{BOLD}Options:{NC}")
-        print(f"  {GREEN}1{NC} - Stash changes (recommended - you can restore later)")
-        print(f"  {YELLOW}2{NC} - Discard changes (⚠ permanent!)")
+        print(f"  {GREEN}1{NC} - Stash changes (recommended — restoreable)")
+        print(f"  {YELLOW}2{NC} - Discard changes ({WARNING} permanent!)")
         print(f"  {RED}3{NC} - Cancel update")
-        
+
         choice = input(f"\n{YELLOW}Choose option [1-3]: {NC}").strip()
-        
         if choice == '1':
             if not GitManager.stash_changes():
                 print(f"{RED}{CROSS} Failed to stash changes. Aborting.{NC}")
@@ -801,114 +1117,43 @@ def perform_update(current_version: str, new_version: str) -> bool:
             return False
     else:
         print(f"{GREEN}{CHECK} No local changes detected{NC}")
-    
-    # Step 3: Pull updates
+
+    # Step 3: Git pull — capture update.py hash first for self-update detection
+    pre_pull_selfhash = get_file_hash(SECV_HOME / "update.py")
     print(f"\n{YELLOW}[3/8] Pulling latest changes...{NC}")
     try:
-        result = run_command(['git', 'pull'], capture=False)
+        run_command(['git', 'pull'], capture=False)
         print(f"{GREEN}{CHECK} Git pull successful{NC}")
         Logger.log("Git pull successful")
     except Exception as e:
         print(f"{RED}{CROSS} Git pull failed: {str(e)}{NC}")
         Logger.log(f"Git pull failed: {str(e)}", "ERROR")
-        
         response = input(f"\n{YELLOW}Restore from backup? [Y/n]: {NC}").strip().lower()
         if not response or response == 'y':
             BackupManager.restore_backup(backup_path)
             if stashed_changes:
                 GitManager.pop_stash()
         return False
-    
-    # Step 4: Restore stashed changes
-    if stashed_changes:
-        print(f"\n{YELLOW}[4/8] Restoring your changes...{NC}")
-        GitManager.pop_stash()
-    else:
-        print(f"\n{YELLOW}[4/8] No changes to restore{NC}")
-        print(f"{GREEN}{CHECK} Skipped{NC}")
-    
-    # Step 5: Clean obsolete files
-    print(f"\n{YELLOW}[5/8] Cleaning obsolete files...{NC}")
-    obsolete_files = ObsoleteFilesCleaner.find_obsolete_files(current_version, new_version)
-    
-    if obsolete_files:
-        print(f"{DIM}Found {len(obsolete_files)} obsolete file(s){NC}")
-        for file in obsolete_files:
-            print(f"  {DIM}{BULLET} {file}{NC}")
-        
-        response = input(f"\n{YELLOW}Remove obsolete files? [Y/n]: {NC}").strip().lower()
-        if not response or response == 'y':
-            removed, failed = ObsoleteFilesCleaner.clean_obsolete_files(obsolete_files)
-            print(f"{GREEN}{CHECK} Removed {removed} file(s){NC}")
-            if failed > 0:
-                print(f"{YELLOW}{WARNING} Failed to remove {failed} file(s){NC}")
-    else:
-        print(f"{GREEN}{CHECK} No obsolete files found{NC}")
-    
-    # Step 5.5: Ensure module scripts are executable
-    print(f"\n{YELLOW}[5b/8] Syncing tool permissions...{NC}")
-    sync_tools()
 
-    # Step 6: Recompile Go binary
-    print(f"\n{YELLOW}[6/8] Recompiling Go binary...{NC}")
-    
-    version_info = VersionManager.load_version_info()
-    
-    if GoBinaryManager.needs_recompilation(version_info):
-        print(f"{CYAN}main.go has changed, recompiling...{NC}")
-        if not GoBinaryManager.compile_binary():
-            print(f"{YELLOW}{WARNING} Binary compilation failed, but continuing...{NC}")
-    else:
-        print(f"{GREEN}{CHECK} Binary is up to date{NC}")
-    
-    # Step 7: Update dependencies
-    print(f"\n{YELLOW}[7/8] Updating dependencies...{NC}")
-    
-    requirements_path = SECV_HOME / REQUIREMENTS_FILE
-    old_hash = get_file_hash(requirements_path)
-    
-    stored_hash = version_info["components"].get("requirements.txt", {}).get("hash")
-    
-    if old_hash != stored_hash:
-        print(f"{CYAN}requirements.txt has changed{NC}")
-        if not install_dependencies():
-            print(f"{YELLOW}{WARNING} Dependency update failed, but continuing...{NC}")
-    else:
-        print(f"{GREEN}{CHECK} No dependency changes{NC}")
-    
-    # Step 8: Update version info
-    print(f"\n{YELLOW}[8/8] Updating version information...{NC}")
-    
-    version_info["current_version"] = new_version
-    version_info["last_update"] = datetime.now().isoformat()
-    version_info["go_compiled"] = SECV_BINARY.exists()
-    
-    # Update component hashes
-    components = {
-        "main.go": MAIN_GO,
-        "install.sh": SECV_HOME / "install.sh",
-        "update.py": SECV_HOME / "update.py",
-        "dashboard.py": SECV_HOME / "dashboard.py",
-        "requirements.txt": requirements_path,
-        "secV": SECV_BINARY,
-        "android_gui.py": SECV_HOME / "tools/mobile/android/android_gui.py",
-        "iot_pwn.py": SECV_HOME / "tools/network/iot_pwn/iot_pwn.py"
-    }
+    # --- Self-update: if update.py itself changed, restart with the new version ---
+    post_pull_selfhash = get_file_hash(SECV_HOME / "update.py")
+    if post_pull_selfhash and post_pull_selfhash != pre_pull_selfhash:
+        print(f"\n{CYAN}update.py was updated — restarting with new version...{NC}")
+        Logger.log("update.py changed during pull, self-restarting")
+        env = os.environ.copy()
+        env[RESUME_ENV] = json.dumps({
+            "new_version": new_version or "latest",
+            "stashed": stashed_changes,
+        })
+        try:
+            os.execve(sys.executable,
+                      [sys.executable, str(SECV_HOME / "update.py")] + sys.argv[1:],
+                      env)
+        except Exception as exc:
+            print(f"{YELLOW}{WARNING} Restart failed ({exc}) — continuing with current process{NC}")
 
-    for comp_name, comp_path in components.items():
-        VersionManager.update_component_hash(comp_name, comp_path, version_info)
-
-    VersionManager.save_version_info(version_info)
-    print(f"{GREEN}{CHECK} Version info applied{NC}")
-    
-    # Cleanup
-    print(f"\n{YELLOW}Cleaning up...{NC}")
-    BackupManager.cleanup_old_backups(keep=5)
-    Logger.cleanup_old_logs()
-    print(f"{GREEN}{CHECK} Cleanup complete{NC}")
-    
-    Logger.log(f"Update completed successfully: {new_version}")
-    return True
+    # Steps 4-8 (no restart needed)
+    return _post_pull_work(current_version, new_version, stashed_changes)
 
 
 def show_update_summary(current_version: str, new_version: str):
@@ -1065,16 +1310,7 @@ def show_component_status():
     print(f"\n  {BOLD}Components:{NC}")
     print(f"  {DIM}{'─' * 65}{NC}")
     
-    components_to_check = {
-        "main.go": MAIN_GO,
-        "secV": SECV_BINARY,
-        "install.sh": SECV_HOME / "install.sh",
-        "update.py": SECV_HOME / "update.py",
-        "dashboard.py": SECV_HOME / "dashboard.py",
-        "requirements.txt": SECV_HOME / REQUIREMENTS_FILE,
-        "android_gui.py": SECV_HOME / "tools/mobile/android/android_gui.py",
-        "iot_pwn.py": SECV_HOME / "tools/network/iot_pwn/iot_pwn.py"
-    }
+    components_to_check = _ALL_COMPONENTS
     
     for comp_name, comp_path in components_to_check.items():
         if comp_path.exists():
@@ -1214,18 +1450,7 @@ def repair_installation():
     print(f"\n{YELLOW}[2/5] Checking version information...{NC}")
     version_info = VersionManager.load_version_info()
     
-    components = {
-        "main.go": MAIN_GO,
-        "secV": SECV_BINARY,
-        "install.sh": SECV_HOME / "install.sh",
-        "update.py": SECV_HOME / "update.py",
-        "dashboard.py": SECV_HOME / "dashboard.py",
-        "requirements.txt": SECV_HOME / REQUIREMENTS_FILE,
-        "android_gui.py": SECV_HOME / "tools/mobile/android/android_gui.py",
-        "iot_pwn.py": SECV_HOME / "tools/network/iot_pwn/iot_pwn.py"
-    }
-
-    for comp_name, comp_path in components.items():
+    for comp_name, comp_path in _ALL_COMPONENTS.items():
         if comp_path.exists():
             VersionManager.update_component_hash(comp_name, comp_path, version_info)
 
@@ -1343,6 +1568,7 @@ if __name__ == '__main__':
 Examples:
   python3 update.py                    # Check and install updates
   python3 update.py --force            # Force update check
+  python3 update.py --modules          # Reinstall all module deps (system+pip+binary)
   python3 update.py --first-run        # First-run check (silent)
   python3 update.py --status           # Show component status
   python3 update.py --verify           # Verify installation
@@ -1353,31 +1579,41 @@ Examples:
   python3 update.py --sync-tools       # Fix tool script permissions
         """
     )
-    
+
     parser.add_argument('--first-run', action='store_true',
-                       help='First-run update check (called by Go loader)')
+                        help='First-run update check (called by Go loader)')
+    parser.add_argument('--modules', action='store_true',
+                        help='Reinstall all module dependencies (system packages, pip, binary tools)')
     parser.add_argument('--rollback', action='store_true',
-                       help='Rollback to previous backup')
+                        help='Rollback to previous backup')
     parser.add_argument('--list-backups', action='store_true',
-                       help='List available backups')
+                        help='List available backups')
     parser.add_argument('--list-stashes', action='store_true',
-                       help='List git stashes')
+                        help='List git stashes')
     parser.add_argument('--force', action='store_true',
-                       help='Force update check (ignore interval)')
+                        help='Force update check (ignore interval)')
     parser.add_argument('--status', action='store_true',
-                       help='Show component status')
+                        help='Show component status')
     parser.add_argument('--verify', action='store_true',
-                       help='Verify installation integrity')
+                        help='Verify installation integrity')
     parser.add_argument('--repair', action='store_true',
-                       help='Repair common installation issues')
+                        help='Repair common installation issues')
     parser.add_argument('--sync-tools', action='store_true',
-                       help='Make all module scripts in tools/ executable')
-    
+                        help='Make all module scripts in tools/ executable')
+
     args = parser.parse_args()
-    
+
     try:
         if args.first_run:
             first_run_check(silent=True)
+        elif args.modules:
+            print(f"\n{CYAN}Reinstalling all module dependencies...{NC}\n")
+            ok = install_all_deps(system=True)
+            if ok:
+                print(f"\n{GREEN}{CHECK} All dependencies installed{NC}\n")
+            else:
+                print(f"\n{YELLOW}{WARNING} Some dependencies failed — check output above{NC}\n")
+                sys.exit(1)
         elif args.sync_tools:
             sync_tools()
         elif args.status:
