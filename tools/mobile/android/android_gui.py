@@ -565,7 +565,9 @@ class _Handler(BaseHTTPRequestHandler):
         import base64
         serial  = body.get("device", "")
         b64     = body.get("data", "")
-        ext     = body.get("ext", "mp3")
+        ext     = str(body.get("ext", "mp3")).strip().lower()
+        if ext not in {"mp3", "wav"}:
+            self._json({"ok": False, "error": "invalid audio extension"}); return
         prefix  = (["-s", serial] if serial else [])
         adb     = shutil.which("adb") or "adb"
         if not b64:
