@@ -563,7 +563,9 @@ class _Handler(BaseHTTPRequestHandler):
     def _api_speaker(self, body: dict):
         """Push a base64-encoded audio file to the device and play it."""
         import base64
-        serial  = body.get("device", "")
+        serial  = str(body.get("device", "")).strip()
+        if serial and not re.fullmatch(r"[A-Za-z0-9._:-]+", serial):
+            self._json({"ok": False, "error": "invalid device serial"}); return
         b64     = body.get("data", "")
         ext     = str(body.get("ext", "mp3")).strip().lower()
         if ext not in {"mp3", "wav"}:
