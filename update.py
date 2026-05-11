@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """SecV update system — pulls from git, recompiles binary, updates deps."""
 
 import os
@@ -557,9 +556,19 @@ def get_file_hash(filepath: Path) -> Optional[str]:
 # --- OS / dependency helpers ---
 
 def detect_os() -> str:
-    """Return the package-manager key matching rqm.md sections."""
+    """Return the package-manager key matching rqm.md sections.
+
+    Detection order:
+      1. macOS shortcut
+      2. /etc/os-release  ID + ID_LIKE  (name-based)
+      3. /etc/arch-release sentinel      (covers BlackArch, etc.)
+      4. which-based probe               (covers distros with custom names)
+      5. fallback → apt
+    """
     if sys.platform == "darwin":
         return "macos"
+
+    # --- 1. Parse /etc/os-release ---
     try:
         with open("/etc/os-release") as _f:
             _data = {}
@@ -570,11 +579,11 @@ def detect_os() -> str:
                     _data[_k] = _v.strip('"').lower()
         for _field in ("id", "id_like"):
             _val = _data.get(_field, "")
-            if any(x in _val for x in ("arch", "cachyos", "manjaro", "endeavour")):
+            if any(x in _val for x in ("arch", "cachyos", "manjaro", "endeavour", "garuda", "artix", "parabola")):
                 return "pacman"
-            if any(x in _val for x in ("debian", "ubuntu", "kali", "mint")):
+            if any(x in _val for x in ("debian", "ubuntu", "kali", "mint", "pop", "raspbian", "parrot", "elementary")):
                 return "apt"
-            if any(x in _val for x in ("fedora", "rhel", "rocky", "centos", "almalinux")):
+            if any(x in _val for x in ("fedora", "rhel", "rocky", "centos", "almalinux", "ol", "nobara")):
                 return "dnf"
             if any(x in _val for x in ("opensuse", "suse")):
                 return "zypper"
@@ -584,8 +593,25 @@ def detect_os() -> str:
                 return "xbps"
     except Exception:
         pass
+
+    # --- 2. Arch sentinel file (BlackArch, ArchBang, etc.) ---
     if Path("/etc/arch-release").exists():
         return "pacman"
+
+    # --- 3. Which-based probe (custom-named distros) ---
+    _pm_probe = [
+        ("pacman",  "pacman"),
+        ("apt-get", "apt"),
+        ("dnf",     "dnf"),
+        ("yum",     "dnf"),
+        ("zypper",  "zypper"),
+        ("apk",     "apk"),
+        ("xbps-install", "xbps"),
+    ]
+    for _bin, _key in _pm_probe:
+        if shutil.which(_bin):
+            return _key
+
     return "apt"
 
 
