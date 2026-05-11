@@ -14,71 +14,105 @@ err()   { echo -e "${RED}[!]${RST} $*"; }
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ── Detect distro and package manager ─────────────────────────────────────────
+# Detection order:
+#   1. /etc/os-release  ID          (exact distro name)
+#   2. /etc/os-release  ID_LIKE     (base distro, e.g. ID_LIKE="arch" on custom Arch spins)
+#   3. /etc/arch-release sentinel   (BlackArch, ArchBang, etc.)
+#   4. package-manager binary probe (any distro with a non-standard ID)
 DISTRO="unknown"
 PKG_MGR="unknown"
 PKG_UPDATE="true"
 PKG_INSTALL="echo SKIP"
 
 detect_distro() {
-    local id=""
+    local id="" id_like="" cand
+
     if [[ -f /etc/os-release ]]; then
         id=$(. /etc/os-release && echo "${ID:-}")
+        id_like=$(. /etc/os-release && echo "${ID_LIKE:-}")
     fi
     [[ -z "$id" && -f /etc/arch-release ]] && id="arch"
 
-    case "$id" in
-        arch|archcraft|manjaro|endeavouros|cachyos|artix|garuda)
-            DISTRO="arch"; PKG_MGR="pacman"
-            PKG_UPDATE="sudo pacman -Sy --noconfirm"
-            PKG_INSTALL="sudo pacman -S --noconfirm --needed"
-            # Prefer AUR helper if available
-            for aur in yay paru trizen; do
-                if command -v "$aur" &>/dev/null; then
-                    PKG_INSTALL="$aur -S --noconfirm --needed"; break
-                fi
-            done
-            ;;
-        ubuntu|debian|kali|parrot|linuxmint|pop|elementary|zorin|mx|raspbian)
-            DISTRO="debian"; PKG_MGR="apt"
-            PKG_UPDATE="sudo apt-get update -qq"
-            PKG_INSTALL="sudo apt-get install -y"
-            ;;
-        fedora|nobara)
-            DISTRO="fedora"; PKG_MGR="dnf"
-            PKG_UPDATE="sudo dnf check-update -q || true"
-            PKG_INSTALL="sudo dnf install -y"
-            ;;
-        rhel|centos|rocky|alma|oracle)
-            DISTRO="rhel"; PKG_MGR="dnf"
-            PKG_UPDATE="sudo dnf check-update -q || true"
-            PKG_INSTALL="sudo dnf install -y"
-            ;;
-        opensuse-leap|opensuse-tumbleweed|opensuse|sles)
-            DISTRO="opensuse"; PKG_MGR="zypper"
-            PKG_UPDATE="sudo zypper refresh -q"
-            PKG_INSTALL="sudo zypper install -y --no-confirm"
-            ;;
-        alpine)
-            DISTRO="alpine"; PKG_MGR="apk"
-            PKG_UPDATE="sudo apk update -q"
-            PKG_INSTALL="sudo apk add"
-            ;;
-        void)
-            DISTRO="void"; PKG_MGR="xbps-install"
-            PKG_UPDATE="sudo xbps-install -Su"
-            PKG_INSTALL="sudo xbps-install -Sy"
-            ;;
-        *)
-            if command -v brew &>/dev/null; then
-                DISTRO="macos"; PKG_MGR="brew"
-                PKG_UPDATE="brew update"
-                PKG_INSTALL="brew install"
-            else
-                warn "Unrecognised distro '$id' — system packages will be skipped"
-                return
-            fi
-            ;;
-    esac
+    # ── Pass 1 & 2: try ID, then each word of ID_LIKE ──────────────────────────
+    for cand in $id $id_like; do
+        case "$cand" in
+            arch|archcraft|manjaro|endeavouros|cachyos|artix|garuda|parabola|archlabs|archbang)
+                DISTRO="arch"; PKG_MGR="pacman"
+                PKG_UPDATE="sudo pacman -Sy --noconfirm"
+                PKG_INSTALL="sudo pacman -S --noconfirm --needed"
+                for aur in yay paru trizen; do
+                    command -v "$aur" &>/dev/null && { PKG_INSTALL="$aur -S --noconfirm --needed"; break; }
+                done ;;
+            ubuntu|debian|kali|parrot|linuxmint|pop|elementary|zorin|mx|raspbian|neon|backbox|tails|whonix)
+                DISTRO="debian"; PKG_MGR="apt"
+                PKG_UPDATE="sudo apt-get update -qq"
+                PKG_INSTALL="sudo apt-get install -y" ;;
+            fedora|nobara)
+                DISTRO="fedora"; PKG_MGR="dnf"
+                PKG_UPDATE="sudo dnf check-update -q || true"
+                PKG_INSTALL="sudo dnf install -y" ;;
+            rhel|centos|rocky|alma|oracle|almalinux)
+                DISTRO="rhel"; PKG_MGR="dnf"
+                PKG_UPDATE="sudo dnf check-update -q || true"
+                PKG_INSTALL="sudo dnf install -y" ;;
+            opensuse-leap|opensuse-tumbleweed|opensuse|sles)
+                DISTRO="opensuse"; PKG_MGR="zypper"
+                PKG_UPDATE="sudo zypper refresh -q"
+                PKG_INSTALL="sudo zypper install -y --no-confirm" ;;
+            alpine)
+                DISTRO="alpine"; PKG_MGR="apk"
+                PKG_UPDATE="sudo apk update -q"
+                PKG_INSTALL="sudo apk add" ;;
+            void)
+                DISTRO="void"; PKG_MGR="xbps-install"
+                PKG_UPDATE="sudo xbps-install -Su"
+                PKG_INSTALL="sudo xbps-install -Sy" ;;
+            *) continue ;;
+        esac
+        [[ "$cand" != "$id" ]] \
+            && info "Detected via ID_LIKE='$cand': $DISTRO ($PKG_MGR)" \
+            || info "Detected: $DISTRO ($PKG_MGR)"
+        return
+    done
+
+    # ── Pass 3: macOS ───────────────────────────────────────────────────────────
+    if command -v brew &>/dev/null; then
+        DISTRO="macos"; PKG_MGR="brew"
+        PKG_UPDATE="brew update"; PKG_INSTALL="brew install"
+        info "Detected: $DISTRO ($PKG_MGR)"; return
+    fi
+
+    # ── Pass 4: package-manager binary probe ───────────────────────────────────
+    if   command -v pacman      &>/dev/null; then
+        DISTRO="arch";    PKG_MGR="pacman"
+        PKG_UPDATE="sudo pacman -Sy --noconfirm"
+        PKG_INSTALL="sudo pacman -S --noconfirm --needed"
+        for aur in yay paru trizen; do
+            command -v "$aur" &>/dev/null && { PKG_INSTALL="$aur -S --noconfirm --needed"; break; }
+        done
+    elif command -v apt-get     &>/dev/null; then
+        DISTRO="debian";  PKG_MGR="apt"
+        PKG_UPDATE="sudo apt-get update -qq"; PKG_INSTALL="sudo apt-get install -y"
+    elif command -v dnf         &>/dev/null; then
+        DISTRO="fedora";  PKG_MGR="dnf"
+        PKG_UPDATE="sudo dnf check-update -q || true"; PKG_INSTALL="sudo dnf install -y"
+    elif command -v yum         &>/dev/null; then
+        DISTRO="rhel";    PKG_MGR="dnf"
+        PKG_UPDATE="sudo yum check-update -q || true"; PKG_INSTALL="sudo yum install -y"
+    elif command -v zypper      &>/dev/null; then
+        DISTRO="opensuse"; PKG_MGR="zypper"
+        PKG_UPDATE="sudo zypper refresh -q"; PKG_INSTALL="sudo zypper install -y --no-confirm"
+    elif command -v apk         &>/dev/null; then
+        DISTRO="alpine";  PKG_MGR="apk"
+        PKG_UPDATE="sudo apk update -q"; PKG_INSTALL="sudo apk add"
+    elif command -v xbps-install &>/dev/null; then
+        DISTRO="void";    PKG_MGR="xbps-install"
+        PKG_UPDATE="sudo xbps-install -Su"; PKG_INSTALL="sudo xbps-install -Sy"
+    else
+        warn "Unrecognised distro '$id' and no known package manager found — system packages will be skipped"
+        return
+    fi
+    warn "Unknown distro ID '$id' — detected $PKG_MGR, treating as $DISTRO-based"
     info "Detected: $DISTRO ($PKG_MGR)"
 }
 
