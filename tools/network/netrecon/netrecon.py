@@ -25,6 +25,11 @@ from dataclasses import dataclass, asdict, field
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import xml.etree.ElementTree as ET
 import ssl
+import zlib
+
+# ADB CNXN CRC32 helper (sum of bytes, not zlib CRC32)
+def _crc32_adb(data: bytes) -> int:
+    return sum(data) & 0xFFFFFFFF
 
 # NVD real-time CVE enrichment (optional)
 _NVD_AVAILABLE = False
@@ -645,6 +650,7 @@ class NmapRunner:
             'database': '1433,1434,1521,3306,5432,6379,9042,9200,11211,27017,28015,50070',
             'common':   '21,22,23,25,53,80,110,139,143,389,443,445,1433,1521,3306,3389,5432,6379,8080,27017,62078',
             'ios':      '62078,5000,7000,548,3689,49152,88,5353',
+            'android':  '5555,5037,5554,8080,8888,8889',
             'iot':      '80,443,1883,8883,5683,5353,8080,8443,5000',
             'camera':   '80,443,554,8000,8080,8443,37777,34567,3702',
             'router':   '80,443,8080,8443,22,23,7547,8291',
@@ -778,6 +784,7 @@ class MasscanRunner:
             'database': '1433,1521,3306,5432,6379,9200,11211,27017',
             'common':   '21,22,23,25,53,80,110,135,139,143,389,443,445,993,995,1433,1521,3306,3389,5432,6379,8080,27017,62078',
             'ios':      '62078,5000,7000,548,3689,49152,88,5353',
+            'android':  '5555,5037,5554,8080,8888,8889',
             'iot':      '80,443,1883,8883,5683,5353,8080,8443,5000',
             'camera':   '80,443,554,8000,8080,8443,37777,34567,3702',
             'router':   '80,443,8080,8443,22,23,7547,8291',
@@ -1828,7 +1835,7 @@ _PORT_NAMES: Dict[int, str] = {
     5683: 'coap', 5900: 'vnc', 5984: 'couchdb', 6379: 'redis',
     7547: 'tr-069', 8000: 'hikvision-http', 8080: 'http-proxy',
     8291: 'winbox', 8443: 'https-alt', 8883: 'mqtt-tls',
-    5353: 'mdns', 7680: 'wudo', 62078: 'iphone-sync',
+    5353: 'mdns', 5555: 'adb', 7680: 'wudo', 62078: 'iphone-sync',
     9000: 'http', 9200: 'elasticsearch', 9900: 'nis', 11211: 'memcached',
     20000: 'dnp3', 27017: 'mongodb', 34567: 'dvr-http',
     37777: 'dahua-dvr', 47808: 'bacnet',
@@ -2292,6 +2299,40 @@ class NetRecon:
                 svc.service = self._guess_service(port, bnr)
                 svc.cves    = correlate_cves(svc.service, '', '')
                 profile.services.append(svc)
+
+        # Android / ADB device detection — port 5555 = ADB over TCP
+        open_ports = {s.port for s in profile.services}
+        if 5555 in open_ports and not self.passive:
+            adb_result = self._probe_adb(ip)
+            if adb_result.get('adb_open'):
+                if not profile.os_family:
+                    profile.os_family = 'Android'
+                if not profile.device_type:
+                    profile.device_type = adb_result.get('device_model') or 'Android device (ADB open)'
+                for svc in profile.services:
+                    if svc.port == 5555:
+                        svc.service = 'adb'
+                        svc.banner  = svc.banner or adb_result.get('banner', 'ADB TCP open')
+                        svc.__dict__['adb_authorized'] = adb_result.get('authorized', False)
+                profile.vulnerabilities.append({
+                    'id': 'ADB-TCP-OPEN',
+                    'severity': 'CRITICAL',
+                    'desc': (
+                        f"Android Debug Bridge (ADB) exposed on {ip}:5555 — "
+                        f"full device shell access possible without authentication"
+                        + (f" | model: {adb_result['device_model']}" if adb_result.get('device_model') else "")
+                    ),
+                })
+        elif 5555 in open_ports:
+            # passive: just label it
+            for svc in profile.services:
+                if svc.port == 5555:
+                    svc.service = 'adb'
+            profile.vulnerabilities.append({
+                'id': 'ADB-TCP-OPEN',
+                'severity': 'CRITICAL',
+                'desc': f"ADB TCP port 5555 open on {ip} — Android device with debug bridge exposed",
+            })
 
         # Apple / iOS device fingerprinting
         open_ports = {s.port for s in profile.services}
@@ -2765,6 +2806,75 @@ class NetRecon:
         except Exception:
             pass
         return ''
+
+    def _probe_adb(self, ip: str, port: int = 5555) -> Dict:
+        """
+        Probe ADB over TCP.
+        ADB protocol: client sends CNXN packet, device responds with CNXN if open.
+        Falls back to adb connect if binary available.
+        """
+        result: Dict = {'adb_open': False, 'authorized': False, 'banner': '', 'device_model': ''}
+        _adb_bin = shutil.which('adb')
+
+        # Method 1: try adb connect + devices
+        if _adb_bin:
+            try:
+                subprocess.run([_adb_bin, 'start-server'], capture_output=True, timeout=5)
+                cr = subprocess.run(
+                    [_adb_bin, 'connect', f'{ip}:{port}'],
+                    capture_output=True, text=True, timeout=8,
+                )
+                output = cr.stdout + cr.stderr
+                if 'connected to' in output.lower() or 'already connected' in output.lower():
+                    result['adb_open'] = True
+                    result['authorized'] = True
+                    # grab model
+                    dr = subprocess.run(
+                        [_adb_bin, '-s', f'{ip}:{port}', 'shell', 'getprop', 'ro.product.model'],
+                        capture_output=True, text=True, timeout=6,
+                    )
+                    model = dr.stdout.strip()
+                    if model:
+                        result['device_model'] = model
+                        result['banner'] = f'ADB connected | model: {model}'
+                    else:
+                        result['banner'] = 'ADB connected'
+                    # disconnect politely
+                    subprocess.run([_adb_bin, 'disconnect', f'{ip}:{port}'],
+                                   capture_output=True, timeout=4)
+                    return result
+                elif 'refused' in output.lower() or 'cannot connect' in output.lower():
+                    return result
+                # 'unauthorized' or no response = port open but not authorized
+                elif 'unauthorized' in output.lower():
+                    result['adb_open'] = True
+                    result['banner'] = 'ADB TCP open (UNAUTHORIZED — device needs adb authorization prompt accepted)'
+                    return result
+            except Exception:
+                pass
+
+        # Method 2: raw TCP — send ADB CNXN handshake, check for ADB magic in response
+        try:
+            import socket as _sock, struct as _struct
+            ADB_MAGIC = 0x434e584e  # CNXN
+            payload = b'host::features=shell_v2,cmd,stat_v2,ls_v2,fixed_push_mkdir,apex,abb,fixed_push_symlink_timestamp,abb_exec,remount_shell,track_app,sendrecv_v2,sendrecv_v2_brotli,sendrecv_v2_lz4,sendrecv_v2_zstd,sendrecv_v2_dry_run_send'
+            msg = _struct.pack('<IIIIII',
+                ADB_MAGIC, 0x01000000, 256*1024,
+                len(payload), _crc32_adb(payload), ADB_MAGIC ^ 0xFFFFFFFF,
+            ) + payload
+            s = _sock.create_connection((ip, port), timeout=4)
+            s.sendall(msg)
+            s.settimeout(4)
+            resp = s.recv(256)
+            s.close()
+            if resp and len(resp) >= 4:
+                magic = _struct.unpack_from('<I', resp)[0]
+                if magic == ADB_MAGIC:
+                    result['adb_open'] = True
+                    result['banner'] = 'ADB CNXN handshake received'
+        except Exception:
+            pass
+        return result
 
     def _probe_mqtt(self, ip: str) -> Dict:
         """Send MQTT CONNECT packet and check CONNACK response"""
