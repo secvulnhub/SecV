@@ -1721,6 +1721,34 @@ a{color:var(--blue);text-decoration:none;}
 ::-webkit-scrollbar-track{background:var(--bg);}
 ::-webkit-scrollbar-thumb{background:var(--bg4);}
 
+/* ── CUSTOM FORM ELEMENTS ─────────────────────────────────────── */
+select{
+  -webkit-appearance:none;appearance:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2344ddff' opacity='0.6'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 9px center;
+  background-size:8px 5px;padding-right:26px !important;cursor:pointer;
+}
+input[type=checkbox]{
+  -webkit-appearance:none;appearance:none;
+  width:14px;height:14px;flex-shrink:0;
+  border:1px solid var(--border2);background:var(--bg2);
+  cursor:pointer;position:relative;
+  transition:border-color var(--t),background var(--t),box-shadow var(--t);
+  vertical-align:middle;border-radius:2px;
+}
+input[type=checkbox]:checked{
+  background:var(--accent);border-color:var(--accent);
+  box-shadow:0 0 6px var(--accent-dim);
+}
+input[type=checkbox]:checked::after{
+  content:'';position:absolute;left:4px;top:1px;
+  width:4px;height:8px;
+  border:1.5px solid #060606;border-top:none;border-left:none;
+  transform:rotate(45deg);
+}
+input[type=checkbox]:hover:not(:checked){border-color:var(--border3);}
+input[type=checkbox]:focus{outline:none;}
+
 /* SESSIONS BAR */
 #sessions-bar{
   display:none;align-items:center;gap:8px;padding:7px 18px;
@@ -1843,14 +1871,20 @@ a{color:var(--blue);text-decoration:none;}
 #topbar .devbadge #dev-os{color:var(--muted);font-size:0.6rem;}
 #topbar .tb-btn{
   background:none;border:1px solid var(--border2);
-  color:var(--muted);padding:5px 12px;cursor:pointer;font-family:var(--mono);
-  font-size:0.65rem;letter-spacing:0.08em;text-transform:uppercase;white-space:nowrap;
-  transition:border-color var(--t),color var(--t);
+  color:var(--muted);padding:5px 11px;cursor:pointer;font-family:var(--mono);
+  font-size:0.65rem;letter-spacing:0.06em;text-transform:uppercase;white-space:nowrap;
+  transition:border-color var(--t),color var(--t),background var(--t),box-shadow var(--t);
+  display:inline-flex;align-items:center;gap:5px;line-height:1;
 }
-#topbar .tb-btn:hover{border-color:var(--border3);color:var(--white);}
-#topbar #kill-btn{border-color:rgba(229,57,53,0.4);color:var(--red);}
-#topbar #kill-btn:hover{background:var(--red-dim);border-color:var(--red);}
+#topbar .tb-btn svg{flex-shrink:0;opacity:0.6;transition:opacity var(--t);}
+#topbar .tb-btn:hover{border-color:var(--border3);color:var(--white);background:rgba(255,255,255,0.04);}
+#topbar .tb-btn:hover svg{opacity:1;}
+#topbar #kill-btn{border-color:rgba(229,57,53,0.35);color:var(--red);background:rgba(229,57,53,0.05);}
+#topbar #kill-btn:hover{background:var(--red-dim);border-color:var(--red);box-shadow:0 0 10px rgba(229,57,53,0.2);}
+#topbar #kill-btn svg{opacity:0.8;}
 #topbar #kill-btn.active{animation:pulse .7s infinite;}
+#topbar #sidebar-toggle-btn.active{color:var(--accent);border-color:var(--accent);background:var(--accent-dim);}
+#topbar #sidebar-toggle-btn.active svg{opacity:1;}
 @keyframes pulse{0%{opacity:1}50%{opacity:.35}100%{opacity:1}}
 #lhost-display{font-size:0.58rem;letter-spacing:0.1em;color:var(--muted);margin-left:auto;}
 
@@ -1865,7 +1899,6 @@ a{color:var(--blue);text-decoration:none;}
   transition:width 0.2s ease,opacity 0.2s ease;
 }
 #sidebar.hidden{width:0;overflow:hidden;border-right:none;opacity:0;pointer-events:none;}
-#topbar #sidebar-toggle-btn.active{color:var(--accent);border-color:var(--accent);}
 
 /* APK FILE BROWSER MODAL */
 #apk-browser-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:9000;display:none;align-items:center;justify-content:center;}
@@ -2762,12 +2795,12 @@ a{color:var(--blue);text-decoration:none;}
   </div>
   <span id="lhost-display"></span>
   <span id="dev-count" style="font-size:0.58rem;color:var(--muted);letter-spacing:0.1em;"></span>
-  <button class="tb-btn" id="sidebar-toggle-btn" onclick="toggleSidebar()" title="Toggle ops sidebar">⊟ ops</button>
-  <button class="tb-btn" onclick="refreshDevices()" title="Poll for devices">⟳ refresh</button>
-  <button class="tb-btn" id="reload-btn" onclick="forceReloadADB()" title="Kill + restart ADB server">⚡ reload adb</button>
-  <button class="tb-btn" onclick="clearTerminal()">⌧ clear</button>
-  <button class="tb-btn" onclick="switchTab('setup')">⚙ setup</button>
-  <button class="tb-btn" id="kill-btn" onclick="killOp()">✕ kill</button>
+  <button class="tb-btn" id="sidebar-toggle-btn" onclick="toggleSidebar()" title="Toggle ops sidebar"><svg width="15" height="12" viewBox="0 0 15 12" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><rect width="4" height="12" rx="1" opacity="0.55"/><rect x="6" width="9" height="3.5" rx="1"/><rect x="6" y="4.25" width="9" height="3.5" rx="1"/><rect x="6" y="8.5" width="9" height="3.5" rx="1"/></svg>ops</button>
+  <button class="tb-btn" onclick="refreshDevices()" title="Poll for devices"><svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M11 2v3.5H7.5"/><path d="M2 11V7.5H5.5"/><path d="M3.3 5A4.5 4.5 0 0 1 11 6"/><path d="M9.7 8A4.5 4.5 0 0 1 2 7"/></svg>refresh</button>
+  <button class="tb-btn" id="reload-btn" onclick="forceReloadADB()" title="Kill + restart ADB server"><svg width="11" height="14" viewBox="0 0 11 14" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><polygon points="7,0 0,8 4.5,8 3.5,14 11,6 6.5,6"/></svg>reload adb</button>
+  <button class="tb-btn" onclick="clearTerminal()" title="Clear terminal output"><svg width="12" height="13" viewBox="0 0 12 13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><line x1="1" y1="2.5" x2="11" y2="2.5"/><path d="M4 2.5V1.5h4v1"/><path d="M2 2.5l.7 8a1 1 0 0 0 1 .9h4.6a1 1 0 0 0 1-.9l.7-8"/><line x1="4.5" y1="5" x2="4.7" y2="9"/><line x1="7.5" y1="5" x2="7.3" y2="9"/></svg>clear</button>
+  <button class="tb-btn" onclick="switchTab('setup')" title="Open setup &amp; dependencies"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><circle cx="7" cy="7" r="2.2"/><path d="M7 1.2V2.6M7 11.4V12.8M1.2 7H2.6M11.4 7H12.8M3 3L4 4M10 10L11 11M11 3L10 4M3 11L4 10"/></svg>setup</button>
+  <button class="tb-btn" id="kill-btn" onclick="killOp()" title="Kill running operation"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" xmlns="http://www.w3.org/2000/svg"><line x1="2" y1="2" x2="10" y2="10"/><line x1="10" y1="2" x2="2" y2="10"/></svg>kill</button>
 </div>
 
 <!-- SESSIONS BAR -->
