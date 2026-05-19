@@ -25,6 +25,7 @@ Usage:
 """
 
 import argparse
+import json
 import os
 import shutil
 import socket
@@ -688,25 +689,50 @@ def zipalign(unsigned: Path, aligned: Path):
     run(["zipalign", "-v", "-p", "4", str(unsigned), str(aligned)], check=True)
 
 
+def _ks_cfg() -> dict:
+    cfg_path = BASE_DIR / "keystore.json"
+    try:
+        return json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
+    except Exception:
+        return {}
+
+
 def gen_keystore(ks_path: Path):
-    print(f"[*] Generating signing keystore: {ks_path}")
+    cfg   = _ks_cfg()
+    alias = cfg.get("alias",     "secv")
+    sp    = cfg.get("storepass", "secv1234")
+    kp    = cfg.get("keypass",   "secv1234")
+    cn    = cfg.get("cn",  "SecureDev LLC")
+    ou    = cfg.get("ou",  "Mobile Applications")
+    o     = cfg.get("o",   "SecureDev LLC")
+    l     = cfg.get("l",   "Austin")
+    st    = cfg.get("st",  "Texas")
+    c     = cfg.get("c",   "US")
+    val   = str(cfg.get("validity", 10000))
+    dname = f"CN={cn},OU={ou},O={o},L={l},ST={st},C={c}"
+    print(f"[*] Generating signing keystore: {ks_path}  ({dname})")
     run(["keytool", "-genkeypair", "-v",
-         "-keystore", str(ks_path),
-         "-alias",    "secv",
-         "-keyalg",   "RSA",
-         "-keysize",  "2048",
-         "-validity", "10000",
-         "-storepass","secv1234",
-         "-keypass",  "secv1234",
-         "-dname",    "CN=secV,OU=secV,O=secV,L=X,ST=X,C=US"], check=True)
+         "-keystore",  str(ks_path),
+         "-alias",     alias,
+         "-keyalg",    "RSA",
+         "-keysize",   "2048",
+         "-validity",  val,
+         "-storepass", sp,
+         "-keypass",   kp,
+         "-dname",     dname,
+         "-storetype", "PKCS12"], check=True)
 
 
 def sign_apk(aligned: Path, out_apk: Path, ks_path: Path):
+    cfg   = _ks_cfg()
+    alias = cfg.get("alias",     "secv")
+    sp    = cfg.get("storepass", "secv1234")
+    kp    = cfg.get("keypass",   "secv1234")
     run(["apksigner", "sign",
          "--ks",           str(ks_path),
-         "--ks-pass",      "pass:secv1234",
-         "--key-pass",     "pass:secv1234",
-         "--ks-key-alias", "secv",
+         "--ks-pass",      f"pass:{sp}",
+         "--key-pass",     f"pass:{kp}",
+         "--ks-key-alias", alias,
          "--out",          str(out_apk),
          str(aligned)], check=True)
     run(["apksigner", "verify", "--verbose", str(out_apk)])
