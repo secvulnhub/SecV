@@ -1867,6 +1867,169 @@ End Sub""",
         }
         log(f"→ Generated {len(selected)} Office VBA macro(s): {list(selected.keys())}")
 
+    def do_hunt():
+        """
+        LDAP-based threat hunting — detect malware-associated AD anomalies.
+        Derived from theZoo analysis: OperationDianxun LDAP enum, NotPetya computer
+        account proliferation, EternalRocks service account patterns.
+        Requires LDAP read access (anonymous or authenticated).
+        """
+        log("→ hunt")
+        if not CAPS.get('ldap3'):
+            errors.append("hunt requires ldap3: pip install ldap3"); return
+
+        try:
+            import ldap3
+            s = ldap3.Server(target, get_info=ldap3.ALL, connect_timeout=timeout)
+            if auth.has_creds:
+                c = ldap3.Connection(s, user=f'{auth.domain}\\{auth.username}',
+                                     password=auth.password, auto_bind=True)
+            else:
+                c = ldap3.Connection(s, auto_bind=True)
+        except Exception as e:
+            errors.append(f"hunt: LDAP connect failed: {e}"); return
+
+        base_dn = auth.base_dn or data.get('discover', {}).get('base_dn', '')
+        if not base_dn:
+            errors.append("hunt: base_dn required — run discover first"); return
+
+        findings = []
+
+        # ── 1. Recently created computer accounts (NotPetya lateral move) ─
+        try:
+            # computers created in last 72h (EternalBlue propagation artifact)
+            import datetime
+            cutoff = datetime.datetime.utcnow() - datetime.timedelta(hours=72)
+            # AD stores time as 100-nanosecond intervals since 1601-01-01
+            ad_cutoff = int((cutoff - datetime.datetime(1601, 1, 1)).total_seconds() * 10_000_000)
+            c.search(base_dn,
+                f'(&(objectClass=computer)(whenCreated>={cutoff.strftime("%Y%m%d%H%M%S.0Z")}))',
+                attributes=['cn', 'whenCreated', 'dNSHostName', 'operatingSystem'])
+            for e in c.entries:
+                findings.append({
+                    'category': 'new_computer',
+                    'severity': 'HIGH',
+                    'detail': f'New computer account: {e.cn} ({getattr(e,"dNSHostName","")}) '
+                              f'created {getattr(e,"whenCreated","")}',
+                    'technique': 'T1078.002 - Valid Accounts: Domain Accounts (NotPetya propagation pattern)',
+                })
+        except Exception as e:
+            log(f"  hunt/new_computers: {e}")
+
+        # ── 2. Accounts with unusual SPNs (Kerberoasting prep / malware service accounts) ─
+        try:
+            c.search(base_dn,
+                '(&(objectClass=user)(servicePrincipalName=*)(!(objectClass=computer))'
+                '(!(userAccountControl:1.2.840.113556.1.4.803:=2)))',
+                attributes=['cn', 'servicePrincipalName', 'whenCreated',
+                            'pwdLastSet', 'adminCount'])
+            for e in c.entries:
+                spns = list(getattr(e, 'servicePrincipalName', []) or [])
+                sus = [s for s in spns if not any(
+                    s.lower().startswith(p) for p in
+                    ('host/', 'http/', 'ldap/', 'gc/', 'dns/', 'msomsdpsvc/')
+                )]
+                if sus:
+                    findings.append({
+                        'category': 'unusual_spn',
+                        'severity': 'HIGH',
+                        'detail':   f'{e.cn}: unusual SPNs {sus[:3]} — potential Kerberoasting target or malware service account',
+                        'technique': 'T1558.003 - Steal/Forge Kerberos Tickets (OperationDianxun SPN pattern)',
+                    })
+        except Exception as e:
+            log(f"  hunt/spn: {e}")
+
+        # ── 3. AdminSDHolder protected accounts modified recently ─────────
+        try:
+            c.search(base_dn,
+                '(&(objectClass=user)(adminCount=1)(!(objectClass=computer)))',
+                attributes=['cn', 'whenChanged', 'memberOf', 'userAccountControl'])
+            admin_protected = []
+            for e in c.entries:
+                admin_protected.append({
+                    'account': str(e.cn),
+                    'changed': str(getattr(e, 'whenChanged', '')),
+                    'groups':  [str(g).split(',')[0].replace('CN=','')
+                                for g in list(getattr(e,'memberOf',[]) or [])[:5]],
+                })
+            if admin_protected:
+                findings.append({
+                    'category':  'adminsdholder',
+                    'severity':  'HIGH',
+                    'detail':    f'AdminSDHolder-protected accounts ({len(admin_protected)}): '
+                                 f'{[a["account"] for a in admin_protected[:5]]}',
+                    'accounts':  admin_protected[:20],
+                    'technique': 'T1003 - AdminSDHolder persistence (common post-compromise)',
+                })
+        except Exception as e:
+            log(f"  hunt/adminsdholder: {e}")
+
+        # ── 4. User accounts with password not required or never expires ──
+        try:
+            # UAC flags: 0x0002=disabled, 0x0020=no-passwd-required, 0x10000=no-expiry
+            c.search(base_dn,
+                '(&(objectClass=user)(!(objectClass=computer))'
+                '(|(userAccountControl:1.2.840.113556.1.4.803:=32)'
+                '(userAccountControl:1.2.840.113556.1.4.803:=65536)))',
+                attributes=['cn', 'userAccountControl', 'lastLogon'])
+            weak_accounts = [str(e.cn) for e in c.entries]
+            if weak_accounts:
+                findings.append({
+                    'category': 'weak_account_policy',
+                    'severity': 'MEDIUM',
+                    'detail':   f'{len(weak_accounts)} accounts with no-password-required or password-never-expires: {weak_accounts[:10]}',
+                    'technique': 'T1078 - Valid Accounts (spray / pass-the-hash target)',
+                })
+        except Exception as e:
+            log(f"  hunt/weak_accounts: {e}")
+
+        # ── 5. Domain controllers not in "Domain Controllers" OU ──────────
+        try:
+            c.search(base_dn,
+                '(&(objectClass=computer)(userAccountControl:1.2.840.113556.1.4.803:=8192))',
+                attributes=['cn', 'distinguishedName', 'dNSHostName'])
+            for e in c.entries:
+                dn = str(getattr(e, 'distinguishedName', ''))
+                if 'Domain Controllers' not in dn:
+                    findings.append({
+                        'category': 'rogue_dc',
+                        'severity': 'CRITICAL',
+                        'detail':   f'Domain Controller outside "Domain Controllers" OU: {e.cn} ({dn}) — possible DCSync target or rogue DC',
+                        'technique': 'T1207 - Rogue Domain Controller (DCShadow)',
+                    })
+        except Exception as e:
+            log(f"  hunt/rogue_dc: {e}")
+
+        # ── 6. Stale privileged accounts (not logged in > 90 days, still DA) ─
+        try:
+            import datetime
+            cutoff90 = datetime.datetime.utcnow() - datetime.timedelta(days=90)
+            ad_cutoff90 = int((cutoff90 - datetime.datetime(1601,1,1)).total_seconds() * 10_000_000)
+            c.search(base_dn,
+                f'(&(objectClass=user)(adminCount=1)'
+                f'(lastLogon<={ad_cutoff90})'
+                f'(!(userAccountControl:1.2.840.113556.1.4.803:=2)))',
+                attributes=['cn', 'lastLogon', 'memberOf'])
+            stale = [str(e.cn) for e in c.entries]
+            if stale:
+                findings.append({
+                    'category': 'stale_privileged',
+                    'severity': 'HIGH',
+                    'detail':   f'{len(stale)} privileged accounts inactive >90 days: {stale[:5]}',
+                    'technique': 'T1078 - Valid Accounts (stale DA — pass-the-hash target with no recent password change)',
+                })
+        except Exception as e:
+            log(f"  hunt/stale_privileged: {e}")
+
+        data['hunt'] = {
+            'findings':  findings,
+            'count':     len(findings),
+            'critical':  len([f for f in findings if f.get('severity') == 'CRITICAL']),
+            'high':      len([f for f in findings if f.get('severity') == 'HIGH']),
+            'note':      'Techniques derived from theZoo malware analysis: NotPetya, OperationDianxun, EternalRocks',
+        }
+        log(f"→ hunt: {len(findings)} finding(s) ({data['hunt']['critical']} critical)")
+
     handlers = {
         'discover':      lambda: None,   # already done above
         'users':         do_users,
@@ -1882,6 +2045,7 @@ End Sub""",
         'secrets':       do_secrets,
         'exec':          do_exec,
         'privesc_check': do_privesc_check,
+        'hunt':          do_hunt,
         'shell':         do_shell,
         'office_macros': do_office_macros,
     }
@@ -1894,7 +2058,8 @@ End Sub""",
             except Exception as e:
                 errors.append(f"{op}: {e}")
         if auth.has_creds:
-            for op in ['kerberoast', 'asreproast', 'bloodhound', 'loot', 'privesc_check']:
+            for op in ['kerberoast', 'asreproast', 'bloodhound', 'loot',
+                       'privesc_check', 'hunt']:
                 try:
                     handlers[op]()
                 except Exception as e:

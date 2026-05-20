@@ -214,172 +214,608 @@ def lookup_mac_vendor(mac: str) -> str:
 # ============================================================================
 
 CVE_DB: Dict[str, List[Dict]] = {
+    # ── SSH ──────────────────────────────────────────────────────────────────
     'ssh': [
-        {'id': 'CVE-2023-38408', 'cvss': 9.8, 'desc': 'openssh-agent remote code execution',  'affects_max': '9.3p1'},
-        {'id': 'CVE-2021-41617', 'cvss': 7.0, 'desc': 'sshd privilege escalation',            'affects_max': '8.7'},
-        {'id': 'CVE-2018-15473', 'cvss': 5.3, 'desc': 'OpenSSH username enumeration',         'affects_max': '7.6'},
-        {'id': 'CVE-2016-20012', 'cvss': 5.3, 'desc': 'OpenSSH username enumeration < 8.9',   'affects_max': '8.8'},
+        {'id': 'CVE-2024-6387',  'cvss': 8.1, 'desc': 'regreSSHion: OpenSSH unauthenticated RCE via signal handler race (glibc Linux)', 'affects_max': '9.7p1'},
+        {'id': 'CVE-2023-38408', 'cvss': 9.8, 'desc': 'openssh-agent remote code execution via PKCS#11 forwarding',   'affects_max': '9.3p1'},
+        {'id': 'CVE-2021-41617', 'cvss': 7.0, 'desc': 'sshd privilege escalation via supplemental group handling',     'affects_max': '8.7'},
+        {'id': 'CVE-2018-15473', 'cvss': 5.3, 'desc': 'OpenSSH username enumeration via timing side-channel',          'affects_max': '7.6'},
+        {'id': 'CVE-2016-20012', 'cvss': 5.3, 'desc': 'OpenSSH username enumeration < 8.9',                            'affects_max': '8.8'},
+        {'id': 'CVE-2016-0777',  'cvss': 6.4, 'desc': 'OpenSSH roaming buffer overflow (client-side info leak)',        'affects_max': '7.1p1'},
+        {'id': 'CVE-2015-5600',  'cvss': 8.5, 'desc': 'OpenSSH MaxAuthTries bypass via keyboard-interactive',           'affects_max': '6.9'},
     ],
     'openssh': [
-        {'id': 'CVE-2023-38408', 'cvss': 9.8, 'desc': 'ssh-agent remote code execution',      'affects_max': '9.3p1'},
-        {'id': 'CVE-2021-41617', 'cvss': 7.0, 'desc': 'Privilege escalation in sshd',         'affects_max': '8.7'},
-        {'id': 'CVE-2018-15473', 'cvss': 5.3, 'desc': 'Username enumeration side-channel',    'affects_max': '7.6'},
+        {'id': 'CVE-2024-6387',  'cvss': 8.1, 'desc': 'regreSSHion: unauthenticated RCE via signal handler race condition (glibc Linux)', 'affects_max': '9.7p1'},
+        {'id': 'CVE-2023-38408', 'cvss': 9.8, 'desc': 'ssh-agent RCE via PKCS#11 provider loading',                    'affects_max': '9.3p1'},
+        {'id': 'CVE-2021-41617', 'cvss': 7.0, 'desc': 'Privilege escalation in sshd',                                  'affects_max': '8.7'},
+        {'id': 'CVE-2018-15473', 'cvss': 5.3, 'desc': 'Username enumeration side-channel',                             'affects_max': '7.6'},
+        {'id': 'CVE-2016-0777',  'cvss': 6.4, 'desc': 'UseRoaming memory disclosure / buffer overflow',                'affects_max': '7.1p1'},
     ],
+    # ── HTTP / Web Servers ───────────────────────────────────────────────────
     'apache': [
-        {'id': 'CVE-2021-41773', 'cvss': 9.8, 'desc': 'Path traversal + RCE (2.4.49)',         'affects_min': '2.4.49', 'affects_max': '2.4.49'},
-        {'id': 'CVE-2021-42013', 'cvss': 9.8, 'desc': 'Path traversal + RCE (2.4.49-2.4.50)', 'affects_min': '2.4.49', 'affects_max': '2.4.50'},
-        {'id': 'CVE-2022-31813', 'cvss': 9.8, 'desc': 'mod_proxy header smuggling',            'affects_max': '2.4.54'},
-        {'id': 'CVE-2021-40438', 'cvss': 9.0, 'desc': 'mod_proxy SSRF',                        'affects_max': '2.4.48'},
-        {'id': 'CVE-2017-7679',  'cvss': 9.8, 'desc': 'mod_mime buffer overread',              'affects_max': '2.4.25'},
+        {'id': 'CVE-2021-41773', 'cvss': 9.8, 'desc': 'Path traversal + RCE (2.4.49)',                                  'affects_min': '2.4.49', 'affects_max': '2.4.49'},
+        {'id': 'CVE-2021-42013', 'cvss': 9.8, 'desc': 'Path traversal + RCE (2.4.49–2.4.50)',                           'affects_min': '2.4.49', 'affects_max': '2.4.50'},
+        {'id': 'CVE-2022-31813', 'cvss': 9.8, 'desc': 'mod_proxy X-Forwarded-For header smuggling',                     'affects_max': '2.4.54'},
+        {'id': 'CVE-2021-40438', 'cvss': 9.0, 'desc': 'mod_proxy SSRF via crafted request URI',                         'affects_max': '2.4.48'},
+        {'id': 'CVE-2017-7679',  'cvss': 9.8, 'desc': 'mod_mime buffer overread / one-byte overflow',                   'affects_max': '2.4.25'},
+        {'id': 'CVE-2017-9798',  'cvss': 7.5, 'desc': 'Optionsbleed: use-after-free via OPTIONS method',                'affects_max': '2.4.27'},
+        {'id': 'CVE-2015-3185',  'cvss': 7.5, 'desc': 'ap_some_auth_required() bypass — auth check logic flaw',        'affects_max': '2.4.12'},
     ],
     'nginx': [
-        {'id': 'CVE-2021-23017', 'cvss': 7.7, 'desc': 'One-byte overwrite in DNS resolver',   'affects_max': '1.21.0'},
-        {'id': 'CVE-2019-9511',  'cvss': 7.5, 'desc': 'HTTP/2 Data Dribble DoS',              'affects_max': '1.17.2'},
-        {'id': 'CVE-2013-4547',  'cvss': 7.5, 'desc': 'Null byte in URI processing',          'affects_max': '1.5.6'},
+        {'id': 'CVE-2021-23017', 'cvss': 7.7, 'desc': 'One-byte overwrite in DNS resolver response parsing',            'affects_max': '1.21.0'},
+        {'id': 'CVE-2019-9511',  'cvss': 7.5, 'desc': 'HTTP/2 Data Dribble DoS',                                       'affects_max': '1.17.2'},
+        {'id': 'CVE-2017-7529',  'cvss': 7.5, 'desc': 'Integer overflow in range filter — info disclosure',             'affects_max': '1.13.2'},
+        {'id': 'CVE-2016-0742',  'cvss': 7.5, 'desc': 'Invalid pointer dereference in resolver',                        'affects_max': '1.9.9'},
+        {'id': 'CVE-2013-4547',  'cvss': 7.5, 'desc': 'Null byte in URI allows bypass of access controls',              'affects_max': '1.5.6'},
+    ],
+    'iis': [
+        {'id': 'CVE-2022-30209', 'cvss': 8.1, 'desc': 'IIS auth bypass via SSPI negotiation — EOP to SYSTEM',           'affects_max': '10.0'},
+        {'id': 'CVE-2021-31166', 'cvss': 9.8, 'desc': 'HTTP Protocol Stack RCE via malformed accept-encoding header — wormable', 'affects_max': '10.0'},
+        {'id': 'CVE-2017-7269',  'cvss': 9.8, 'desc': 'IIS 6.0 WebDAV ScStoragePathFromUrl buffer overflow — RCE',     'affects_min': '6.0', 'affects_max': '6.0'},
+        {'id': 'CVE-2015-1635', 'cvss': 9.8, 'desc': 'MS15-034 HTTP.sys range header integer overflow — RCE/DoS',      'affects_max': '7.5'},
     ],
     'http': [
-        {'id': 'CVE-2021-41773', 'cvss': 9.8, 'desc': 'Apache 2.4.49 path traversal (if Apache)'},
+        {'id': 'CVE-2021-41773', 'cvss': 9.8, 'desc': 'Apache 2.4.49 path traversal + RCE (check banner)'},
+        {'id': 'CVE-2021-44228', 'cvss': 10.0,'desc': 'Log4Shell: Log4j2 JNDI RCE via HTTP headers — any Java app (ITW)'},
+        {'id': 'CVE-2022-22965', 'cvss': 9.8, 'desc': 'Spring4Shell: Spring MVC RCE via DataBinder class injection'},
+        {'id': 'CVE-2017-5638',  'cvss': 10.0,'desc': 'Apache Struts2 Content-Type OGNL injection RCE (Equifax breach)'},
+        {'id': 'CVE-2018-11776', 'cvss': 9.8, 'desc': 'Apache Struts2 namespace redirect OGNL injection'},
+        {'id': 'CVE-2014-6271',  'cvss': 9.8, 'desc': 'Shellshock: bash env var RCE via CGI HTTP headers'},
+        {'id': 'CVE-2015-8562',  'cvss': 9.8, 'desc': 'Joomla! 1.5–3.4 unserialisation RCE via User-Agent header'},
+        {'id': 'CVE-2018-7600',  'cvss': 9.8, 'desc': 'Drupalgeddon2: Drupal < 7.58/8.x RCE via form API'},
+        {'id': 'CVE-2019-6340',  'cvss': 9.8, 'desc': 'Drupal REST module RCE via PHP deserialization'},
     ],
     'https': [
-        {'id': 'CVE-2014-0160', 'cvss': 7.5, 'desc': 'OpenSSL Heartbleed (if old OpenSSL)'},
-        {'id': 'CVE-2022-0778', 'cvss': 7.5, 'desc': 'OpenSSL BN_mod_sqrt() infinite loop'},
+        {'id': 'CVE-2014-0160',  'cvss': 7.5, 'desc': 'Heartbleed: OpenSSL 1.0.1 TLS heartbeat OOB read — private key leak'},
+        {'id': 'CVE-2022-0778',  'cvss': 7.5, 'desc': 'OpenSSL BN_mod_sqrt() infinite loop — DoS via crafted cert'},
+        {'id': 'CVE-2016-0800',  'cvss': 5.9, 'desc': 'DROWN: SSLv2 cross-protocol attack — RSA key recovery'},
+        {'id': 'CVE-2015-0204',  'cvss': 4.3, 'desc': 'FREAK: RSA export keys forced downgrade (TLS)'},
+        {'id': 'CVE-2015-4000',  'cvss': 3.7, 'desc': 'Logjam: DHE 512-bit export downgrade — MITM key recovery'},
+        {'id': 'CVE-2016-2107',  'cvss': 5.9, 'desc': 'OpenSSL AES-NI CBC padding oracle — MITM decryption'},
+        {'id': 'CVE-2021-44228', 'cvss': 10.0,'desc': 'Log4Shell: JNDI RCE via HTTP request headers — any Java backend'},
     ],
-    'mysql': [
-        {'id': 'CVE-2012-2122',  'cvss': 7.5, 'desc': 'Authentication bypass via timing',     'affects_max': '5.5.23'},
-        {'id': 'CVE-2021-2471',  'cvss': 7.5, 'desc': 'Multiple MySQL < 8.0.27 vulns',        'affects_max': '8.0.26'},
-        {'id': 'CVE-2020-14765', 'cvss': 6.5, 'desc': 'InnoDB denial of service',             'affects_max': '8.0.20'},
-    ],
-    'postgresql': [
-        {'id': 'CVE-2019-10164', 'cvss': 8.8, 'desc': 'Stack overflow via security-definer',  'affects_max': '11.2'},
-        {'id': 'CVE-2022-1552',  'cvss': 8.8, 'desc': 'Autovacuum privilege escalation',      'affects_max': '14.2'},
-        {'id': 'CVE-2023-2454',  'cvss': 7.2, 'desc': 'Row security policy bypass',           'affects_max': '15.2'},
-    ],
-    'redis': [
-        {'id': 'CVE-2022-0543',  'cvss': 10.0, 'desc': 'Lua sandbox escape (Debian/Ubuntu)',  'affects_max': '6.0.16'},
-        {'id': 'CVE-2021-32625', 'cvss': 7.5,  'desc': 'Integer overflow in GETDEL',          'affects_max': '6.2.4'},
-        {'id': 'CVE-2020-14147', 'cvss': 7.5,  'desc': 'Integer overflow in ziplistResize',   'affects_max': '6.0.11'},
-    ],
-    'mongodb': [
-        {'id': 'CVE-2021-32030', 'cvss': 7.5, 'desc': 'Improper authentication in SCRAM'},
-        {'id': 'CVE-2019-2389', 'cvss': 6.5, 'desc': 'Secondary crash with RBAC'},
-    ],
-    'elasticsearch': [
-        {'id': 'CVE-2021-22145', 'cvss': 6.5, 'desc': 'Memory disclosure via error message'},
-        {'id': 'CVE-2020-7020', 'cvss': 7.5, 'desc': 'Improper URL validation'},
-    ],
-    'ftp': [
-        {'id': 'CVE-2015-3306', 'cvss': 10.0, 'desc': 'ProFTPD mod_copy arbitrary cmd exec',  'affects_max': '1.3.5'},
-        {'id': 'CVE-2011-2523', 'cvss': 10.0, 'desc': 'vsftpd 2.3.4 backdoor',               'affects_min': '2.3.4', 'affects_max': '2.3.4'},
-    ],
+    # ── SMB / Windows ────────────────────────────────────────────────────────
     'smb': [
-        {'id': 'CVE-2017-0144', 'cvss': 9.3, 'desc': 'EternalBlue SMB RCE (WannaCry)'},
-        {'id': 'CVE-2020-0796', 'cvss': 10.0, 'desc': 'SMBGhost SMBv3 RCE'},
-        {'id': 'CVE-2021-36942', 'cvss': 7.5, 'desc': 'PetitPotam NTLM relay'},
+        {'id': 'CVE-2017-0144',  'cvss': 9.3, 'desc': 'EternalBlue: SMBv1 RCE — WannaCry/NotPetya worm vector'},
+        {'id': 'CVE-2017-0145',  'cvss': 9.3, 'desc': 'EternalRomance: SMBv1 session setup overflow — SYSTEM shell'},
+        {'id': 'CVE-2017-0146',  'cvss': 9.3, 'desc': 'EternalChampion: SMBv1 transaction name RCE'},
+        {'id': 'CVE-2020-0796',  'cvss': 10.0,'desc': 'SMBGhost: SMBv3.1.1 compression integer overflow — RCE/wormable'},
+        {'id': 'CVE-2020-1472',  'cvss': 10.0,'desc': 'Zerologon: Netlogon RPC auth bypass — instant DC takeover'},
+        {'id': 'CVE-2021-36942', 'cvss': 7.5, 'desc': 'PetitPotam: NTLM relay via EFS RPC — force DC auth to attacker'},
+        {'id': 'CVE-2021-34527', 'cvss': 8.8, 'desc': 'PrintNightmare: Windows Print Spooler RCE / LPE'},
+        {'id': 'CVE-2021-1675',  'cvss': 7.8, 'desc': 'Print Spooler LPE — local privilege escalation to SYSTEM'},
+        {'id': 'CVE-2022-26923', 'cvss': 8.8, 'desc': 'AD CS certificate request spoofing → domain privilege escalation'},
+        {'id': 'CVE-2023-23397', 'cvss': 9.8, 'desc': 'Outlook NTLM relay via calendar meeting UNC path — zero-click'},
     ],
     'microsoft-ds': [
-        {'id': 'CVE-2017-0144', 'cvss': 9.3, 'desc': 'EternalBlue SMB RCE (WannaCry)'},
-        {'id': 'CVE-2020-0796', 'cvss': 10.0, 'desc': 'SMBGhost RCE (SMBv3.1.1)'},
+        {'id': 'CVE-2017-0144',  'cvss': 9.3, 'desc': 'EternalBlue: SMBv1 RCE (port 445) — WannaCry/NotPetya'},
+        {'id': 'CVE-2020-0796',  'cvss': 10.0,'desc': 'SMBGhost: SMBv3.1.1 RCE (wormable)'},
+        {'id': 'CVE-2020-1472',  'cvss': 10.0,'desc': 'Zerologon: Netlogon DC auth bypass'},
+        {'id': 'CVE-2021-34527', 'cvss': 8.8, 'desc': 'PrintNightmare: Print Spooler RCE'},
+        {'id': 'CVE-2023-23397', 'cvss': 9.8, 'desc': 'Outlook zero-click NTLM relay via UNC path'},
     ],
+    'netbios-ssn': [
+        {'id': 'CVE-2017-0144',  'cvss': 9.3, 'desc': 'EternalBlue SMBv1 RCE (port 139)'},
+        {'id': 'CVE-2017-7494',  'cvss': 9.8, 'desc': 'SambaCry: Samba 3.5.0-4.6.4 RCE via writable share'},
+    ],
+    # ── RDP ─────────────────────────────────────────────────────────────────
     'ms-wbt-server': [
-        {'id': 'CVE-2019-0708', 'cvss': 9.8, 'desc': 'BlueKeep RDP pre-auth RCE'},
-        {'id': 'CVE-2020-0609', 'cvss': 9.8, 'desc': 'Windows RDS Gateway pre-auth RCE'},
+        {'id': 'CVE-2019-0708',  'cvss': 9.8, 'desc': 'BlueKeep: RDP pre-auth RCE — wormable on WinXP/2003/7/2008'},
+        {'id': 'CVE-2019-1181',  'cvss': 9.8, 'desc': 'DejaBlue: RDP pre-auth RCE (Win7-10, Server 2008-2019)'},
+        {'id': 'CVE-2019-1182',  'cvss': 9.8, 'desc': 'DejaBlue #2: RDP RCE on Windows Server 2008-2019'},
+        {'id': 'CVE-2020-0609',  'cvss': 9.8, 'desc': 'Windows RDS Gateway pre-auth RCE via UDP'},
+        {'id': 'CVE-2020-0610',  'cvss': 9.8, 'desc': 'Windows RDS Gateway pre-auth RCE via TCP'},
+        {'id': 'CVE-2012-0002',  'cvss': 9.3, 'desc': 'MS12-020 RDP double-free — DoS/potential RCE'},
+        {'id': 'CVE-2024-21893', 'cvss': 8.2, 'desc': 'Windows RDP Gateway path confusion (ITW)'},
     ],
     'rdp': [
-        {'id': 'CVE-2019-0708', 'cvss': 9.8, 'desc': 'BlueKeep RDP pre-auth RCE'},
-        {'id': 'CVE-2012-0002', 'cvss': 9.3, 'desc': 'MS12-020 RDP DoS/potential RCE'},
+        {'id': 'CVE-2019-0708',  'cvss': 9.8, 'desc': 'BlueKeep: RDP pre-auth RCE — wormable'},
+        {'id': 'CVE-2019-1181',  'cvss': 9.8, 'desc': 'DejaBlue: RDP pre-auth RCE (newer Windows)'},
+        {'id': 'CVE-2020-0609',  'cvss': 9.8, 'desc': 'Windows RDS Gateway pre-auth RCE'},
+        {'id': 'CVE-2012-0002',  'cvss': 9.3, 'desc': 'MS12-020 RDP double-free DoS'},
     ],
-    'vnc': [
-        {'id': 'CVE-2019-15681', 'cvss': 7.5, 'desc': 'LibVNCServer memory disclosure'},
-        {'id': 'CVE-2018-7550', 'cvss': 8.8, 'desc': 'VNC memory corruption'},
+    # ── Databases ────────────────────────────────────────────────────────────
+    'mysql': [
+        {'id': 'CVE-2012-2122',  'cvss': 7.5, 'desc': 'Authentication bypass via timing attack',        'affects_max': '5.5.23'},
+        {'id': 'CVE-2021-2471',  'cvss': 7.5, 'desc': 'Multiple vulns in MySQL < 8.0.27',              'affects_max': '8.0.26'},
+        {'id': 'CVE-2020-14765', 'cvss': 6.5, 'desc': 'InnoDB denial of service',                      'affects_max': '8.0.20'},
+        {'id': 'CVE-2016-6662',  'cvss': 9.8, 'desc': 'MySQL RCE via configuration file injection',    'affects_max': '5.7.14'},
+        {'id': 'CVE-2019-2725',  'cvss': 9.8, 'desc': 'Oracle WebLogic deserialization RCE (AJP)'},
     ],
-    'telnet': [
-        {'id': 'CVE-2011-4862', 'cvss': 10.0, 'desc': 'telnetd encryption key overflow'},
+    'postgresql': [
+        {'id': 'CVE-2019-10164', 'cvss': 8.8, 'desc': 'Stack overflow via security-definer function',  'affects_max': '11.2'},
+        {'id': 'CVE-2022-1552',  'cvss': 8.8, 'desc': 'Autovacuum privilege escalation',               'affects_max': '14.2'},
+        {'id': 'CVE-2023-2454',  'cvss': 7.2, 'desc': 'Row security policy bypass',                    'affects_max': '15.2'},
+        {'id': 'CVE-2016-5423',  'cvss': 8.3, 'desc': 'PL/Java arbitrary code execution via SECURITY DEFINER', 'affects_max': '9.5.3'},
     ],
-    'tomcat': [
-        {'id': 'CVE-2020-1938', 'cvss': 9.8, 'desc': 'Ghostcat AJP file read/include'},
-        {'id': 'CVE-2019-0232', 'cvss': 8.1, 'desc': 'CGI Servlet RCE on Windows'},
-        {'id': 'CVE-2021-33037', 'cvss': 5.3, 'desc': 'HTTP request smuggling'},
+    'mssql': [
+        {'id': 'CVE-2024-37337', 'cvss': 7.5, 'desc': 'SQL Server information disclosure via error message'},
+        {'id': 'CVE-2023-21568', 'cvss': 8.8, 'desc': 'SQL Server RCE via crafted T-SQL query'},
+        {'id': 'CVE-2019-1068',  'cvss': 8.8, 'desc': 'SQL Server RCE via specially crafted database backup'},
+        {'id': 'CVE-2017-8516',  'cvss': 7.5, 'desc': 'SQL Server info disclosure via crafted query'},
+    ],
+    'ms-sql-s': [
+        {'id': 'CVE-2024-37337', 'cvss': 7.5, 'desc': 'SQL Server information disclosure'},
+        {'id': 'CVE-2023-21568', 'cvss': 8.8, 'desc': 'SQL Server RCE via T-SQL'},
+        {'id': 'CVE-2019-1068',  'cvss': 8.8, 'desc': 'SQL Server RCE via crafted backup'},
+    ],
+    'redis': [
+        {'id': 'CVE-2022-0543',  'cvss': 10.0,'desc': 'Lua sandbox escape (Debian/Ubuntu packages)',   'affects_max': '6.0.16'},
+        {'id': 'CVE-2021-32625', 'cvss': 7.5, 'desc': 'Integer overflow in GETDEL command',            'affects_max': '6.2.4'},
+        {'id': 'CVE-2020-14147', 'cvss': 7.5, 'desc': 'Integer overflow in ziplistResize',             'affects_max': '6.0.11'},
+        {'id': 'REDIS-NO-AUTH',  'cvss': 9.8, 'desc': 'Redis exposed without requirepass — unauthenticated access to all data and CONFIG SET / SLAVEOF for RCE'},
+    ],
+    'mongodb': [
+        {'id': 'CVE-2021-32030', 'cvss': 7.5, 'desc': 'Improper auth handling in SCRAM mechanism'},
+        {'id': 'CVE-2019-2389',  'cvss': 6.5, 'desc': 'Secondary node crash via RBAC race'},
+        {'id': 'MONGO-NO-AUTH',  'cvss': 9.8, 'desc': 'MongoDB running without authentication — full DB read/write/drop access'},
+    ],
+    'elasticsearch': [
+        {'id': 'CVE-2021-22145', 'cvss': 6.5, 'desc': 'Memory disclosure via error message in search API'},
+        {'id': 'CVE-2020-7020',  'cvss': 7.5, 'desc': 'Improper URL validation in search endpoint'},
+        {'id': 'CVE-2015-1427',  'cvss': 10.0,'desc': 'Groovy sandbox escape — RCE via scripting API',  'affects_max': '1.3.7'},
+        {'id': 'CVE-2014-3120',  'cvss': 9.0, 'desc': 'Dynamic scripting RCE — unauthenticated code exec', 'affects_max': '1.1.1'},
+        {'id': 'ES-NO-AUTH',     'cvss': 9.8, 'desc': 'Elasticsearch has no X-Pack security — unauthenticated cluster read/write'},
     ],
     'memcached': [
-        {'id': 'CVE-2013-7290', 'cvss': 7.5, 'desc': 'Remote DoS via SASL authentication'},
+        {'id': 'CVE-2013-7290', 'cvss': 7.5, 'desc': 'Remote DoS via SASL authentication flow'},
+        {'id': 'MEMCACHED-NO-AUTH', 'cvss': 9.1, 'desc': 'Memcached has no authentication — cache read/write and amplification reflection DDoS vector (UDP)'},
     ],
+    # ── Mail ─────────────────────────────────────────────────────────────────
+    'smtp': [
+        {'id': 'CVE-2020-7247',  'cvss': 9.8, 'desc': 'OpenSMTPD off-by-one in sender address — RCE as root',         'affects_max': '6.6.1'},
+        {'id': 'CVE-2021-27135', 'cvss': 9.8, 'desc': 'Exim 4 heap overflow in SMTP greeting header',                  'affects_max': '4.94.1'},
+        {'id': 'CVE-2019-10149', 'cvss': 9.8, 'desc': 'Exim "Return of the WIZard" — RCE in MAIL FROM expansion',     'affects_min': '4.87', 'affects_max': '4.91'},
+        {'id': 'CVE-2018-6789',  'cvss': 9.8, 'desc': 'Exim base64 decode buffer overflow — pre-auth RCE',             'affects_max': '4.90.1'},
+        {'id': 'CVE-2016-10045', 'cvss': 9.8, 'desc': 'PHPMailer shell metachar injection in MailFrom header'},
+    ],
+    'exim': [
+        {'id': 'CVE-2021-27135', 'cvss': 9.8, 'desc': 'Exim heap overflow — RCE via crafted SMTP greeting',           'affects_max': '4.94.1'},
+        {'id': 'CVE-2019-10149', 'cvss': 9.8, 'desc': 'MAIL FROM expansion command injection — root RCE',              'affects_min': '4.87', 'affects_max': '4.91'},
+        {'id': 'CVE-2018-6789',  'cvss': 9.8, 'desc': 'Base64 decode buffer overflow — pre-auth RCE',                  'affects_max': '4.90.1'},
+    ],
+    # ── FTP ──────────────────────────────────────────────────────────────────
+    'ftp': [
+        {'id': 'CVE-2015-3306', 'cvss': 10.0,'desc': 'ProFTPD mod_copy: arbitrary file copy without auth',             'affects_max': '1.3.5'},
+        {'id': 'CVE-2011-2523', 'cvss': 10.0,'desc': 'vsftpd 2.3.4 backdoor — root shell on port 6200',               'affects_min': '2.3.4', 'affects_max': '2.3.4'},
+        {'id': 'CVE-2010-4221', 'cvss': 10.0,'desc': 'ProFTPD 1.3.2-1.3.3c SQL injection / stack overflow in telnet IAC', 'affects_max': '1.3.3c'},
+        {'id': 'CVE-2017-7418', 'cvss': 5.5, 'desc': 'ProFTPD 1.3.5b mod_copy AllowCopySymlinks bypass'},
+    ],
+    # ── Telnet / VNC ─────────────────────────────────────────────────────────
+    'telnet': [
+        {'id': 'CVE-2011-4862', 'cvss': 10.0,'desc': 'telnetd encryption key handling buffer overflow — RCE'},
+        {'id': 'TELNET-PLAINTEXT','cvss': 7.4, 'desc': 'Telnet transmits credentials and session data in plaintext — trivial network eavesdrop'},
+    ],
+    'vnc': [
+        {'id': 'CVE-2019-15681', 'cvss': 7.5, 'desc': 'LibVNCServer use-after-free — memory disclosure / RCE'},
+        {'id': 'CVE-2018-7550',  'cvss': 8.8, 'desc': 'QEMU/VNC out-of-bounds write via specially crafted key event'},
+        {'id': 'CVE-2017-7524',  'cvss': 7.8, 'desc': 'LibVNCServer framebuffer heap overflow'},
+        {'id': 'VNC-NO-AUTH',    'cvss': 9.8, 'desc': 'VNC server requires no authentication — full desktop access'},
+    ],
+    # ── LDAP ─────────────────────────────────────────────────────────────────
+    'ldap': [
+        {'id': 'CVE-2021-44228', 'cvss': 10.0,'desc': 'Log4Shell: JNDI RCE via LDAP URL — any Java app using log4j2 < 2.15'},
+        {'id': 'CVE-2017-8563',  'cvss': 8.1, 'desc': 'Windows LDAP: NTLM relay to Active Directory LDAP'},
+        {'id': 'CVE-2020-1472',  'cvss': 10.0,'desc': 'Zerologon: Netlogon auth bypass → dump all AD hashes'},
+        {'id': 'LDAP-NULL-BIND', 'cvss': 7.5, 'desc': 'LDAP accepts anonymous bind — full domain user enumeration without credentials'},
+    ],
+    # ── SNMP ─────────────────────────────────────────────────────────────────
+    'snmp': [
+        {'id': 'CVE-2017-6736',  'cvss': 9.8, 'desc': 'Cisco IOS SNMP remote code execution via crafted SNMP packets'},
+        {'id': 'CVE-2017-6742',  'cvss': 8.8, 'desc': 'Cisco IOS/IOS XE SNMP buffer overflow — remote code exec'},
+        {'id': 'CVE-2002-0013',  'cvss': 10.0,'desc': 'SNMP v1 multiple vendor buffer overflow — classic RCE'},
+        {'id': 'SNMP-DEFAULT-COMMUNITY', 'cvss': 7.5, 'desc': 'SNMP default community string (public/private) — device config read/write'},
+        {'id': 'SNMP-V1-PLAINTEXT',    'cvss': 5.3, 'desc': 'SNMPv1/v2 — community strings transmitted in plaintext, no authentication'},
+    ],
+    # ── Web Application Frameworks ────────────────────────────────────────────
+    'tomcat': [
+        {'id': 'CVE-2020-1938',  'cvss': 9.8, 'desc': 'Ghostcat: AJP connector arbitrary file read/inclusion',          'affects_max': '9.0.30'},
+        {'id': 'CVE-2019-0232',  'cvss': 8.1, 'desc': 'CGI Servlet enableCmdLineArguments RCE on Windows'},
+        {'id': 'CVE-2021-33037', 'cvss': 5.3, 'desc': 'HTTP request smuggling via Transfer-Encoding header'},
+        {'id': 'CVE-2025-24813', 'cvss': 9.8, 'desc': 'Tomcat partial PUT file write → deserialization RCE (ITW 2025)'},
+        {'id': 'CVE-2017-12617', 'cvss': 8.1, 'desc': 'PUT method JSP upload when readonly=false — RCE'},
+    ],
+    'log4j': [
+        {'id': 'CVE-2021-44228', 'cvss': 10.0,'desc': 'Log4Shell: JNDI lookup via ${jndi:ldap://...} in any logged field — unauthenticated RCE'},
+        {'id': 'CVE-2021-45046', 'cvss': 9.0, 'desc': 'Log4Shell bypass (2.15 context lookup) — still exploitable in some configs'},
+        {'id': 'CVE-2021-45105', 'cvss': 7.5, 'desc': 'Log4j2 infinite recursion via self-referential lookup — DoS'},
+        {'id': 'CVE-2021-44832', 'cvss': 6.6, 'desc': 'Log4j2 RCE via JDBC appender if attacker controls config'},
+    ],
+    'spring': [
+        {'id': 'CVE-2022-22965', 'cvss': 9.8, 'desc': 'Spring4Shell: Spring MVC RCE via class.module DataBinder injection (JDK 9+)'},
+        {'id': 'CVE-2022-22963', 'cvss': 9.8, 'desc': 'Spring Cloud Function SpEL injection — RCE via routing expression'},
+        {'id': 'CVE-2018-1273',  'cvss': 9.8, 'desc': 'Spring Data REST SpEL injection in sort parameter'},
+        {'id': 'CVE-2017-8046',  'cvss': 9.8, 'desc': 'Spring Data REST PATCH deserialization RCE'},
+    ],
+    'struts': [
+        {'id': 'CVE-2017-5638',  'cvss': 10.0,'desc': 'Apache Struts2 Content-Type OGNL injection — unauthenticated RCE (Equifax)'},
+        {'id': 'CVE-2018-11776', 'cvss': 9.8, 'desc': 'Struts2 namespace/result OGNL injection — RCE without auth'},
+        {'id': 'CVE-2019-0230',  'cvss': 9.8, 'desc': 'Struts2 OGNL double evaluation via %{} in tag attributes'},
+        {'id': 'CVE-2020-17530', 'cvss': 9.8, 'desc': 'Struts2 forced double OGNL evaluation — RCE via tag attributes'},
+    ],
+    'exchange': [
+        {'id': 'CVE-2021-26855', 'cvss': 9.8, 'desc': 'ProxyLogon: Exchange SSRF → auth bypass — RCE chain (Hafnium ITW)'},
+        {'id': 'CVE-2021-26857', 'cvss': 7.8, 'desc': 'Exchange insecure deserialization — SYSTEM via ProxyLogon chain'},
+        {'id': 'CVE-2021-26858', 'cvss': 7.8, 'desc': 'Exchange post-auth arbitrary file write (ProxyLogon chain step)'},
+        {'id': 'CVE-2021-27065', 'cvss': 7.8, 'desc': 'Exchange post-auth arbitrary file write (ProxyLogon chain step 2)'},
+        {'id': 'CVE-2021-34473', 'cvss': 9.8, 'desc': 'ProxyShell: Exchange pre-auth path confusion — RCE via URL rewrite'},
+        {'id': 'CVE-2022-41040', 'cvss': 8.8, 'desc': 'ProxyNotShell: Exchange SSRF (chained with CVE-2022-41082)'},
+        {'id': 'CVE-2022-41082', 'cvss': 8.8, 'desc': 'ProxyNotShell: Exchange PowerShell RCE via SSRF chain'},
+        {'id': 'CVE-2023-21529', 'cvss': 8.8, 'desc': 'Exchange post-auth RCE via remote code execution in cmdlet'},
+    ],
+    'owa': [
+        {'id': 'CVE-2021-26855', 'cvss': 9.8, 'desc': 'ProxyLogon: OWA SSRF auth bypass (Exchange 2013-2019)'},
+        {'id': 'CVE-2021-34473', 'cvss': 9.8, 'desc': 'ProxyShell: OWA URL rewrite path confusion — pre-auth RCE'},
+    ],
+    'confluence': [
+        {'id': 'CVE-2021-26084', 'cvss': 9.8, 'desc': 'Confluence OGNL template injection — pre-auth RCE'},
+        {'id': 'CVE-2022-26134', 'cvss': 9.8, 'desc': 'Confluence OGNL injection via HTTP request — unauthenticated RCE (ITW)'},
+        {'id': 'CVE-2023-22515', 'cvss': 10.0,'desc': 'Confluence broken access control — create admin account without auth (ITW)'},
+        {'id': 'CVE-2023-22527', 'cvss': 10.0,'desc': 'Confluence template injection → RCE — unauthenticated (ITW 2024)'},
+    ],
+    'jira': [
+        {'id': 'CVE-2019-11581', 'cvss': 9.8, 'desc': 'Jira Server SSTI in template injection — pre-auth RCE'},
+        {'id': 'CVE-2022-0540',  'cvss': 9.8, 'desc': 'Jira Seraph auth bypass via forged X-Forwarded-For header'},
+        {'id': 'CVE-2023-22501', 'cvss': 9.4, 'desc': 'Jira Service Management broken auth — account takeover without credentials'},
+    ],
+    'jenkins': [
+        {'id': 'CVE-2024-23897', 'cvss': 9.8, 'desc': 'Jenkins CLI file read → RCE via args4j class loading (ITW)'},
+        {'id': 'CVE-2019-1003030','cvss':9.8, 'desc': 'Jenkins Groovy Plugin sandbox escape — RCE'},
+        {'id': 'CVE-2017-1000353','cvss':9.8, 'desc': 'Jenkins Java deserialization via CLI — unauthenticated RCE'},
+        {'id': 'CVE-2016-0792',  'cvss': 8.8, 'desc': 'Jenkins CLI HTTP deserialization RCE — pre-auth on /cli endpoint'},
+        {'id': 'CVE-2018-1000861','cvss':9.8, 'desc': 'Jenkins Stapler dispatch to arbitrary getter — unauthenticated RCE'},
+    ],
+    'wordpress': [
+        {'id': 'CVE-2023-2745',  'cvss': 9.8, 'desc': 'WordPress Core path traversal — arbitrary file access'},
+        {'id': 'CVE-2022-21661', 'cvss': 7.5, 'desc': 'WordPress SQL injection via WP_Query — any subscriber'},
+        {'id': 'CVE-2019-8942',  'cvss': 8.8, 'desc': 'WordPress < 5.0.3 path traversal + RCE via image crop'},
+        {'id': 'CVE-2017-9061',  'cvss': 9.8, 'desc': 'WordPress SSRF in update ping-back mechanism'},
+        {'id': 'CVE-2015-5714',  'cvss': 7.5, 'desc': 'WordPress shortcode XSS stored via post update'},
+    ],
+    'drupal': [
+        {'id': 'CVE-2018-7600',  'cvss': 9.8, 'desc': 'Drupalgeddon2: Drupal < 7.58/8.x RCE via render API AJAX'},
+        {'id': 'CVE-2019-6340',  'cvss': 9.8, 'desc': 'Drupal REST API deserialization RCE — unauthenticated on default install'},
+        {'id': 'CVE-2014-3704',  'cvss': 10.0,'desc': 'Drupalgeddon: SQL injection in Drupal 7 — admin session hijack'},
+    ],
+    # ── VPN / Remote Access ───────────────────────────────────────────────────
+    'ssl-vpn': [
+        {'id': 'CVE-2018-13379', 'cvss': 9.8, 'desc': 'Fortinet FortiOS SSL-VPN path traversal — credentials file read without auth (ITW)'},
+        {'id': 'CVE-2022-40684', 'cvss': 9.8, 'desc': 'Fortinet FortiOS/FortiProxy auth bypass via HTTP/HTTPS — admin account takeover (ITW)'},
+        {'id': 'CVE-2024-21762', 'cvss': 9.6, 'desc': 'Fortinet FortiOS OOB write in SSL-VPN — unauthenticated RCE (ITW 2024)'},
+        {'id': 'CVE-2019-11510', 'cvss': 10.0,'desc': 'Pulse Secure SSL VPN arbitrary file read without auth — credentials exposed (ITW)'},
+        {'id': 'CVE-2021-22893', 'cvss': 10.0,'desc': 'Pulse Secure auth bypass + RCE — zero-day ITW (APT actors)'},
+        {'id': 'CVE-2024-21887', 'cvss': 9.1, 'desc': 'Ivanti Connect Secure command injection — chained with CVE-2023-46805 (ITW)'},
+        {'id': 'CVE-2023-46805', 'cvss': 8.2, 'desc': 'Ivanti Connect Secure auth bypass — chained for unauthenticated RCE (ITW)'},
+        {'id': 'CVE-2019-19781', 'cvss': 9.8, 'desc': 'Citrix ADC/NetScaler path traversal — unauthenticated RCE (ITW)'},
+        {'id': 'CVE-2019-0708',  'cvss': 9.8, 'desc': 'BlueKeep in Windows RDS — also on RD Gateway (check RDP port)'},
+    ],
+    'fortigate': [
+        {'id': 'CVE-2018-13379', 'cvss': 9.8, 'desc': 'FortiOS SSL-VPN path traversal — steal VPN credentials without auth'},
+        {'id': 'CVE-2022-40684', 'cvss': 9.8, 'desc': 'FortiOS/FortiProxy auth bypass via alt path — admin takeover'},
+        {'id': 'CVE-2024-21762', 'cvss': 9.6, 'desc': 'FortiOS SSL-VPN OOB write — unauthenticated RCE (ITW)'},
+        {'id': 'CVE-2023-27997', 'cvss': 9.8, 'desc': 'FortiOS SSL-VPN heap overflow — pre-auth RCE'},
+    ],
+    'fortinet': [
+        {'id': 'CVE-2018-13379', 'cvss': 9.8, 'desc': 'FortiOS SSL-VPN path traversal — credentials file read'},
+        {'id': 'CVE-2022-40684', 'cvss': 9.8, 'desc': 'FortiOS/FortiProxy auth bypass — admin account takeover'},
+        {'id': 'CVE-2024-21762', 'cvss': 9.6, 'desc': 'FortiOS SSL-VPN OOB write RCE (ITW)'},
+    ],
+    'pulse': [
+        {'id': 'CVE-2019-11510', 'cvss': 10.0,'desc': 'Pulse Secure VPN arbitrary file read — /etc/passwd without auth'},
+        {'id': 'CVE-2021-22893', 'cvss': 10.0,'desc': 'Pulse Secure auth bypass + RCE (ITW by APT)'},
+    ],
+    'citrix': [
+        {'id': 'CVE-2019-19781', 'cvss': 9.8, 'desc': 'Citrix ADC path traversal — unauthenticated RCE via directory traversal (ITW)'},
+        {'id': 'CVE-2022-27518', 'cvss': 9.8, 'desc': 'Citrix ADC/Gateway unauthenticated RCE — ITW by Chinese APT'},
+        {'id': 'CVE-2023-3519',  'cvss': 9.8, 'desc': 'Citrix Bleed: NetScaler buffer OOB — session token extraction without auth (ITW)'},
+    ],
+    'netscaler': [
+        {'id': 'CVE-2019-19781', 'cvss': 9.8, 'desc': 'NetScaler path traversal RCE (Citrix ADC)'},
+        {'id': 'CVE-2023-3519',  'cvss': 9.8, 'desc': 'Citrix Bleed: session token OOB read — unauthenticated (ITW)'},
+    ],
+    'globalprotect': [
+        {'id': 'CVE-2024-3400',  'cvss': 10.0,'desc': 'PAN-OS GlobalProtect OS command injection — unauthenticated RCE (ITW zero-day)'},
+        {'id': 'CVE-2020-2021',  'cvss': 10.0,'desc': 'PAN-OS SAML auth bypass — admin access without credentials (ITW)'},
+        {'id': 'CVE-2019-1579',  'cvss': 9.8, 'desc': 'Palo Alto GlobalProtect buffer overflow — pre-auth RCE'},
+    ],
+    # ── Network Infrastructure ────────────────────────────────────────────────
+    'cisco': [
+        {'id': 'CVE-2018-0171',  'cvss': 9.8, 'desc': 'Cisco Smart Install RCE via crafted Smart Install message — unauthenticated'},
+        {'id': 'CVE-2017-6736',  'cvss': 9.8, 'desc': 'Cisco IOS SNMP RCE via crafted SNMP request'},
+        {'id': 'CVE-2022-20821', 'cvss': 7.4, 'desc': 'Cisco IOS-XR health check open port path traversal'},
+        {'id': 'CVE-2023-20198', 'cvss': 10.0,'desc': 'Cisco IOS XE web UI privilege escalation — create admin user without auth (ITW zero-day)'},
+        {'id': 'CVE-2023-20273', 'cvss': 7.2, 'desc': 'Cisco IOS XE web UI inject root-level command (chained with CVE-2023-20198)'},
+        {'id': 'CVE-2016-6366',  'cvss': 8.8, 'desc': 'Cisco ASA SNMP buffer overflow — RCE via malformed SNMP packets (NSA ShadowBrokers)'},
+        {'id': 'CVE-2016-6415',  'cvss': 7.8, 'desc': 'Cisco IKEv1/IKEv2 info disclosure (ExtraBacon — NSA ShadowBrokers)'},
+    ],
+    'juniper': [
+        {'id': 'CVE-2024-21591', 'cvss': 9.8, 'desc': 'Junos OS SRX/EX J-Web OOB write — unauthenticated RCE (ITW 2024)'},
+        {'id': 'CVE-2023-36845', 'cvss': 9.8, 'desc': 'Junos OS PHP env variable injection — RCE without auth (ITW)'},
+        {'id': 'CVE-2019-0036',  'cvss': 7.5, 'desc': 'Junos OS RPD remote crash via crafted BGP UPDATE'},
+    ],
+    # ── Containers / Cloud ───────────────────────────────────────────────────
     'docker': [
-        {'id': 'CVE-2019-5736', 'cvss': 8.6, 'desc': 'runc container escape'},
-        {'id': 'CVE-2020-15257', 'cvss': 5.2, 'desc': 'containerd host network namespace escape'},
+        {'id': 'CVE-2019-5736',  'cvss': 8.6, 'desc': 'runc container escape via /proc/self/exe overwrite'},
+        {'id': 'CVE-2020-15257', 'cvss': 5.2, 'desc': 'containerd host network namespace escape via abstract socket'},
+        {'id': 'CVE-2022-0492',  'cvss': 7.8, 'desc': 'cgroups v1 release_agent container escape'},
+        {'id': 'CVE-2024-21626', 'cvss': 8.6, 'desc': 'runc WORKDIR path escape — container breakout via fd leak (ITW)'},
     ],
-    'mqtt': [
-        {'id': 'CVE-2023-28366', 'cvss': 7.5, 'desc': 'Mosquitto MQTT broker memory corruption via malformed packets'},
-        {'id': 'MQTT-NO-AUTH',   'cvss': 9.1, 'desc': 'MQTT broker allows unauthenticated connections'},
+    'kubernetes': [
+        {'id': 'CVE-2022-3294',  'cvss': 8.8, 'desc': 'K8s node address not validated — man-in-middle API server requests'},
+        {'id': 'CVE-2020-8558',  'cvss': 8.8, 'desc': 'K8s kubelet API accessible to adjacent nodes — lateral movement'},
+        {'id': 'CVE-2019-11246', 'cvss': 6.5, 'desc': 'kubectl cp path traversal — file overwrite outside container'},
+        {'id': 'CVE-2019-11253', 'cvss': 7.5, 'desc': 'K8s API server YAML/JSON billion laughs — DoS'},
+        {'id': 'CVE-2018-1002105','cvss':9.8, 'desc': 'K8s API server privilege escalation via aggregated API backend — unauthenticated access to cluster'},
     ],
+    'k8s-api': [
+        {'id': 'CVE-2018-1002105','cvss':9.8, 'desc': 'K8s aggregation API privilege escalation — RCE as cluster-admin'},
+        {'id': 'CVE-2022-3294',  'cvss': 8.8, 'desc': 'K8s node address validation — MITM API requests'},
+        {'id': 'K8S-ANON-API',   'cvss': 9.8, 'desc': 'Kubernetes API server reachable anonymously — full cluster read/exec without auth'},
+    ],
+    # ── VMware ───────────────────────────────────────────────────────────────
+    'vcenter': [
+        {'id': 'CVE-2021-21972', 'cvss': 9.8, 'desc': 'vCenter Server vSphere Client RCE via file upload — unauthenticated (ITW)'},
+        {'id': 'CVE-2021-22005', 'cvss': 9.8, 'desc': 'vCenter CEIP analytics file upload — unauthenticated RCE (ITW)'},
+        {'id': 'CVE-2021-21985', 'cvss': 9.8, 'desc': 'vCenter vSAN Health Check plugin RCE — unauthenticated'},
+        {'id': 'CVE-2022-22954', 'cvss': 9.8, 'desc': 'VMware Workspace ONE Access SSTI — unauthenticated RCE (ITW)'},
+        {'id': 'CVE-2023-20867', 'cvss': 3.9, 'desc': 'VMware Tools guest-to-host info leak (used in ESXi attack chains)'},
+    ],
+    'vmware': [
+        {'id': 'CVE-2021-21972', 'cvss': 9.8, 'desc': 'vCenter file upload RCE — no auth required'},
+        {'id': 'CVE-2021-22005', 'cvss': 9.8, 'desc': 'vCenter CEIP analytics RCE — no auth (ITW)'},
+        {'id': 'CVE-2022-22954', 'cvss': 9.8, 'desc': 'VMware Identity Manager SSTI RCE (ITW)'},
+        {'id': 'CVE-2021-22019', 'cvss': 7.5, 'desc': 'ESXi OpenSLP DoS via crafted SLP packet'},
+        {'id': 'CVE-2022-31696', 'cvss': 8.8, 'desc': 'ESXi heap overflow in VMCI — VM escape to hypervisor'},
+    ],
+    # ── ICS / SCADA ──────────────────────────────────────────────────────────
     'modbus': [
-        {'id': 'MODBUS-NO-AUTH', 'cvss': 9.8, 'desc': 'Modbus TCP has no authentication — unauthenticated ICS read/write possible'},
+        {'id': 'MODBUS-NO-AUTH', 'cvss': 9.8, 'desc': 'Modbus/TCP has no authentication — unauthenticated ICS read/write (coil, register, discrete input control)'},
+        {'id': 'CVE-2018-7496',  'cvss': 8.8, 'desc': 'Advantech WebAccess Modbus stack buffer overflow — RCE'},
+        {'id': 'CVE-2020-10601', 'cvss': 9.8, 'desc': 'INEA ME RTU Modbus improper input validation — full device control'},
     ],
     'bacnet': [
-        {'id': 'BACNET-NO-AUTH', 'cvss': 9.8, 'desc': 'BACnet/IP allows unauthenticated read/write to building automation systems'},
+        {'id': 'BACNET-NO-AUTH', 'cvss': 9.8, 'desc': 'BACnet/IP allows unauthenticated read/write to building automation (HVAC, access control, fire suppression)'},
+        {'id': 'CVE-2022-41607', 'cvss': 9.8, 'desc': 'Delta Controls ORCAview BACnet server stack overflow — RCE'},
     ],
     'dnp3': [
-        {'id': 'DNP3-NO-AUTH',   'cvss': 9.8, 'desc': 'DNP3 lacks authentication — unauthenticated SCADA control possible'},
+        {'id': 'DNP3-NO-AUTH',   'cvss': 9.8, 'desc': 'DNP3 lacks authentication — unauthenticated SCADA control of RTUs and substations'},
+        {'id': 'CVE-2015-7926',  'cvss': 9.8, 'desc': 'Triangle MicroWorks SCADA DNP3 stack overflow — RCE in substation controller'},
     ],
     's7comm': [
-        {'id': 'CVE-2019-13945', 'cvss': 7.5, 'desc': 'Siemens S7 SIMATIC improper input validation'},
-        {'id': 'CVE-2019-10929', 'cvss': 7.5, 'desc': 'Siemens S7-300/400 buffer over-read via crafted packets'},
-        {'id': 'CVE-2014-2908',  'cvss': 9.0, 'desc': 'Siemens S7 PLC remote crash via Metasploit module'},
+        {'id': 'CVE-2019-13945', 'cvss': 7.5, 'desc': 'Siemens SIMATIC S7 improper input validation — stop PLC operation'},
+        {'id': 'CVE-2019-10929', 'cvss': 7.5, 'desc': 'Siemens S7-300/400 buffer over-read — info disclosure via crafted S7comm packet'},
+        {'id': 'CVE-2014-2908',  'cvss': 9.0, 'desc': 'Siemens S7 PLC remote crash — stop PLC via Metasploit module'},
+        {'id': 'S7COMM-NO-AUTH', 'cvss': 9.8, 'desc': 'S7comm protocol has no auth in legacy mode — read/write PLC memory blocks and stop/start CPU'},
     ],
     'niagara-fox': [
-        {'id': 'CVE-2021-33558', 'cvss': 7.5, 'desc': 'Tridium Niagara Fox protocol information disclosure'},
-        {'id': 'CVE-2012-3007',  'cvss': 7.8, 'desc': 'Tridium Niagara AX path traversal / arbitrary file read'},
+        {'id': 'CVE-2021-33558', 'cvss': 7.5, 'desc': 'Tridium Niagara Fox protocol info disclosure — enumerate platform details'},
+        {'id': 'CVE-2017-16744', 'cvss': 9.8, 'desc': 'Tridium Niagara AX path traversal — unauthenticated arbitrary file read'},
+        {'id': 'CVE-2012-3007',  'cvss': 7.8, 'desc': 'Tridium Niagara AX directory traversal — file read'},
     ],
-    'rtsp': [],
-    'coap': [
-        {'id': 'COAP-NO-AUTH',   'cvss': 7.5, 'desc': 'CoAP (UDP/5683) has no authentication by default — IoT command injection risk'},
+    # ── Samba ────────────────────────────────────────────────────────────────
+    'samba': [
+        {'id': 'CVE-2017-7494',  'cvss': 9.8, 'desc': 'SambaCry: Samba 3.5.0-4.6.4 RCE via writable share (like EternalBlue for Linux)'},
+        {'id': 'CVE-2021-44142', 'cvss': 9.9, 'desc': 'Samba vfs_fruit out-of-bounds write — RCE as root on affected share'},
+        {'id': 'CVE-2022-32744', 'cvss': 8.8, 'desc': 'Samba Kerberos password change — change any user password'},
+        {'id': 'CVE-2020-14318', 'cvss': 4.3, 'desc': 'Samba missing permission check on delete of non-empty directories'},
     ],
+    # ── IoT / Cameras ────────────────────────────────────────────────────────
     'hikvision': [
-        {'id': 'CVE-2021-36260', 'cvss': 9.8, 'desc': 'Hikvision unauthenticated RCE via web API (CVSS 9.8)'},
-        {'id': 'CVE-2022-28171', 'cvss': 9.8, 'desc': 'Hikvision authentication bypass in web panel'},
+        {'id': 'CVE-2021-36260', 'cvss': 9.8, 'desc': 'Hikvision unauthenticated RCE via /SDK/webLanguage endpoint — ITW mass exploitation'},
+        {'id': 'CVE-2022-28171', 'cvss': 9.8, 'desc': 'Hikvision authentication bypass in web UI panel'},
+        {'id': 'CVE-2017-7921',  'cvss': 9.8, 'desc': 'Hikvision improper authentication — RTSP stream access + admin config without credentials'},
     ],
     'dahua': [
-        {'id': 'CVE-2021-33044', 'cvss': 9.8, 'desc': 'Dahua authentication bypass via identity authentication bypass'},
-        {'id': 'CVE-2021-33045', 'cvss': 9.8, 'desc': 'Dahua smart IP cameras authentication bypass'},
+        {'id': 'CVE-2021-33044', 'cvss': 9.8, 'desc': 'Dahua identity authentication bypass — admin access without password'},
+        {'id': 'CVE-2021-33045', 'cvss': 9.8, 'desc': 'Dahua smart IP camera authentication bypass'},
+        {'id': 'CVE-2017-6341',  'cvss': 9.8, 'desc': 'Dahua DVR arbitrary file read — credentials via /Device.json'},
+    ],
+    'mqtt': [
+        {'id': 'CVE-2023-28366', 'cvss': 7.5, 'desc': 'Mosquitto MQTT memory corruption via malformed packets'},
+        {'id': 'MQTT-NO-AUTH',   'cvss': 9.1, 'desc': 'MQTT broker allows anonymous connections — subscribe # to harvest all IoT telemetry and inject actuator commands'},
+    ],
+    'coap': [
+        {'id': 'COAP-NO-AUTH',   'cvss': 7.5, 'desc': 'CoAP (UDP/5683) has no authentication — IoT resource enumeration and command injection'},
+    ],
+    'rtsp': [
+        {'id': 'RTSP-NO-AUTH',   'cvss': 7.5, 'desc': 'RTSP stream accessible without authentication — live video/audio access'},
+        {'id': 'CVE-2015-8284',  'cvss': 7.5, 'desc': 'RealNetworks Helix Server RTSP buffer overflow'},
+    ],
+    # ── Misc protocols ───────────────────────────────────────────────────────
+    'rsync': [
+        {'id': 'CVE-2024-12084', 'cvss': 9.8, 'desc': 'rsync heap buffer overflow in checksum parsing — server-side RCE (ITW 2025)'},
+        {'id': 'CVE-2024-12085', 'cvss': 7.5, 'desc': 'rsync stack data leak — exfiltrate arbitrary server memory via crafted checksum'},
+        {'id': 'RSYNC-NO-AUTH',  'cvss': 9.1, 'desc': 'rsync module accessible without authentication — full filesystem read/write'},
+    ],
+    'nfs': [
+        {'id': 'NFS-NO-AUTH',    'cvss': 9.8, 'desc': 'NFS export accessible without auth — full filesystem access to shared directories'},
+        {'id': 'CVE-2015-8812',  'cvss': 9.8, 'desc': 'Linux CIFS (NFS client) use-after-free — kernel privilege escalation'},
+    ],
+    'cups': [
+        {'id': 'CVE-2024-47176', 'cvss': 9.9, 'desc': 'cups-browsed RCE via UDP port 631 — ITW 2024, zero-click on internal network'},
+        {'id': 'CVE-2024-47076', 'cvss': 9.1, 'desc': 'libcupsfilters IPP attribute unsanitised — leads to RCE chain'},
+        {'id': 'CVE-2015-1158',  'cvss': 9.8, 'desc': 'CUPS PPDFILE reference count overflow — SYSTEM RCE via IPP'},
+    ],
+    'winrm': [
+        {'id': 'WINRM-EXPOSED',  'cvss': 9.8, 'desc': 'WinRM (port 5985/5986) reachable — lateral movement via Enter-PSSession / evil-winrm with any valid credentials'},
+    ],
+    'wsman': [
+        {'id': 'WINRM-EXPOSED',  'cvss': 9.8, 'desc': 'WS-Management / WinRM exposed — PowerShell remoting and lateral movement vector'},
+    ],
+    'zookeeper': [
+        {'id': 'ZOOKEEPER-NO-AUTH','cvss': 9.1,'desc': 'ZooKeeper client port open without auth — read/write all znodes (K8s secrets, Kafka config, HBase)'},
+        {'id': 'CVE-2019-0201',   'cvss': 5.9, 'desc': 'ZooKeeper ACL bypass — info disclosure via getACL on sensitive nodes'},
+    ],
+    'hadoop': [
+        {'id': 'HADOOP-NO-AUTH',  'cvss': 9.8, 'desc': 'Hadoop YARN ResourceManager REST API open — submit MapReduce job = RCE as hadoop user'},
+    ],
+    # ── Keep existing service aliases ─────────────────────────────────────────
+    'microsoft-ds': [
+        {'id': 'CVE-2017-0144',  'cvss': 9.3, 'desc': 'EternalBlue: SMBv1 RCE (WannaCry/NotPetya worm vector)'},
+        {'id': 'CVE-2020-0796',  'cvss': 10.0,'desc': 'SMBGhost: SMBv3.1.1 compression RCE (wormable)'},
+        {'id': 'CVE-2020-1472',  'cvss': 10.0,'desc': 'Zerologon: Netlogon auth bypass → instant DC compromise'},
+        {'id': 'CVE-2021-34527', 'cvss': 8.8, 'desc': 'PrintNightmare: Print Spooler RCE / LPE'},
+        {'id': 'CVE-2023-23397', 'cvss': 9.8, 'desc': 'Outlook zero-click NTLM relay via calendar UNC path'},
     ],
 }
 
 # Version-specific CVE lookups — exact service+version string → CVE IDs
 # Source: NVD + r3cond0g vulnDB; keyed as "product version" lowercase
 VERSIONED_CVE_DB: Dict[str, List[str]] = {
+    # ── Apache HTTP ──────────────────────────────────────────────────────
     'apache 2.4.44':  ['CVE-2020-9490'],
     'apache 2.4.48':  ['CVE-2019-17567'],
     'apache 2.4.49':  ['CVE-2021-41773', 'CVE-2021-42013'],
     'apache 2.4.50':  ['CVE-2021-41524', 'CVE-2021-42013'],
     'apache 2.4.53':  ['CVE-2022-22719', 'CVE-2022-22721'],
     'apache 2.4.54':  ['CVE-2022-26377', 'CVE-2022-28330', 'CVE-2022-28614'],
+    # ── OpenSSH (regreSSHion range is 8.5p1–9.7p1) ──────────────────────
     'openssh 7.9':    ['CVE-2019-6110', 'CVE-2019-6111'],
-    'openssh 8.5':    ['CVE-2021-28041'],
-    'openssh 9.2':    ['CVE-2023-25136'],
+    'openssh 8.5':    ['CVE-2021-28041', 'CVE-2024-6387'],
+    'openssh 8.6':    ['CVE-2024-6387'],
+    'openssh 8.7':    ['CVE-2024-6387'],
+    'openssh 8.8':    ['CVE-2024-6387'],
+    'openssh 8.9':    ['CVE-2024-6387'],
+    'openssh 9.0':    ['CVE-2024-6387'],
+    'openssh 9.1':    ['CVE-2024-6387'],
+    'openssh 9.2':    ['CVE-2023-25136', 'CVE-2024-6387'],
+    'openssh 9.3':    ['CVE-2024-6387'],
+    'openssh 9.4':    ['CVE-2024-6387'],
+    'openssh 9.5':    ['CVE-2024-6387'],
+    'openssh 9.6':    ['CVE-2024-6387'],
+    'openssh 9.7':    ['CVE-2024-6387'],
+    # ── nginx ────────────────────────────────────────────────────────────
     'nginx 1.6.1':    ['CVE-2014-3556'],
     'nginx 1.6.2':    ['CVE-2014-3616'],
     'nginx 1.9.10':   ['CVE-2016-0742', 'CVE-2016-0746'],
+    # ── MySQL / MariaDB ──────────────────────────────────────────────────
+    'mysql 5.5':      ['CVE-2012-2122'],
     'mysql 5.7.31':   ['CVE-2018-2562'],
     'mysql 8.0.22':   ['CVE-2020-2578', 'CVE-2020-2621'],
-    'mysql 5.5':      ['CVE-2012-2122'],
+    # ── PHP ─────────────────────────────────────────────────────────────
     'php 7.4.28':     ['CVE-2021-21708'],
     'php 8.0.30':     ['CVE-2023-3824'],
     'php 8.1':        ['CVE-2023-3823'],
-    'openssl 1.0.1':  ['CVE-2014-0160'],  # Heartbleed
-    'openssl 1.0.2':  ['CVE-2016-0800'],  # DROWN
+    # ── OpenSSL ──────────────────────────────────────────────────────────
+    'openssl 1.0.1':  ['CVE-2014-0160'],   # Heartbleed — zero-click TLS read
+    'openssl 1.0.2':  ['CVE-2016-0800'],   # DROWN
     'openssl 1.1.1':  ['CVE-2022-0778'],
+    # ── PostgreSQL ───────────────────────────────────────────────────────
     'postgresql 15.4':['CVE-2023-39418'],
+    # ── FTP ─────────────────────────────────────────────────────────────
     'proftpd 1.3.5':  ['CVE-2015-3306'],
     'vsftpd 2.3.4':   ['CVE-2011-2523'],
-    'tomcat 9.0':     ['CVE-2020-1938'],  # Ghostcat
+    # ── Tomcat ───────────────────────────────────────────────────────────
+    'tomcat 9.0':     ['CVE-2020-1938'],   # Ghostcat AJP
     'tomcat 10.0':    ['CVE-2021-33037'],
+    # ── Redis ────────────────────────────────────────────────────────────
     'redis 6.0':      ['CVE-2022-0543'],
+    # ── Samba ────────────────────────────────────────────────────────────
+    'samba 3':        ['CVE-2017-7494'],   # SambaCry RCE
     'samba 4':        ['CVE-2021-44142'],
-    'samba 3':        ['CVE-2017-7494'],  # SambaCry
-    'log4j 2.':       ['CVE-2021-44228', 'CVE-2021-45046'],  # Log4Shell
+    # ── Log4j / Spring ───────────────────────────────────────────────────
+    'log4j 2.':       ['CVE-2021-44228', 'CVE-2021-45046'],  # Log4Shell zero-click
     'spring 5.3':     ['CVE-2022-22965'],  # Spring4Shell
+    # ── Microsoft Exchange ───────────────────────────────────────────────
     'exchange 2013':  ['CVE-2021-26855', 'CVE-2021-27065'],  # ProxyLogon
-    'exchange 2016':  ['CVE-2021-26855', 'CVE-2021-26857'],
-    'exchange 2019':  ['CVE-2021-26855'],
+    'exchange 2016':  ['CVE-2021-26855', 'CVE-2021-26857', 'CVE-2021-34473'],
+    'exchange 2019':  ['CVE-2021-26855', 'CVE-2021-34473', 'CVE-2022-41040'],
+    # ── IIS / Windows HTTP ───────────────────────────────────────────────
+    'iis 10.0':       ['CVE-2021-31166'],  # HTTP.sys wormable zero-click
+    'http.sys':       ['CVE-2021-31166'],
+    # ── Fortinet FortiOS (ITW zero-days) ─────────────────────────────────
+    'fortios 6.0':    ['CVE-2018-13379'],  # SSL-VPN path traversal (mega-ITW)
+    'fortios 6.2':    ['CVE-2018-13379', 'CVE-2022-40684'],
+    'fortios 6.4':    ['CVE-2022-40684', 'CVE-2023-27997'],
+    'fortios 7.0':    ['CVE-2022-40684', 'CVE-2023-27997', 'CVE-2024-21762'],
+    'fortios 7.2':    ['CVE-2023-27997', 'CVE-2024-21762'],
+    'fortios 7.4':    ['CVE-2024-21762'],  # SSL-VPN heap OOB write (zero-click)
+    'fortigate':      ['CVE-2018-13379', 'CVE-2022-40684', 'CVE-2024-21762'],
+    # ── Citrix ADC / NetScaler (zero-click ITW) ──────────────────────────
+    'citrix adc':     ['CVE-2019-19781', 'CVE-2023-3519', 'CVE-2023-4966'],
+    'netscaler':      ['CVE-2019-19781', 'CVE-2023-3519', 'CVE-2023-4966'],
+    'citrix 12.1':    ['CVE-2019-19781'],  # Shitrix — path traversal+RCE
+    'citrix 13.0':    ['CVE-2023-3519', 'CVE-2023-4966'],   # Citrix Bleed
+    'citrix 13.1':    ['CVE-2023-3519', 'CVE-2023-4966'],
+    # ── Palo Alto PAN-OS ─────────────────────────────────────────────────
+    'pan-os 10.2':    ['CVE-2024-3400'],   # GlobalProtect OS command injection (zero-click)
+    'pan-os 11.0':    ['CVE-2024-3400'],
+    'pan-os 11.1':    ['CVE-2024-3400'],
+    'panos':          ['CVE-2024-3400', 'CVE-2020-2021'],
+    # ── Pulse/Ivanti VPN ─────────────────────────────────────────────────
+    'pulse connect':  ['CVE-2019-11510', 'CVE-2021-22893', 'CVE-2023-46805'],
+    'ivanti':         ['CVE-2023-46805', 'CVE-2024-21887', 'CVE-2024-21893'],
+    # ── Cisco IOS XE ─────────────────────────────────────────────────────
+    'ios xe':         ['CVE-2023-20198', 'CVE-2023-20273'],  # ITW — web UI zero-click
+    'cisco ios xe':   ['CVE-2023-20198', 'CVE-2023-20273'],
+    # ── GitLab ───────────────────────────────────────────────────────────
+    'gitlab 16.0':    ['CVE-2023-7028'],   # Account takeover via email verification
+    'gitlab 16.1':    ['CVE-2023-7028'],
+    'gitlab 16.2':    ['CVE-2023-7028'],
+    'gitlab 16.3':    ['CVE-2023-7028'],
+    # ── Confluence ───────────────────────────────────────────────────────
+    'confluence 7.':  ['CVE-2021-26084', 'CVE-2022-26134'],
+    'confluence 8.':  ['CVE-2022-26134', 'CVE-2023-22515', 'CVE-2023-22518'],
+    # ── Jenkins ──────────────────────────────────────────────────────────
+    'jenkins 2.':     ['CVE-2024-23897'],  # path traversal arbitrary file read (zero-click)
+    'jenkins lts':    ['CVE-2024-23897'],
+    # ── CUPS (zero-click UDP) ─────────────────────────────────────────────
+    'cups 2.':        ['CVE-2024-47176', 'CVE-2024-47076', 'CVE-2024-47175'],
+    'cups-browsed':   ['CVE-2024-47176'],  # Unauthenticated RCE via UDP 631
+    # ── Outlook (zero-click via email) ───────────────────────────────────
+    'outlook':        ['CVE-2023-23397', 'CVE-2024-21413'],
+    'exchange owa':   ['CVE-2023-23397'],
+    # ── Android / mobile zero-click CVEs ─────────────────────────────────
+    'android 12':     ['CVE-2023-45866', 'CVE-2023-40088', 'CVE-2024-0044'],
+    'android 13':     ['CVE-2023-45866', 'CVE-2023-40088', 'CVE-2024-0044',
+                       'CVE-2023-24033'],
+    'android 14':     ['CVE-2024-20017', 'CVE-2024-31317'],
+    'samsung exynos': ['CVE-2023-24033', 'CVE-2023-26496'],  # Baseband zero-click
+    'qualcomm':       ['CVE-2024-20017'],                     # WLAN OOB write
+    # ── VMware vCenter / ESXi ────────────────────────────────────────────
+    'vcenter 7.0':    ['CVE-2021-21985', 'CVE-2021-22005', 'CVE-2023-34048'],
+    'vcenter 8.0':    ['CVE-2023-34048'],  # Partial DCERPC write (zero-click)
+    'esxi 7.0':       ['CVE-2021-21985', 'CVE-2021-22005'],
+    # ── MOVEit / file-transfer appliances ────────────────────────────────
+    'moveit':         ['CVE-2023-34362'],  # SQL injection → RCE (Cl0p ITW)
+    'progress moveit':['CVE-2023-34362'],
+    # ── Ivanti Endpoint Manager / EPMM ───────────────────────────────────
+    'epmm':           ['CVE-2023-35078'],  # Unauthenticated API access (zero-click)
+    # ── Prometheus / Grafana ─────────────────────────────────────────────
+    'grafana 8.':     ['CVE-2021-43798'],  # Path traversal arbitrary file read
+    'grafana 7.':     ['CVE-2021-43798'],
+    # ── Kubernetes ───────────────────────────────────────────────────────
+    'kubernetes 1.':  ['CVE-2018-1002105', 'CVE-2023-5528'],
+    # ── Docker API ───────────────────────────────────────────────────────
+    'docker 19':      ['CVE-2019-13139'],
+    'docker 20':      ['CVE-2021-21285'],
+    # ── Atlassian Jira ───────────────────────────────────────────────────
+    'jira 9.':        ['CVE-2023-22515', 'CVE-2022-0540'],
+    'jira 8.':        ['CVE-2022-0540', 'CVE-2021-26086'],
+    # ── WinRM / Windows RPC ──────────────────────────────────────────────
+    'winrm':          ['CVE-2021-34527'],  # PrintNightmare variant
+    'ms-wbt-server':  ['CVE-2019-0708', 'CVE-2019-1182'],  # BlueKeep / DejaBlue
+    # ── SMB / Windows (Shadow Brokers) ───────────────────────────────────
+    'smb windows xp':    ['CVE-2017-0144', 'CVE-2017-0145'],
+    'smb windows 7':     ['CVE-2017-0144', 'CVE-2017-0145', 'CVE-2017-0146'],
+    'smb windows 2008':  ['CVE-2017-0144', 'CVE-2017-0145'],
+    'smb windows 2012':  ['CVE-2020-0796'],  # SMBGhost
+    'smb windows 10':    ['CVE-2020-0796'],
+    # ── Struts ───────────────────────────────────────────────────────────
+    'struts 2.5':     ['CVE-2017-5638', 'CVE-2021-31805'],
+    'struts 2.3':     ['CVE-2017-5638'],   # Equifax breach CVE
+    # ── Windows Cloud Files / Defender / BitLocker exploits ──────────────────────
+    # CVE-2020-17103: cldflt!HsmOsBlockPlaceholderAccess race — unpatched per current research
+    # Affects all Windows 10 21H1+ and Windows 11 — no version gate; mark on cloud filter port
+    'cldapi':         ['CVE-2020-17103'],  # MiniPlasma — cloud filter race, arbitrary reg write
+    # BlueHammer: WD RPC hollow via ServerMpUpdateEngineSignature (no assigned CVE yet — 0-day)
+    # RedSun: WD cloud-tag TOCTOU → System32 file write (no CVE yet)
+    # YellowKey: BitLocker bypass via FsTx/WinRE — Windows 11/Server 2022 (no CVE yet)
+    # UnDefend: WD signature lock DoS — no admin required (no CVE yet)
+    # Defensive: WUDO port 7680 exposure (Windows Update peer sharing — information leak)
+    'wudo':           ['CVE-2020-17010'],  # Windows WUDO DoS + lateral awareness
+    # Windows HTTP.sys wormable (IIS)
+    'iis 10.0':       ['CVE-2021-31166', 'CVE-2022-21907'],
 }
 
 # Service → CPE vendor/product for improved CVE correlation
@@ -1507,6 +1943,93 @@ class ShodanClient:
 
 
 # ============================================================================
+# CENSYS CLIENT
+# ============================================================================
+
+class CensysClient:
+    """Query Censys Search v2 API for host intelligence (public IPs only)."""
+    _BASE = 'https://search.censys.io/api/v2/hosts'
+
+    def __init__(self, api_id: str, api_secret: str):
+        self.id     = api_id
+        self.secret = api_secret
+
+    def lookup(self, ip: str) -> Dict:
+        if not (self.id and self.secret):
+            return {}
+        try:
+            if ipaddress.ip_address(ip).is_private:
+                return {}
+        except Exception:
+            pass
+        if not CAPS['requests']:
+            return {}
+        try:
+            import requests as _req
+            resp = _req.get(
+                f'{self._BASE}/{ip}',
+                auth=(self.id, self.secret),
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                result = resp.json().get('result', {})
+                services = result.get('services', [])
+                return {
+                    'ports': [s.get('port') for s in services if s.get('port')],
+                    'services': [
+                        {
+                            'port':        s.get('port'),
+                            'transport':   s.get('transport_protocol', 'TCP'),
+                            'name':        s.get('service_name', ''),
+                            'banner':      s.get('banner', ''),
+                            'software':    [sw.get('product', '')
+                                            for sw in s.get('software', [])],
+                            'cves':        [v.get('id', '')
+                                            for v in s.get('vulnerabilities', [])],
+                        }
+                        for s in services
+                    ],
+                    'labels':    result.get('labels', []),
+                    'org':       (result.get('autonomous_system') or {}).get('name', ''),
+                    'country':   (result.get('location') or {}).get('country_code', ''),
+                    'updated':   result.get('last_updated_at', ''),
+                }
+        except Exception:
+            pass
+        return {}
+
+    def search(self, query: str, pages: int = 1) -> List[Dict]:
+        """Run a Censys query and return matching IPs with metadata."""
+        if not (self.id and self.secret and CAPS['requests']):
+            return []
+        results: List[Dict] = []
+        try:
+            import requests as _req
+            cursor = None
+            for _ in range(pages):
+                payload: Dict = {'q': query, 'per_page': 100}
+                if cursor:
+                    payload['cursor'] = cursor
+                resp = _req.post(
+                    'https://search.censys.io/api/v2/hosts/search',
+                    auth=(self.id, self.secret),
+                    json=payload,
+                    timeout=15,
+                )
+                if resp.status_code != 200:
+                    break
+                data  = resp.json()
+                hits  = data.get('result', {}).get('hits', [])
+                results.extend(hits)
+                cursor = data.get('result', {}).get('links', {}).get('next')
+                if not cursor:
+                    break
+        except Exception:
+            pass
+        return results
+
+
+# ============================================================================
 # WHATWEB RUNNER
 # ============================================================================
 
@@ -1910,6 +2433,360 @@ _ICS_PORT_SERVICE: Dict[int, str] = {
     1911:  'niagara-fox',
 }
 
+# ============================================================================
+# MALWARE INTELLIGENCE — derived from theZoo static analysis (BlackArch VM)
+# Families: WannaCry, EternalRocks, NotPetya/Petrwrap, OperationDianxun,
+#           Turla, AgentTesla, ZeroCleare, APT34
+# ============================================================================
+
+_MALWARE_SIGNATURES: Dict[str, Dict] = {
+    # ── WannaCry / WannaCry+ ─────────────────────────────────────────────
+    "WannaCry-killswitch": {
+        "family": "WannaCry",
+        "type":   "C2/killswitch",
+        "severity": "CRITICAL",
+        "ioc":    "www.iuqerfsodp9ifjaposdfjhgosurijfaewrwergwea.com",
+        "desc":   "WannaCry kill-switch domain detected in traffic/DNS — ransomware active on network",
+        "technique": "T1071 - Application Layer Protocol",
+        "cve":    "CVE-2017-0144",
+    },
+    "WannaCry-mutex": {
+        "family": "WannaCry",
+        "type":   "process",
+        "severity": "CRITICAL",
+        "ioc":    "Global\\MsWinZonesCacheCounterMutexA",
+        "desc":   "WannaCry mutex string in process memory / service banner",
+        "cve":    "CVE-2017-0144",
+    },
+    "WannaCry-service": {
+        "family": "WannaCry",
+        "type":   "service",
+        "severity": "CRITICAL",
+        "ioc":    "mssecsvc2.0",
+        "desc":   "WannaCry drops 'mssecsvc2.0' service for persistence",
+        "cve":    "CVE-2017-0144",
+    },
+    "WannaCry-tasksched": {
+        "family": "WannaCry",
+        "type":   "service",
+        "severity": "HIGH",
+        "ioc":    "tasksche.exe",
+        "desc":   "WannaCry uses tasksche.exe as ransom component — scheduler artifact",
+        "cve":    "CVE-2017-0144",
+    },
+    # ── EternalRocks (Shadow Brokers suite) ──────────────────────────────
+    "EternalRocks-svchost-masq": {
+        "family": "EternalRocks",
+        "type":   "process",
+        "severity": "CRITICAL",
+        "ioc":    "svchost.pdb",
+        "desc":   "EternalRocks masquerades as svchost.exe (PDB: WindowsServices/svchost)",
+        "technique": "T1036.004 - Masquerading as Windows Service",
+        "cve":    "CVE-2017-0144",
+    },
+    "EternalRocks-exploit": {
+        "family": "EternalRocks",
+        "type":   "exploit",
+        "severity": "CRITICAL",
+        "ioc":    "EternalBlue|EternalRomance|EternalChampion|DoublePulsar",
+        "desc":   "EternalRocks loads all 7 NSA exploits — EternalBlue+Romance+Champion+DoublePulsar",
+        "technique": "T1210 - Exploitation of Remote Services",
+        "cve":    "CVE-2017-0144",
+    },
+    "EternalRocks-scheduler": {
+        "family": "EternalRocks",
+        "type":   "persistence",
+        "severity": "HIGH",
+        "ioc":    "TaskScheduler",
+        "desc":   "EternalRocks uses Windows Task Scheduler for staged persistence",
+        "technique": "T1053.005 - Scheduled Task",
+        "cve":    "CVE-2017-0144",
+    },
+    # ── NotPetya / Petrwrap ──────────────────────────────────────────────
+    "Petrwrap-pipe": {
+        "family": "NotPetya/Petrwrap",
+        "type":   "lateral",
+        "severity": "CRITICAL",
+        "ioc":    "CreateNamedPipeW|ConnectNamedPipe",
+        "desc":   "NotPetya uses named pipes for lateral movement (Mimikatz+EternalBlue hybrid)",
+        "technique": "T1021.005 - Remote Services: Named Pipe",
+        "cve":    "CVE-2017-0144",
+    },
+    "Petrwrap-token": {
+        "family": "NotPetya/Petrwrap",
+        "type":   "privesc",
+        "severity": "CRITICAL",
+        "ioc":    "AdjustTokenPrivileges|DuplicateTokenEx|SetThreadToken",
+        "desc":   "NotPetya performs token impersonation for SYSTEM escalation",
+        "technique": "T1134 - Access Token Manipulation",
+        "cve":    "CVE-2017-0144",
+    },
+    "Petrwrap-credEnum": {
+        "family": "NotPetya/Petrwrap",
+        "type":   "credential",
+        "severity": "CRITICAL",
+        "ioc":    "CredEnumerateW",
+        "desc":   "NotPetya enumerates stored Windows credentials via CredEnumerateW",
+        "technique": "T1555.004 - Windows Credential Manager",
+        "cve":    "CVE-2017-0144",
+    },
+    # ── OperationDianxun (Chinese APT — SilkBean/APT41) ──────────────────
+    "Dianxun-wmi-backdoor": {
+        "family": "OperationDianxun",
+        "type":   "backdoor",
+        "severity": "CRITICAL",
+        "ioc":    "WMIBackdoor",
+        "desc":   "OperationDianxun WMI-based backdoor — Win32_Process.Create for stealth execution",
+        "technique": "T1047 - WMI",
+        "c2":     "update.flach.cn/callback.php?token=&computername=&username=",
+    },
+    "Dianxun-inject": {
+        "family": "OperationDianxun",
+        "type":   "injection",
+        "severity": "CRITICAL",
+        "ioc":    "InjectShellCode|clipboardinject|DotNetLoader",
+        "desc":   "OperationDianxun InjectShellCode + clipboard injection + .NET loader chain",
+        "technique": "T1055 - Process Injection",
+    },
+    "Dianxun-cred": {
+        "family": "OperationDianxun",
+        "type":   "credential",
+        "severity": "CRITICAL",
+        "ioc":    "Kerberos|NTLM|WDigest",
+        "desc":   "OperationDianxun dumps Kerberos/NTLM/WDigest credentials from LSASS",
+        "technique": "T1003.001 - LSASS Memory",
+    },
+    "Dianxun-ldap": {
+        "family": "OperationDianxun",
+        "type":   "discovery",
+        "severity": "HIGH",
+        "ioc":    "LDAP: cannot bind|LDAP: search failed",
+        "desc":   "OperationDianxun attempts LDAP enumeration — AD discovery phase",
+        "technique": "T1018 - Remote System Discovery",
+    },
+    # ── Turla (Russian FSB APT) ───────────────────────────────────────────
+    "Turla-pipe": {
+        "family": "Turla",
+        "type":   "lateral",
+        "severity": "CRITICAL",
+        "ioc":    "\\\\.\\pipe\\",
+        "desc":   "Turla uses named pipe comms for C2 and lateral movement",
+        "technique": "T1021.005 - Remote Services: Named Pipe",
+    },
+    # ── APT34 (Iranian OilRig) ───────────────────────────────────────────
+    "APT34-schtasks": {
+        "family": "APT34",
+        "type":   "persistence",
+        "severity": "HIGH",
+        "ioc":    "schtasks",
+        "desc":   "APT34 dropper uses schtasks for persistent execution",
+        "technique": "T1053.005 - Scheduled Task",
+    },
+    # ── Generic credential dumping indicators ───────────────────────────
+    "LSASS-dump": {
+        "family": "generic",
+        "type":   "credential",
+        "severity": "CRITICAL",
+        "ioc":    "lsass|sekurlsa|logonpasswords|mimikatz",
+        "desc":   "Credential dumping artifact — lsass/mimikatz/sekurlsa string in service/banner",
+        "technique": "T1003 - OS Credential Dumping",
+    },
+    # ── Generic SMB relay / EternalBlue ─────────────────────────────────
+    "SMB-exploit-str": {
+        "family": "ShadowBrokers/generic",
+        "type":   "exploit",
+        "severity": "CRITICAL",
+        "ioc":    "EternalBlue|DoublePulsar|EternalRomance|EternalChampion",
+        "desc":   "Shadow Brokers exploit string detected — EternalBlue/DoublePulsar active",
+        "technique": "T1210 - Exploitation of Remote Services",
+        "cve":    "CVE-2017-0144",
+    },
+    # ── ZeroCleare (Iranian wiper) ───────────────────────────────────────
+    "ZeroCleare-exec": {
+        "family": "ZeroCleare",
+        "type":   "wiper",
+        "severity": "CRITICAL",
+        "ioc":    "IEx|powershell.*encoded",
+        "desc":   "ZeroCleare Iranian wiper — IEx PowerShell stage loader detected",
+        "technique": "T1059.001 - PowerShell",
+    },
+}
+
+# HTTP banner / service strings that correlate with live malware C2 or implants
+_MALWARE_HTTP_IOCS: List[Dict] = [
+    {"pattern": "MsWinZonesCacheCounterMutexA",  "family": "WannaCry",          "severity": "CRITICAL"},
+    {"pattern": "iuqerfsodp9ifjaposdfjhgosurijfaewrwergwea", "family": "WannaCry kill-switch", "severity": "CRITICAL"},
+    {"pattern": "callback.php?token=",            "family": "OperationDianxun",  "severity": "CRITICAL"},
+    {"pattern": "WMIBackdoor",                    "family": "OperationDianxun",  "severity": "CRITICAL"},
+    {"pattern": "InjectShellCode",                "family": "OperationDianxun",  "severity": "CRITICAL"},
+    {"pattern": "mssecsvc2.0",                    "family": "WannaCry",          "severity": "CRITICAL"},
+    {"pattern": "tasksche.exe",                   "family": "WannaCry",          "severity": "HIGH"},
+    {"pattern": "sekurlsa",                       "family": "Mimikatz",          "severity": "CRITICAL"},
+    {"pattern": "logonpasswords",                 "family": "Mimikatz",          "severity": "CRITICAL"},
+    {"pattern": "EternalBlue",                    "family": "NSA/ShadowBrokers", "severity": "CRITICAL"},
+    {"pattern": "DoublePulsar",                   "family": "NSA/ShadowBrokers", "severity": "CRITICAL"},
+    {"pattern": "DotNetLoader",                   "family": "OperationDianxun",  "severity": "HIGH"},
+    {"pattern": "clipboardinject",                "family": "OperationDianxun",  "severity": "HIGH"},
+    {"pattern": "svchost.pdb",                    "family": "EternalRocks",      "severity": "CRITICAL"},
+    {"pattern": "Global\\\\MsWinZones",           "family": "WannaCry",          "severity": "CRITICAL"},
+    # BlueHammer / RedSun / GreenPlasma / UnDefend — Windows exploit IOCs
+    {"pattern": "IMpService77BDAF73",             "family": "BlueHammer-WD-RPC",  "severity": "CRITICAL"},
+    {"pattern": "c503f532-443a-4c69-8300",        "family": "BlueHammer-WD-RPC",  "severity": "CRITICAL"},
+    {"pattern": "ServerMpUpdateEngineSignature",   "family": "BlueHammer-WD-RPC",  "severity": "CRITICAL"},
+    {"pattern": "REDSUN",                         "family": "RedSun-LPE",         "severity": "CRITICAL"},
+    {"pattern": "TieringEngineService",           "family": "RedSun-LPE",         "severity": "HIGH"},
+    {"pattern": "50d185b9-fff3-4656",             "family": "RedSun-COM-CLSID",   "severity": "CRITICAL"},
+    {"pattern": "CTFMON_DEAD",                    "family": "GreenPlasma-EoP",    "severity": "CRITICAL"},
+    {"pattern": "CTF.AsmListCache.FMPWinlogon",   "family": "GreenPlasma-EoP",    "severity": "CRITICAL"},
+    {"pattern": "CfAbortOperation",               "family": "MiniPlasma-EoP",     "severity": "HIGH"},
+    {"pattern": "BlockedApps",                    "family": "MiniPlasma-EoP",     "severity": "MEDIUM"},
+    {"pattern": "FsTxKtmLog",                     "family": "YellowKey-BitLocker","severity": "CRITICAL"},
+    {"pattern": "FsTxLogContainer",               "family": "YellowKey-BitLocker","severity": "CRITICAL"},
+    {"pattern": "mpavbase.vdm",                   "family": "UnDefend-WD-DoS",    "severity": "HIGH"},
+    {"pattern": "mpavbase.lkg",                   "family": "UnDefend-WD-DoS",    "severity": "HIGH"},
+]
+
+# ─── Android CVE chain definitions (mirrored from android_pentest._CVE_CHAINS) ──
+# Each chain maps to the same chain name accepted by:
+#   use android_pentest → set operation chain → set chain <name>
+_ANDROID_CVE_CHAINS: Dict[str, Dict] = {
+    "zero_click_full": {
+        "severity": "CRITICAL",
+        "delivery": "bluetooth (proximity ~10m)",
+        "trigger": lambda p, s, bt, mfr, hw: (bt is not False) and (not p or p < "2023-12-01"),
+        "reason_tmpl": "BT HID zero-click (CVE-2023-45866) — patch {p} < 2023-12-01",
+        "steps": [
+            {"cve": "CVE-2023-45866", "role": "zero_click",
+             "desc": "BT HID keystroke injection via rogue HID keyboard — no pairing, no notification"},
+            {"cve": "CVE-2024-31317", "role": "privesc",
+             "desc": "Zygote injection via ActivityManager — escalate to system/root"},
+            {"cve": "CVE-2024-0044",  "role": "post_exploit",
+             "desc": "run-as sandbox bypass — exfiltrate private data from any app"},
+        ],
+        "secv_cmd": "use android_pentest\nset operation chain\nset chain zero_click_full\nset bt_addr <TARGET_BT_MAC>\nset lhost <LHOST>\nrun",
+    },
+    "bt_zero_click_exfil": {
+        "severity": "CRITICAL",
+        "delivery": "bluetooth (proximity ~100m BLE)",
+        "trigger": lambda p, s, bt, mfr, hw: (bt is not False) and (not p or p < "2023-12-01"),
+        "reason_tmpl": "BT UAF zero-click (CVE-2023-40088) — patch {p} < 2023-12-01",
+        "steps": [
+            {"cve": "CVE-2023-40088", "role": "zero_click",
+             "desc": "Bluetooth l2c_rcv_acl_data UAF — RCE in bt_jni process, BT enabled only"},
+            {"cve": "CVE-2024-0044",  "role": "post_exploit",
+             "desc": "run-as sandbox bypass — read any app's private data"},
+            {"cve": "CVE-2024-43093", "role": "post_exploit",
+             "desc": "DocumentsUI path traversal — exfiltrate files from private storage"},
+        ],
+        "secv_cmd": "use android_pentest\nset operation chain\nset chain bt_zero_click_exfil\nset lhost <LHOST>\nrun",
+    },
+    "exynos_baseband_rce": {
+        "severity": "CRITICAL",
+        "delivery": "internet (mobile data / WiFi Calling) — unlimited range, zero-click",
+        "trigger": lambda p, s, bt, mfr, hw: (
+            "samsung" in mfr and ("exynos" in hw or "universal" in hw)
+            and (not p or p < "2023-07-01")
+        ),
+        "reason_tmpl": "Exynos baseband RCE (CVE-2023-24033) — Samsung+Exynos, patch {p} < 2023-07-01",
+        "steps": [
+            {"cve": "CVE-2023-24033", "role": "zero_click",
+             "desc": "SDP/SIP format string in Exynos modem — internet-to-baseband no interaction"},
+            {"cve": "CVE-2023-26072", "role": "initial_access",
+             "desc": "Exynos SIP heap overflow — confirm AP-side code execution over VoLTE"},
+            {"cve": "CVE-2024-31317", "role": "privesc",
+             "desc": "Zygote injection — pivot from baseband to Android system uid"},
+        ],
+        "secv_cmd": "use android_pentest\nset operation chain\nset chain exynos_baseband_rce\nset target <IP_OR_PHONE_NO>\nrun",
+    },
+    "wifi_zero_click": {
+        "severity": "CRITICAL",
+        "delivery": "wifi (WiFi range proximity) — zero-click, no association needed",
+        "trigger": lambda p, s, bt, mfr, hw: (
+            "samsung" in mfr and ("exynos" in hw or "universal" in hw)
+            and (not p or p < "2024-09-01")
+        ),
+        "reason_tmpl": "Exynos WLAN OOB (CVE-2024-20017) — Samsung+Exynos, patch {p} < 2024-09-01",
+        "steps": [
+            {"cve": "CVE-2024-20017", "role": "zero_click",
+             "desc": "Exynos WLAN driver OOB write via crafted 802.11 frame — kernel RCE over WiFi"},
+            {"cve": "CVE-2023-21492", "role": "info_leak",
+             "desc": "Samsung kernel pointer leak from world-readable log — defeat KASLR"},
+            {"cve": "CVE-2023-0266",  "role": "privesc",
+             "desc": "ALSA UAF kernel LPE — uid=0 on kernel 4.4–5.10 using leaked base"},
+        ],
+        "secv_cmd": "use android_pentest\nset operation chain\nset chain wifi_zero_click\nset lhost <LHOST>\nrun",
+    },
+    "freetype_browser": {
+        "severity": "HIGH",
+        "delivery": "browser link (1-click or BT-injected URL)",
+        "trigger": lambda p, s, bt, mfr, hw: (not p or p < "2025-06-01"),
+        "reason_tmpl": "FreeType ITW (CVE-2025-27363) — any Android, patch {p} < 2025-06-01",
+        "steps": [
+            {"cve": "CVE-2025-27363", "role": "initial_access",
+             "desc": "FreeType OOB write via malicious web font — Chrome/WebView renderer RCE (in-the-wild)"},
+            {"cve": "CVE-2024-43093", "role": "post_exploit",
+             "desc": "DocumentsUI path traversal — exfiltrate private app files (in-the-wild)"},
+            {"cve": "CVE-2024-31317", "role": "privesc",
+             "desc": "Zygote injection for system-level persistence"},
+        ],
+        "secv_cmd": "use android_pentest\nset operation chain\nset chain freetype_browser\nset lhost <LHOST>\nrun",
+    },
+    "kernel_lpe_chain": {
+        "severity": "HIGH",
+        "delivery": "local (ADB or post-initial-access)",
+        "trigger": lambda p, s, bt, mfr, hw: (not p or p < "2024-01-01"),
+        "reason_tmpl": "Kernel LPE chain (CVE-2023-0266/CVE-2024-53104) — patch {p} < 2024-01-01",
+        "steps": [
+            {"cve": "CVE-2023-21492", "role": "info_leak",
+             "desc": "Samsung KASLR defeat via kernel pointer leak in world-readable log"},
+            {"cve": "CVE-2023-0266",  "role": "privesc",
+             "desc": "ALSA UAF kernel LPE — root on kernel 4.4–5.10 using leaked KASLR base"},
+            {"cve": "CVE-2024-53104", "role": "privesc_alt",
+             "desc": "UVC OOB write kernel LPE (in-the-wild) — alternative root for newer kernels"},
+        ],
+        "secv_cmd": "use android_pentest\nset operation chain\nset chain kernel_lpe_chain\nrun",
+    },
+    "sandbox_exfil": {
+        "severity": "HIGH",
+        "delivery": "local (ADB or compromised app)",
+        "trigger": lambda p, s, bt, mfr, hw: s >= 28 and (not p or p < "2024-08-01"),
+        "reason_tmpl": "run-as bypass (CVE-2024-0044) — SDK {s}, patch {p} < 2024-08-01",
+        "steps": [
+            {"cve": "CVE-2024-0044",  "role": "initial_access",
+             "desc": "run-as sandbox bypass — read any installed app's private data directory"},
+            {"cve": "CVE-2024-31317", "role": "privesc",
+             "desc": "Zygote injection — escalate from app context to system uid/root"},
+        ],
+        "secv_cmd": "use android_pentest\nset operation chain\nset chain sandbox_exfil\nrun",
+    },
+}
+
+# Android manufacturer MAC OUI prefixes (first 3 bytes, no colons, uppercase)
+# Used to detect Android devices from MAC address alone (no ADB needed)
+_ANDROID_OUI_MAP: Dict[str, str] = {}
+for _vendor, _ouis in {
+    "samsung": [
+        "0007AB","001247","0015B9","0017C9","001A8A","001D25","001E7D","002119",
+        "002339","002637","00E3B2","0418D6","04FE31","0808C2","0C1420","183DA2",
+        "244B03","2CAE2B","34AA8B","3816D1","400E85","44783E","48448F","5001BB",
+        "58CB52","5C3C27","60D0A9","64B310","6C8336","74458A","7825AD","7C0BC6",
+        "84119E","88329B","8C7712","90187C","94350A","98398E","9C3AAF","A00798",
+        "A0821F","A407B6","A87D12","AC5F3E","B047BF","B43A28","B85A73","BC20A4",
+        "C089AB","C44202","C8BA94","CC07AB","D022BE","D487D8","D831CF","DC7196",
+        "E09971","E440E2","E8039A","EC9BF3","F072EA","F47B5E","F8042E","FC1910",
+    ],
+    "google": [
+        "001A11","18F0E4","3C5AB4","546009","641666","685B35",
+        "7CD1C3","94EB2C","A47733","B01041","DA97D0","F4F5E8",
+    ],
+    "motorola": [
+        "0008A5","00169F","24DA9B","409ECD","58F853","84100D","AC3743","BCF5AC","E4907E",
+    ],
+    "oneplus":  ["04D13A","1C77F6","8C4B14","ACC1EE"],
+}.items():
+    for _o in _ouis:
+        _ANDROID_OUI_MAP[_o.upper()] = _vendor
+
 
 class NetRecon:
     """Concurrent multi-engine network reconnaissance"""
@@ -1933,8 +2810,12 @@ class NetRecon:
         self.exclude: Set[str] = set(
             x.strip() for x in self.params.get('exclude', '').split(',') if x.strip()
         )
-        self.shodan_key  = self.params.get('shodan_key', '')
-        self.nvd_api_key = self.params.get('nvd_api_key', os.environ.get('NVD_API_KEY', ''))
+        self.shodan_key    = self.params.get('shodan_key', '')
+        self.censys_id     = self.params.get('censys_id',
+                                             os.environ.get('CENSYS_API_ID', ''))
+        self.censys_secret = self.params.get('censys_secret',
+                                             os.environ.get('CENSYS_API_SECRET', ''))
+        self.nvd_api_key   = self.params.get('nvd_api_key', os.environ.get('NVD_API_KEY', ''))
 
         # Evasion / anonymity params
         self.evasion       = self._bool(self.params.get('evasion', False))
@@ -1981,6 +2862,7 @@ class NetRecon:
             self.scripts = True
 
         self.shodan  = ShodanClient(self.shodan_key)
+        self.censys  = CensysClient(self.censys_id, self.censys_secret)
         self.errors: List[str] = []
         self._start  = datetime.now()
 
@@ -2218,6 +3100,8 @@ class NetRecon:
                 futs['whois'] = ex.submit(PassiveRecon.whois_lookup, ip)
             if self.shodan_key:
                 futs['shodan'] = ex.submit(self.shodan.lookup, ip)
+            if self.censys_id and self.censys_secret:
+                futs['censys'] = ex.submit(self.censys.lookup, ip)
 
             for name, fut in futs.items():
                 try:
@@ -2300,31 +3184,77 @@ class NetRecon:
                 svc.cves    = correlate_cves(svc.service, '', '')
                 profile.services.append(svc)
 
-        # Android / ADB device detection — port 5555 = ADB over TCP
+        # ── Android device detection ──────────────────────────────────────
+        # Detection paths: ADB port 5555 (active) or MAC OUI (passive)
         open_ports = {s.port for s in profile.services}
+        _adb_info: Dict = {}
+
+        # Path A: ADB over TCP (port 5555 open)
         if 5555 in open_ports and not self.passive:
-            adb_result = self._probe_adb(ip)
-            if adb_result.get('adb_open'):
-                if not profile.os_family:
-                    profile.os_family = 'Android'
-                if not profile.device_type:
-                    profile.device_type = adb_result.get('device_model') or 'Android device (ADB open)'
+            _adb_info = self._probe_adb_full(ip)
+            if _adb_info.get('adb_open'):
+                profile.os_family   = profile.os_family   or 'Android'
+                profile.device_category = 'android'
+                model = _adb_info.get('device_model', '')
+                ver   = _adb_info.get('android_ver', '')
+                patch = _adb_info.get('patch_level', '')
+                mfr   = _adb_info.get('manufacturer', '')
+                hw    = _adb_info.get('hardware', '')
+                desc_parts = [x for x in [model, mfr.title(), ver and f'Android {ver}',
+                                           patch and f'patch {patch}', hw] if x]
+                profile.device_type = profile.device_type or (
+                    ' | '.join(desc_parts) if desc_parts else 'Android device'
+                )
                 for svc in profile.services:
                     if svc.port == 5555:
                         svc.service = 'adb'
-                        svc.banner  = svc.banner or adb_result.get('banner', 'ADB TCP open')
-                        svc.__dict__['adb_authorized'] = adb_result.get('authorized', False)
+                        svc.banner  = svc.banner or _adb_info.get('banner', 'ADB TCP open')
+                        svc.__dict__['adb_authorized'] = _adb_info.get('authorized', False)
+                        svc.__dict__['android_info']   = {
+                            k: v for k, v in _adb_info.items()
+                            if k in ('patch_level','sdk','manufacturer','hardware',
+                                     'android_ver','chipset','bt_on','wifi_calling')
+                        }
+                authorized = _adb_info.get('authorized', False)
                 profile.vulnerabilities.append({
                     'id': 'ADB-TCP-OPEN',
                     'severity': 'CRITICAL',
                     'desc': (
                         f"Android Debug Bridge (ADB) exposed on {ip}:5555 — "
-                        f"full device shell access possible without authentication"
-                        + (f" | model: {adb_result['device_model']}" if adb_result.get('device_model') else "")
+                        f"full shell access {'(authorized)' if authorized else '(unauthorized — needs RSA approval on device)'}"
+                        + (f" | {profile.device_type}" if profile.device_type else "")
                     ),
                 })
+                # Attach applicable android_pentest CVE chains
+                chains = self._evaluate_android_chains(_adb_info)
+                for ch in chains:
+                    steps_summary = " → ".join(
+                        f"{s['cve']}({s['role']})" for s in ch['steps']
+                    )
+                    profile.vulnerabilities.append({
+                        'id':       f"ANDROID-CHAIN-{ch['chain'].upper()}",
+                        'severity': ch['severity'],
+                        'desc': (
+                            f"[android_pentest chain] {ch['chain']} via {ch['delivery']} | "
+                            f"{ch['reason']} | chain: {steps_summary}"
+                        ),
+                        'chain':    ch['chain'],
+                        'steps':    ch['steps'],
+                        'secv_cmd': ch['secv_cmd'],
+                    })
+            else:
+                # Port open but ADB not responding to CNXN — still flag it
+                for svc in profile.services:
+                    if svc.port == 5555:
+                        svc.service = 'adb'
+                profile.vulnerabilities.append({
+                    'id': 'ADB-TCP-OPEN',
+                    'severity': 'CRITICAL',
+                    'desc': f"Port 5555 open on {ip} — likely Android ADB (no CNXN response)",
+                })
+
         elif 5555 in open_ports:
-            # passive: just label it
+            # Passive mode — label port only
             for svc in profile.services:
                 if svc.port == 5555:
                     svc.service = 'adb'
@@ -2333,6 +3263,37 @@ class NetRecon:
                 'severity': 'CRITICAL',
                 'desc': f"ADB TCP port 5555 open on {ip} — Android device with debug bridge exposed",
             })
+
+        # Path B: MAC OUI matches Android manufacturer — no ADB needed
+        if not _adb_info and profile.mac:
+            oui = profile.mac.replace(':', '').replace('-', '').upper()[:6]
+            oui_vendor = _ANDROID_OUI_MAP.get(oui, '')
+            if oui_vendor:
+                profile.os_family       = profile.os_family or 'Android'
+                profile.device_category = profile.device_category or 'android'
+                profile.device_type     = profile.device_type or f'Android device ({oui_vendor.title()})'
+                # Without ADB we have no patch info — treat as worst-case (patch unknown)
+                chains = self._evaluate_android_chains({
+                    'patch_level': '', 'sdk': 0,
+                    'manufacturer': oui_vendor, 'hardware': '',
+                    'bt_on': None,
+                })
+                for ch in chains:
+                    steps_summary = " → ".join(
+                        f"{s['cve']}({s['role']})" for s in ch['steps']
+                    )
+                    profile.vulnerabilities.append({
+                        'id':       f"ANDROID-CHAIN-{ch['chain'].upper()}",
+                        'severity': ch['severity'],
+                        'desc': (
+                            f"[android_pentest chain] {ch['chain']} via {ch['delivery']} | "
+                            f"{ch['reason']} (patch unknown — enable ADB for confirmation) | "
+                            f"chain: {steps_summary}"
+                        ),
+                        'chain':    ch['chain'],
+                        'steps':    ch['steps'],
+                        'secv_cmd': ch['secv_cmd'],
+                    })
 
         # Apple / iOS device fingerprinting
         open_ports = {s.port for s in profile.services}
@@ -2411,6 +3372,41 @@ class NetRecon:
         # IoT / Camera / Router / NAS / ICS / Surveillance device classification
         self._detect_device_category(profile)
 
+        # Bluetooth proximity scan + Android module scan — fires on confirmed Android targets
+        _bt_devices: List[Dict] = []
+        if (not self.passive
+                and profile.device_category == 'android'
+                and (shutil.which('bluetoothctl') or shutil.which('hcitool'))):
+            _bt_devices = self._scan_bt_android(timeout=6)
+            if _bt_devices:
+                android_bt = [d for d in _bt_devices if d.get('android_likely')]
+                profile.__dict__.setdefault('bt_nearby', _bt_devices)
+                for d in android_bt:
+                    profile.vulnerabilities.append({
+                        'id':       'ANDROID-BT-NEARBY',
+                        'severity': 'INFO',
+                        'desc': (
+                            f"Bluetooth Android device visible: {d['addr']} "
+                            f"({d['name'] or 'unnamed'}) [{d['vendor'].title()}] — "
+                            f"potential zero-click target for CVE-2023-45866 / CVE-2023-40088 "
+                            f"(set bt_addr={d['addr']} in android_pentest)"
+                        ),
+                        'bt_addr':  d['addr'],
+                        'bt_name':  d['name'],
+                        'bt_vendor': d['vendor'],
+                        'secv_cmd': (
+                            f"use android_pentest\nset operation chain\n"
+                            f"set chain zero_click_full\nset bt_addr {d['addr']}\n"
+                            f"set lhost <LHOST>\nrun"
+                        ),
+                    })
+
+        # Android module scan — structured triage report (fires whenever Android detected)
+        if profile.device_category == 'android' and not self.passive:
+            profile.__dict__['android_module_scan'] = self._scan_android_full(
+                profile, _adb_info, _bt_devices
+            )
+
         # Active IoT protocol probes on device-specific ports
         if not self.passive:
             open_ports = {s.port for s in profile.services}
@@ -2487,6 +3483,9 @@ class NetRecon:
                 else:
                     profile.os_family = 'Network Device'
 
+        # Malware IOC scan — fires on every host using intelligence from theZoo analysis
+        self._check_malware_artifacts(profile)
+
         profile.risk_score, profile.risk_level = self._risk(profile)
         return profile
 
@@ -2560,6 +3559,30 @@ class NetRecon:
                 for sp in data.get('ports', []):
                     if sp not in our:
                         p.services.append(ServiceInfo(port=sp, sources=['shodan']))
+
+        elif src == 'censys':
+            if isinstance(data, dict) and data:
+                p.__dict__['censys'] = data
+                our = {s.port for s in p.services}
+                # Merge any ports Censys found that active scan missed
+                for sp in data.get('ports', []):
+                    if sp not in our:
+                        p.services.append(ServiceInfo(port=sp, sources=['censys']))
+                # Cross-reference Censys CVEs into host-level vulnerabilities
+                for csvc in data.get('services', []):
+                    for cve_id in csvc.get('cves', []):
+                        if not any(v.get('id') == cve_id for v in p.vulnerabilities):
+                            p.vulnerabilities.append({
+                                'id':       cve_id,
+                                'severity': 'HIGH',
+                                'desc':     f'Censys reports {cve_id} on port {csvc.get("port")}',
+                                'source':   'censys',
+                            })
+                # Pull org/country if ASN lookup didn't fire
+                if not p.asn_org and data.get('org'):
+                    p.asn_org = data['org']
+                if not p.country and data.get('country'):
+                    p.country = data['country']
 
     def _merge_http(self, p: HostProfile, port: int, data: Dict):
         if not data:
@@ -2644,7 +3667,10 @@ class NetRecon:
                 'top_cves': list({c['id'] for c in sorted(cves, key=lambda x: -x.get('cvss', 0))[:10]}),
             },
             'high_risk_hosts': [h.ip for h in hosts if h.risk_level in ('CRITICAL', 'HIGH')],
-            'shodan_enriched': len([h for h in hosts if h.shodan]),
+            'shodan_enriched':  len([h for h in hosts if h.shodan]),
+            'censys_enriched':  len([h for h in hosts if h.__dict__.get('censys')]),
+            'android_detected': len([h for h in hosts
+                                     if h.__dict__.get('android_module_scan')]),
             'engines_used':    engines,
         }
 
@@ -2678,6 +3704,17 @@ class NetRecon:
     def _detect_device_category(self, profile: HostProfile):
         """Classify host into device category based on open ports and HTTP signatures"""
         open_ports = {s.port for s in profile.services}
+
+        # Android — already set by ADB or MAC OUI detection block; honour it
+        if profile.device_category == 'android':
+            return
+
+        # Android OUI fallback (MAC-only detection if ADB block didn't run)
+        if not profile.device_category and profile.mac:
+            oui = profile.mac.replace(':', '').replace('-', '').upper()[:6]
+            if oui in _ANDROID_OUI_MAP:
+                profile.device_category = 'android'
+                return
 
         # Domain Controller — Kerberos(88) + LDAP(389) + SMB(445) together = DC
         if _DC_SIGNATURE_PORTS.issubset(open_ports):
@@ -2875,6 +3912,506 @@ class NetRecon:
         except Exception:
             pass
         return result
+
+    def _probe_adb_full(self, ip: str, port: int = 5555) -> Dict:
+        """
+        Extended ADB probe: runs _probe_adb then, if authorized, pulls
+        patch level, SDK, manufacturer, hardware chipset, and BT state.
+        These feed _evaluate_android_chains for chain selection.
+        """
+        result = self._probe_adb(ip, port)
+        if not (result.get('adb_open') and result.get('authorized')):
+            return result
+
+        _adb_bin = shutil.which('adb')
+        if not _adb_bin:
+            return result
+
+        serial = f'{ip}:{port}'
+
+        def _getprop(prop: str) -> str:
+            try:
+                r = subprocess.run(
+                    [_adb_bin, '-s', serial, 'shell', 'getprop', prop],
+                    capture_output=True, text=True, timeout=5,
+                )
+                return r.stdout.strip()
+            except Exception:
+                return ''
+
+        def _settings(ns: str, key: str) -> str:
+            try:
+                r = subprocess.run(
+                    [_adb_bin, '-s', serial, 'shell', 'settings', 'get', ns, key],
+                    capture_output=True, text=True, timeout=5,
+                )
+                return r.stdout.strip()
+            except Exception:
+                return ''
+
+        result['patch_level']  = _getprop('ro.build.version.security_patch')
+        result['sdk']          = int(_getprop('ro.build.version.sdk') or '0')
+        result['manufacturer'] = _getprop('ro.product.manufacturer').lower()
+        result['hardware']     = _getprop('ro.hardware').lower()
+        result['android_ver']  = _getprop('ro.build.version.release')
+        result['chipset']      = _getprop('ro.board.platform').lower()
+
+        # BT state: "1" = on, "0" = off, anything else = unknown
+        bt_val = _settings('global', 'bluetooth_on')
+        result['bt_on'] = True if bt_val == '1' else (False if bt_val == '0' else None)
+
+        # WiFi Calling state — relevant for Exynos baseband chain
+        ims_val = _getprop('persist.radio.calls.on.ipa')
+        result['wifi_calling'] = ims_val == '1'
+
+        subprocess.run([_adb_bin, 'disconnect', serial],
+                       capture_output=True, timeout=4)
+        return result
+
+    def _evaluate_android_chains(self, adb_info: Dict) -> List[Dict]:
+        """
+        Score and return applicable android_pentest CVE chains for a device.
+        Input:  dict from _probe_adb_full (patch_level, sdk, manufacturer, hardware, bt_on)
+        Output: list of chain dicts with severity, steps, and secv_cmd ready to paste.
+        Unknown device info (empty strings, sdk=0) is treated permissively — we flag
+        the chain if we cannot rule it out, so operators don't miss opportunities.
+        """
+        patch = adb_info.get('patch_level', '')
+        sdk   = adb_info.get('sdk', 0)
+        bt_on = adb_info.get('bt_on', None)   # True / False / None(unknown)
+        mfr   = adb_info.get('manufacturer', '')
+        hw    = adb_info.get('hardware', '') + ' ' + adb_info.get('chipset', '')
+
+        applicable = []
+        for chain_name, chain in _ANDROID_CVE_CHAINS.items():
+            try:
+                if chain['trigger'](patch, sdk, bt_on, mfr, hw):
+                    p_display = patch or 'unknown'
+                    s_display = sdk   or 'unknown'
+                    applicable.append({
+                        'chain':    chain_name,
+                        'severity': chain['severity'],
+                        'delivery': chain['delivery'],
+                        'reason':   chain['reason_tmpl'].format(p=p_display, s=s_display),
+                        'steps':    chain['steps'],
+                        'secv_cmd': chain['secv_cmd'],
+                    })
+            except Exception:
+                pass
+
+        # Sort: CRITICAL first, then by chain name
+        applicable.sort(key=lambda c: (0 if c['severity'] == 'CRITICAL' else 1, c['chain']))
+        return applicable
+
+    def _scan_bt_android(self, timeout: int = 8) -> List[Dict]:
+        """
+        Passive Bluetooth scan for nearby Android devices.
+        Uses bluetoothctl or hcitool. OUI matched against _ANDROID_OUI_MAP.
+        Returns list of {addr, name, vendor, android_likely} dicts.
+        """
+        devices: List[Dict] = []
+        seen: Set[str] = set()
+        btctl = shutil.which('bluetoothctl')
+        hci   = shutil.which('hcitool')
+
+        if btctl:
+            try:
+                proc = subprocess.Popen(
+                    [btctl], stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+                )
+                proc.stdin.write('scan on\n'); proc.stdin.flush()
+                time.sleep(timeout)
+                proc.stdin.write('scan off\ndevices\n'); proc.stdin.flush()
+                time.sleep(1)
+                out, _ = proc.communicate(timeout=5)
+                for line in out.splitlines():
+                    m = re.match(r'Device\s+([0-9A-F:]{17})\s+(.*)', line, re.I)
+                    if m:
+                        addr = m.group(1).upper()
+                        name = m.group(2).strip()
+                        if addr not in seen:
+                            seen.add(addr)
+                            oui = addr.replace(':', '')[:6].upper()
+                            vendor = _ANDROID_OUI_MAP.get(oui, '')
+                            devices.append({
+                                'addr': addr, 'name': name,
+                                'vendor': vendor,
+                                'android_likely': bool(vendor),
+                            })
+            except Exception:
+                pass
+
+        elif hci:
+            try:
+                out = subprocess.check_output(
+                    ['hcitool', 'scan', '--flush'],
+                    timeout=timeout + 2, stderr=subprocess.DEVNULL, text=True,
+                )
+                for line in out.splitlines()[1:]:
+                    parts = line.split(None, 1)
+                    if len(parts) == 2:
+                        addr, name = parts[0].upper(), parts[1].strip()
+                        if addr not in seen:
+                            seen.add(addr)
+                            oui = addr.replace(':', '')[:6].upper()
+                            vendor = _ANDROID_OUI_MAP.get(oui, '')
+                            devices.append({
+                                'addr': addr, 'name': name,
+                                'vendor': vendor,
+                                'android_likely': bool(vendor),
+                            })
+            except Exception:
+                pass
+
+        return devices
+
+    def _scan_android_full(self, profile: 'HostProfile', adb_info: Dict,
+                           bt_nearby: List[Dict]) -> Dict:
+        """
+        Android module scan feature — produces a self-contained triage report
+        that mirrors what `android_pentest recon + zero_click` would output.
+        Fires automatically when netrecon detects an Android device.
+
+        Returns a dict stored in profile.android_module_scan.  Operators can
+        jump directly from this output to android_pentest commands without
+        running recon separately.
+        """
+        ip   = profile.ip
+        patch = adb_info.get('patch_level', '')
+        sdk   = adb_info.get('sdk', 0)
+        mfr   = adb_info.get('manufacturer', '')
+        hw    = adb_info.get('hardware', '')
+        chipset = adb_info.get('chipset', '')
+        android_ver = adb_info.get('android_ver', '')
+        bt_on = adb_info.get('bt_on', None)
+        authorized  = adb_info.get('authorized', False)
+
+        # ── Attack surface assessment ────────────────────────────────────
+        attack_surface: List[Dict] = []
+
+        # ADB TCP — always present when we reach this point
+        attack_surface.append({
+            'vector': 'ADB over TCP',
+            'port':   5555,
+            'ready':  True,
+            'note':   'authorized — full shell now' if authorized
+                      else 'unauthorized — RSA prompt pending on device screen',
+            'secv_cmd': (
+                f'use android_pentest\nset operation shell\n'
+                f'set target {ip}\nrun'
+            ),
+        })
+
+        # Zero-click vectors
+        chains = self._evaluate_android_chains(adb_info)
+        zc_chains = [c for c in chains
+                     if 'zero' in c['delivery'] or 'bluetooth' in c['delivery']
+                     or 'wifi' in c['delivery'] or 'baseband' in c['delivery']]
+        for ch in zc_chains:
+            attack_surface.append({
+                'vector': f"Zero-click: {ch['chain']}",
+                'delivery': ch['delivery'],
+                'severity': ch['severity'],
+                'reason':   ch['reason'],
+                'secv_cmd': ch['secv_cmd'],
+            })
+
+        # Browser / WebRTC (always worth trying if we have network access)
+        attack_surface.append({
+            'vector': 'Browser exploit (freetype/WebRTC)',
+            'delivery': 'URL (served locally via secV http server)',
+            'ready': True,
+            'secv_cmd': (
+                f'use android_pentest\nset operation chain\n'
+                f'set chain freetype_browser\nset target_ip {ip}\n'
+                f'set lhost <LHOST>\nrun'
+            ),
+        })
+
+        # Nearby BT targets for zero-click
+        bt_targets = [d for d in bt_nearby if d.get('android_likely')]
+
+        # ── Recommended next actions (in priority order) ─────────────────
+        next_actions: List[str] = []
+        if authorized:
+            next_actions.append(f'adb -s {ip}:5555 shell id')
+            next_actions.append(
+                f'use android_pentest; set operation recon; set target {ip}; run'
+            )
+        else:
+            next_actions.append(
+                f'adb connect {ip}:5555   # watch device screen — approve RSA key'
+            )
+        if bt_targets:
+            bt_addr = bt_targets[0]['addr']
+            next_actions.append(
+                f'use android_pentest; set operation chain; '
+                f'set chain zero_click_full; set bt_addr {bt_addr}; '
+                f'set lhost <LHOST>; run'
+            )
+        if zc_chains:
+            next_actions.append(zc_chains[0]['secv_cmd'].replace('\n', '; '))
+
+        # ── Patch gap analysis ───────────────────────────────────────────
+        patch_gap: Dict = {}
+        _today_str = datetime.now().strftime('%Y-%m-%d')
+        if patch:
+            try:
+                from datetime import date as _date
+                p_parts = [int(x) for x in patch.split('-')[:3]]
+                t_parts = [int(x) for x in _today_str.split('-')[:3]]
+                p_date  = _date(*p_parts)
+                t_date  = _date(*t_parts)
+                days_behind = (t_date - p_date).days
+                patch_gap = {
+                    'patch_date':  patch,
+                    'days_behind': days_behind,
+                    'risk':        'CRITICAL' if days_behind > 730 else
+                                   'HIGH'     if days_behind > 365 else
+                                   'MEDIUM'   if days_behind > 90  else 'LOW',
+                }
+            except Exception:
+                patch_gap = {'patch_date': patch, 'days_behind': -1, 'risk': 'UNKNOWN'}
+        else:
+            patch_gap = {'patch_date': 'unknown', 'days_behind': -1, 'risk': 'UNKNOWN'}
+
+        # ── CVE chain matrix ─────────────────────────────────────────────
+        chain_matrix = []
+        for ch in chains:
+            chain_matrix.append({
+                'chain':    ch['chain'],
+                'severity': ch['severity'],
+                'delivery': ch['delivery'],
+                'reason':   ch['reason'],
+                'steps':    [f"{s['cve']}({s['role']})" for s in ch['steps']],
+                'secv_cmd': ch['secv_cmd'],
+            })
+
+        report = {
+            'device': {
+                'ip':          ip,
+                'manufacturer': mfr or 'unknown',
+                'android_ver': android_ver or 'unknown',
+                'sdk':         sdk,
+                'patch_level': patch or 'unknown',
+                'hardware':    hw or 'unknown',
+                'chipset':     chipset or 'unknown',
+                'bt_on':       bt_on,
+                'adb_authorized': authorized,
+            },
+            'patch_gap':      patch_gap,
+            'attack_surface': attack_surface,
+            'chain_matrix':   chain_matrix,
+            'bt_targets':     bt_targets,
+            'next_actions':   next_actions,
+            'module_handoff': (
+                f'use android_pentest\n'
+                f'set target {ip}\n'
+                f'set operation recon\n'
+                f'run\n'
+                f'# then: set operation zero_click; set chain <chain_name>; run'
+            ),
+        }
+        return report
+
+    def _check_malware_artifacts(self, profile: 'HostProfile') -> None:
+        """
+        Scan all collected banners, HTTP responses, and service data for known
+        malware IOC strings derived from theZoo static analysis.
+        Fires automatically at the end of _profile_host for every host.
+        """
+        # Build a single corpus from everything we collected
+        corpus_parts = []
+        for svc in profile.services:
+            corpus_parts.append(svc.banner or '')
+            corpus_parts.append(svc.service or '')
+            corpus_parts.append(svc.product or '')
+            corpus_parts.append(svc.http_title or '')
+            corpus_parts.append(svc.http_server or '')
+            corpus_parts.extend(svc.http_technologies or [])
+        corpus = ' '.join(corpus_parts).lower()
+
+        # HTTP IOC patterns (quick string scan)
+        for ioc in _MALWARE_HTTP_IOCS:
+            if ioc['pattern'].lower() in corpus:
+                profile.vulnerabilities.append({
+                    'id':       f"MALWARE-IOC-{ioc['family'].upper().replace(' ','_')}",
+                    'severity': ioc['severity'],
+                    'desc':     (
+                        f"[malware intel] {ioc['family']} IOC detected in service banner/HTTP: "
+                        f"'{ioc['pattern']}' — host may be infected or acting as C2"
+                    ),
+                    'source':   'malware_ioc_scan',
+                    'family':   ioc['family'],
+                })
+
+        # Port-based malware fingerprinting
+        open_ports = {s.port for s in profile.services}
+
+        # EternalRocks / WannaCry — SMB open + no SMB signing
+        if {445, 139} & open_ports:
+            # Check if we already flagged SMB signing disabled
+            signing_off = any(
+                'signing' in v.get('desc', '').lower() and 'off' in v.get('desc', '').lower()
+                for v in profile.vulnerabilities
+            )
+            if signing_off:
+                profile.vulnerabilities.append({
+                    'id':       'MALWARE-ETERNALBLUE-CANDIDATE',
+                    'severity': 'CRITICAL',
+                    'desc':     (
+                        'SMB signing disabled + port 445 open — EternalBlue/WannaCry/EternalRocks '
+                        'exploitable. Run: use adsec; set operation vulncheck; run'
+                    ),
+                    'source':  'malware_ioc_scan',
+                    'family':  'WannaCry/EternalRocks/NotPetya',
+                    'cve':     'CVE-2017-0144',
+                    'secv_cmd': 'use adsec\nset operation vulncheck\nset target {ip}\nrun'.format(
+                                  ip=profile.ip),
+                })
+
+        # Cobalt Strike / Beacon default port indicators
+        cs_ports = open_ports & {50050, 2222, 8443}
+        if cs_ports:
+            for p in cs_ports:
+                svc = next((s for s in profile.services if s.port == p), None)
+                banner = (svc.banner or '').lower() if svc else ''
+                if '404' in banner or 'not found' in banner or not banner:
+                    profile.vulnerabilities.append({
+                        'id':       f'MALWARE-CS-BEACON-PORT-{p}',
+                        'severity': 'CRITICAL',
+                        'desc':     (
+                            f'Port {p} open with empty/404 response — Cobalt Strike team server '
+                            f'or beacon listener signature (default CS ports)'
+                        ),
+                        'source':  'malware_ioc_scan',
+                        'family':  'CobaltStrike',
+                    })
+
+        # Metasploit handler signatures (4444, 4445, 9999, 6666)
+        msf_ports = open_ports & {4444, 4445, 9999, 6666}
+        if msf_ports:
+            for p in msf_ports:
+                profile.vulnerabilities.append({
+                    'id':       f'MALWARE-MSF-HANDLER-{p}',
+                    'severity': 'CRITICAL',
+                    'desc':     (
+                        f'Port {p} open — common Metasploit/msfvenom handler port; '
+                        f'possible reverse shell listener or implant C2'
+                    ),
+                    'source':  'malware_ioc_scan',
+                    'family':  'Metasploit',
+                    'secv_cmd': (
+                        f'use revshell\nset operation handler\nset lport {p}\nrun'
+                    ),
+                })
+
+        # PSEXEC indicator — 445 open + high ephemeral dynamic ports
+        dyn_ports = {p for p in open_ports if 49152 <= p <= 49200}
+        if 445 in open_ports and len(dyn_ports) >= 3:
+            profile.vulnerabilities.append({
+                'id':       'MALWARE-PSEXEC-PATTERN',
+                'severity': 'HIGH',
+                'desc':     (
+                    f'SMB + multiple dynamic RPC ports open ({sorted(dyn_ports)[:3]}) — '
+                    f'PsExec-style lateral movement pattern (NotPetya/EternalRocks/impacket)'
+                ),
+                'source':   'malware_ioc_scan',
+                'family':   'PsExec/NotPetya',
+                'secv_cmd': (
+                    f'use winadsec\nset operation exec\nset target {profile.ip}\nrun'
+                ),
+            })
+
+        # ── Windows exploit candidate detection ────────────────────────────────
+        # BlueHammer: WD RPC on ncalrpc — exposed as port 135 (RPC endpoint mapper) + WinRM 5985
+        if 135 in open_ports and 5985 in open_ports:
+            profile.vulnerabilities.append({
+                'id':       'BLUEHAMMER-CANDIDATE',
+                'severity': 'HIGH',
+                'desc':     (
+                    'RPC endpoint mapper (135) + WinRM (5985) open — host accessible via Windows '
+                    'Defender internal RPC (UUID c503f532-443a-4c69-8300-ccd1fbdb3839); '
+                    'potential BlueHammer WD signature hollowing target. '
+                    'Hunt: use winadsec; set operation hunt_defender_evade; run'
+                ),
+                'source':  'malware_ioc_scan',
+                'family':  'BlueHammer-WD-RPC',
+                'secv_cmd': f'use winadsec\nset operation hunt_defender_evade\nset target {profile.ip}\nrun',
+            })
+
+        # RedSun: Cloud-tag TOCTOU requires AV + writable user tmp — SMB + 135 + no signing
+        if 135 in open_ports and 445 in open_ports:
+            no_signing = any(
+                'signing' in v.get('desc', '').lower() and 'off' in v.get('desc', '').lower()
+                for v in profile.vulnerabilities
+            )
+            if no_signing:
+                profile.vulnerabilities.append({
+                    'id':       'REDSUN-CANDIDATE',
+                    'severity': 'HIGH',
+                    'desc':     (
+                        'SMB no-signing + RPC open — RedSun cloud-tag TOCTOU LPE applicable: '
+                        'WD rewrites EICAR-tagged file to System32 via directory junction race, '
+                        'writing attacker-controlled TieringEngineService.exe with SYSTEM context. '
+                        'Hunt: use winadsec; set operation hunt_defender_evade; run'
+                    ),
+                    'source':  'malware_ioc_scan',
+                    'family':  'RedSun-LPE',
+                    'secv_cmd': f'use winadsec\nset operation hunt_defender_evade\nset target {profile.ip}\nrun',
+                })
+
+        # UnDefend: WD DoS indicator — WUDO port 7680 on same Windows host suggests delivery vector
+        if 7680 in open_ports:
+            profile.vulnerabilities.append({
+                'id':       'UNDEFEND-DELIVERY',
+                'severity': 'MEDIUM',
+                'desc':     (
+                    'Port 7680 (WUDO - Windows Update Delivery Optimization) open — '
+                    'Windows host confirmed. UnDefend WD DoS requires no admin; can lock '
+                    'mpavbase.vdm to block signature updates from standard user context. '
+                    'Hunt: use winadsec; set operation hunt_defender_evade; run'
+                ),
+                'source':  'malware_ioc_scan',
+                'family':  'UnDefend-WD-DoS',
+                'secv_cmd': f'use winadsec\nset operation hunt_defender_evade\nset target {profile.ip}\nrun',
+            })
+
+        # GreenPlasma/MiniPlasma: CTFMON section EoP — Windows 11 indicator (no specific port,
+        # but RPC 135 + absence of legacy services suggests modern OS)
+        if 135 in open_ports and not ({139, 23, 21, 25} & open_ports):
+            profile.vulnerabilities.append({
+                'id':       'GREENPLASMA-CANDIDATE',
+                'severity': 'HIGH',
+                'desc':     (
+                    'Modern Windows host (RPC 135, no legacy services) — GreenPlasma CTFMON '
+                    'arbitrary section EoP and MiniPlasma CVE-2020-17103 (cldflt race, unpatched '
+                    'per current security research) applicable. Both allow standard-user → SYSTEM escalation. '
+                    'Hunt: use winadsec; set operation hunt_cloud_files_eop; run'
+                ),
+                'source':  'malware_ioc_scan',
+                'family':  'GreenPlasma+MiniPlasma-EoP',
+                'cve':     'CVE-2020-17103',
+                'secv_cmd': f'use winadsec\nset operation hunt_cloud_files_eop\nset target {profile.ip}\nrun',
+            })
+
+        # YellowKey: BitLocker bypass — any Windows host that's likely Win11 (WUDO + RPC)
+        if 7680 in open_ports and 135 in open_ports:
+            profile.vulnerabilities.append({
+                'id':       'YELLOWKEY-CANDIDATE',
+                'severity': 'CRITICAL',
+                'desc':     (
+                    'Windows 11 host (WUDO 7680 + RPC 135) — YellowKey BitLocker bypass applicable: '
+                    'copy FsTx/ to USB System Volume Information or EFI partition, reboot to WinRE '
+                    'with SHIFT+Restart+CTRL to spawn unrestricted SYSTEM shell bypassing BitLocker. '
+                    'Windows 11/Server 2022/2025 only. '
+                    'Hunt: use winadsec; set operation hunt_bitlocker_bypass; run'
+                ),
+                'source':  'malware_ioc_scan',
+                'family':  'YellowKey-BitLocker',
+                'secv_cmd': f'use winadsec\nset operation hunt_bitlocker_bypass\nset target {profile.ip}\nrun',
+            })
 
     def _probe_mqtt(self, ip: str) -> Dict:
         """Send MQTT CONNECT packet and check CONNACK response"""
@@ -3378,6 +4915,7 @@ TOOLS (all concurrent):
   gobuster/ffuf Web directory brute-force on discovered HTTP ports
   searchsploit  ExploitDB mapping per service/version
   Shodan        External threat intelligence  [requires API key]
+  Censys        External host intelligence  [requires API ID + secret]
   ipinfo.io     ASN / country / org lookup
   DNS/WHOIS     Forward, reverse, MX, NS, TXT records
   NetBIOS/SMB   NetBIOS name + share enumeration (ports 139/445)
@@ -3403,7 +4941,9 @@ PARAMETERS:
   os_detection    true | false                               (default: false)
   vuln_scripts    Run nmap vuln NSE scripts                  (default: false)
   nse_profile     Custom NSE script list (e.g. vuln,exploit,auth,brute)
-  shodan_key      Shodan API key
+  shodan_key      Shodan API key (enriches public IPs with vuln/port/org data)
+  censys_id       Censys API ID   (env: CENSYS_API_ID)
+  censys_secret   Censys API Secret (env: CENSYS_API_SECRET)
   interface       NIC for ARP scan
   exclude         Comma-separated IPs to skip
   passive_only    DNS/WHOIS/Shodan only, no active scan
@@ -3456,6 +4996,10 @@ OUTPUT (JSON):
   ssl_domains[]   CN + SANs extracted from TLS certs (CDN noise filtered)
   vulnerabilities[] Host-level findings: ICS exposure, MQTT no-auth, RTSP no-auth, SNMP defaults
   shodan{}        Shodan data per host (vulns, ports, tags, org)
+  censys{}        Censys data per host (ports, CVEs, services, org, country)
+  android_module_scan{}  Full Android triage when device detected: patch_gap,
+                  attack_surface, chain_matrix, bt_targets, next_actions,
+                  module_handoff — ready to paste into android_pentest
   dns_records{}   Forward/reverse/MX/NS/TXT
   asn/country     ASN, org, country, city (MaxMind GeoIP2 if DB present, else ipinfo.io)
   risk_score      0-100 per host with level: LOW/MEDIUM/HIGH/CRITICAL
