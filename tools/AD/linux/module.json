@@ -336,7 +336,8 @@
       "secrets": "Dump SAM/LSA/NTDS via secretsdump \u2014 domain admin or local admin required",
       "exec": "Run arbitrary command on target via WMI (impacket-wmiexec or pure-impacket native fallback)",
       "privesc_check": "Drop+run PowerShell privesc auditor: unquoted services, writable binaries, AlwaysInstallElevated, UAC, token privs, stored creds, writable PATH, autoruns",
-      "auto": "Pipeline: discover \u2192 vulncheck \u2192 users \u2192 groups \u2192 shares \u2192 passpol \u2192 asreproast (+ kerberoast/bloodhound/privesc_check if creds) \u2192 loot"
+      "hunt": "LDAP threat hunting: new computer accounts (NotPetya lateral move), unusual SPNs (Kerberoasting prep/malware SAs), AdminSDHolder modifications, stale privileged accounts, rogue DCs (DCShadow), weak account policy \u2014 derived from OperationDianxun/NotPetya/EternalRocks analysis",
+      "auto": "Pipeline: discover \u2192 vulncheck \u2192 users \u2192 groups \u2192 shares \u2192 passpol \u2192 asreproast (+ kerberoast/bloodhound/privesc_check/hunt if creds) \u2192 loot"
     },
     "safety_features": [
       "\ud83d\udd12 Lockout-aware spraying \u2014 pulls passpol first, leaves 2-attempt buffer below threshold",

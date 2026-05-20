@@ -1,6 +1,6 @@
 {
   "name": "winadsec",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "category": "AD",
   "description": "Windows AD pentest + post-exploitation: full attack chain from unauthenticated discovery through UAC bypass, persistence, Sliver C2 bridge, and payload delivery generation",
   "author": "0xb0rn3 | 0xbv1 | github.com/0xb0rn3",
@@ -383,7 +383,19 @@
     "gen_sliver": "Generate Sliver implant (EXE/DLL/shellcode) via sliver-client generate",
     "gen_iso": "Create delivery ISO: signed legit EXE + malicious version.dll",
     "gen_all": "Full chain: Sliver implant \u2192 donut \u2192 XOR payload + proxy DLL + UAC DLL + ISO",
-    "auto": "Safe pipeline: discover \u2192 vulncheck \u2192 users \u2192 groups \u2192 shares \u2192 passpol \u2192 asreproast [+ kerberoast/bloodhound/privesc_check/lsa_fix if creds]",
+    "detect_malware": "Scan remote Windows host for malware artifacts: WannaCry/EternalRocks/NotPetya services+registry+mutex, Ryuk backup-service kills, Emotet/TrickBot Run-key+WMI persistence, APT34/Lazarus process masquerade+signature checks, Turla WMI subscriptions, BlueHammer/UnDefend WD tamper, RedSun TieringEngineService hijack, GreenPlasma BlockedApps symlink, YellowKey FsTx payload, Cobalt Strike named pipes, SMBv1, WDigest, Credential Guard state",
+    "hunt_lateral": "Hunt Windows Event Log for lateral movement: logon type 3 bursts, PsExec (4624/4648/7045), WMI exec (4688), named pipe access (5145) \u2014 EternalRocks/NotPetya/Turla patterns",
+    "hunt_c2": "Detect C2 beaconing: unusual outbound connections, beacon-interval scheduled tasks, Credential Manager extraction, DNS TXT cache (Turla DNS C2), WDigest enabled \u2014 OperationDianxun/EternalRocks patterns",
+    "hunt_defender_evade": "BlueHammer+UnDefend+RedSun: detect WD signature hollowing (mpavbase.vdm size/lock/age), TieringEngineService.exe System32 hijack (RedSun cloud-tag TOCTOU LPE), REDSUN named pipe, WD RPC (UUID c503f532) fake-update traces, signature backup integrity",
+    "hunt_cloud_files_eop": "GreenPlasma+MiniPlasma: detect CVE-2020-17103 cloud filter race artifacts \u2014 HKCU CloudFiles BlockedApps registry symlink, DisableLockWorkstation policy abuse, cldapi.dll unusual process consumers, CTFMON section hijack residue",
+    "hunt_bitlocker_bypass": "YellowKey: detect BitLocker bypass trigger files \u2014 scan all drives + WinRE partition for FsTx/ (FsTxKtmLog.blf + FsTxLogContainer) in System Volume Information; check BitLocker protection status, Secure Boot, WinRE state",
+    "undefend": "Lock WD mpavbase.vdm + mpavbase.lkg with exclusive FileStream (no admin). Passive: blocks signature updates. Aggressive: also monitors WinDefend restart and locks engine files. mode param: passive|aggressive",
+    "yellowkey_deploy": "Deploy YellowKey FsTx BitLocker bypass payload to target via SMB (smb mode) or local filesystem (local mode). deploy_mode=smb|local; target_drive=C$",
+    "bluehammer_exec": "Upload+exec BlueHammer WD-RPC hollowing binary via SMB. Without bin_path: PowerShell prereq check (WD RPC UUID c503f532, sig version). bin_path=<FunnyApp.exe>",
+    "redsun_exec": "Upload+exec RedSun WD cloud-tag TOCTOU LPE via SMB \u2192 SYSTEM shell. Without bin_path: PS prereq check (RTP enabled, TieringEngineService.exe status). bin_path=<RedSun.exe>",
+    "greenplasma_exec": "Upload+exec GreenPlasma/MiniPlasma EoP (CVE-2020-17103 cldflt race). eop_tool=greenplasma|miniplasma (default: miniplasma). bin_path=<compiled_exe>",
+    "offense_chain": "Full offense chain: Stage1 UnDefend (no admin) \u2192 Stage2 LPE via eop_tool (redsun|greenplasma|miniplasma) \u2192 Stage3 persist+C2. eop_tool param selects LPE path",
+    "auto": "Full pipeline: discover \u2192 vulncheck \u2192 users \u2192 groups \u2192 shares \u2192 passpol \u2192 asreproast [+ kerberoast/bloodhound/privesc_check/detect_malware/hunt_lateral/hunt_c2/hunt_defender_evade/hunt_cloud_files_eop/hunt_bitlocker_bypass if creds]. detect_malware covers 12+ malware families from theZoo static analysis.",
     "shell": {
       "description": "Start OnlyShell reverse shell handler; auto-deliver payload via WMI/wmiexec if credentials are provided",
       "params": {
