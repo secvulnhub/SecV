@@ -18,7 +18,7 @@ import (
 	"github.com/chzyer/readline"
 )
 
-const VERSION = "2.4.2"
+const VERSION = "2.4.3"
 const CODENAME = "tauri"
 
 // ANSI colors
@@ -284,6 +284,8 @@ type SecV struct {
 	modules       []*Module
 	currentModule *Module
 	params        map[string]string
+	globalParams  map[string]string // survive back/use — set with setg
+	lastTarget    string            // reused by bare `run` with no arg
 	secvHome      string
 	toolsDir      string
 	cacheDir      string
@@ -327,13 +329,14 @@ func NewSecV() *SecV {
 	_ = os.MkdirAll(cacheDir, 0750)
 	wd, _ := os.Getwd()
 	return &SecV{
-		modules:  []*Module{},
-		params:   make(map[string]string),
-		secvHome: home,
-		toolsDir: filepath.Join(home, "tools"),
-		cacheDir: cacheDir,
-		workDir:  wd,
-		distro:   detectDistro(),
+		modules:      []*Module{},
+		params:       make(map[string]string),
+		globalParams: make(map[string]string),
+		secvHome:     home,
+		toolsDir:     filepath.Join(home, "tools"),
+		cacheDir:     cacheDir,
+		workDir:      wd,
+		distro:       detectDistro(),
 	}
 }
 
@@ -422,6 +425,20 @@ func (s *SecV) SetParam(key, value string) {
 	}
 	s.params[key] = value
 	fmt.Printf("  %s%s%s → %s%s%s\n", BOLD, key, RESET, CYAN, value, RESET)
+}
+
+func (s *SecV) SetGlobal(key, value string) {
+	s.globalParams[key] = value
+	fmt.Printf("  %s%s%s -> %s%s%s %s(global)%s\n", BOLD, key, RESET, CYAN, value, RESET, DIM, RESET)
+}
+
+func (s *SecV) UnsetGlobal(key string) {
+	if _, ok := s.globalParams[key]; ok {
+		delete(s.globalParams, key)
+		fmt.Printf("%s%s %s (global)%s\n", GREEN, CHECK, key, RESET)
+	} else {
+		fmt.Printf("%s%s '%s' not set globally%s\n", YELLOW, WARNING, key, RESET)
+	}
 }
 
 func (s *SecV) UnsetParam(key string) {
@@ -555,17 +572,50 @@ func renderFindings(output []byte) {
 	fmt.Printf("\n  %s\n", summary)
 }
 
+func (s *SecV) currentModuleParamNames() []string {
+	if s.currentModule == nil {
+		return nil
+	}
+	m := s.currentModule
+	var names []string
+	if m.Help != nil {
+		for pname := range m.Help.Parameters {
+			names = append(names, pname)
+		}
+	} else {
+		for k := range m.Inputs {
+			names = append(names, k)
+		}
+	}
+	return names
+}
+
 func (s *SecV) Run(target string) error {
 	if s.currentModule == nil {
 		return fmt.Errorf("no module loaded")
 	}
 	if target == "" {
-		return fmt.Errorf("usage: run <target>")
+		if s.lastTarget != "" {
+			target = s.lastTarget
+			fmt.Printf("%s  reusing target: %s%s\n", DIM, target, RESET)
+		} else {
+			return fmt.Errorf("usage: run <target>")
+		}
+	}
+	s.lastTarget = target
+
+	// Module params override global params
+	merged := make(map[string]string)
+	for k, v := range s.globalParams {
+		merged[k] = v
+	}
+	for k, v := range s.params {
+		merged[k] = v
 	}
 
 	ctx := map[string]interface{}{
 		"target": target,
-		"params": s.params,
+		"params": merged,
 	}
 	jsonData, err := json.Marshal(ctx)
 	if err != nil {
@@ -781,7 +831,15 @@ func (s *SecV) ShowOptions() {
 		}
 	}
 
-	fmt.Printf("\n%s  set <param> <value>  ·  run <target>  ·  help module%s\n\n", DIM, RESET)
+	// Global params
+	if len(s.globalParams) > 0 {
+		printSection("global (setg)")
+		for k, v := range s.globalParams {
+			fmt.Printf("  %s%-20s%s %s%s%s\n", BOLD, k, RESET, CYAN, v, RESET)
+		}
+	}
+
+	fmt.Printf("\n%s  set <param> <value>  |  setg <param> <value>  |  run <target>  |  help module%s\n\n", DIM, RESET)
 }
 
 func (s *SecV) ShowInfo(moduleName string) {
@@ -1020,7 +1078,10 @@ func (s *SecV) ShowHelp(topic string) {
 		{"config", [][]string{
 			{"set <param> <value>", "set a module parameter"},
 			{"unset <param>", "clear a parameter"},
-			{"show options", "list all params (required marked in red)"},
+			{"setg <param> <value>", "set a global param (survives back/use)"},
+			{"unsetg <param>", "clear a global param"},
+			{"show options  /  options", "list all params (required marked in red)"},
+			{"show global", "list all global params"},
 		}},
 		{"run", [][]string{
 			{"run <target>", "execute the loaded module against target"},
@@ -1402,12 +1463,31 @@ func (s *SecV) buildCompleter() *readline.PrefixCompleter {
 		),
 		readline.PcItem("back"),
 		readline.PcItem("reload"),
-		readline.PcItem("set"),
-		readline.PcItem("unset"),
+		readline.PcItem("set",
+			readline.PcItemDynamic(func(_ string) []string { return s.currentModuleParamNames() }),
+		),
+		readline.PcItem("unset",
+			readline.PcItemDynamic(func(_ string) []string { return s.currentModuleParamNames() }),
+		),
+		readline.PcItem("setg",
+			readline.PcItemDynamic(func(_ string) []string { return s.currentModuleParamNames() }),
+		),
+		readline.PcItem("unsetg",
+			readline.PcItemDynamic(func(_ string) []string {
+				names := make([]string, 0, len(s.globalParams))
+				for k := range s.globalParams {
+					names = append(names, k)
+				}
+				return names
+			}),
+		),
 		readline.PcItem("run"),
+		readline.PcItem("options"),
+		readline.PcItem("modules"),
 		readline.PcItem("show",
 			readline.PcItem("modules"),
 			readline.PcItem("options"),
+			readline.PcItem("global"),
 		),
 		readline.PcItem("info",
 			readline.PcItemDynamic(func(_ string) []string { return s.moduleNames() }),
@@ -1684,6 +1764,10 @@ func main() {
 			} else {
 				if err := secv.UseModule(args[0]); err != nil {
 					fmt.Printf("%s%s %v%s\n", RED, CROSS, err, RESET)
+				} else {
+					// Rebuild completer so `set <Tab>` shows this module's params
+					completer = secv.buildCompleter()
+					rl.Config.AutoComplete = completer
 				}
 			}
 
@@ -1705,21 +1789,52 @@ func main() {
 			}
 
 		case "run":
-			if len(args) == 0 {
-				fmt.Printf("%srun <target>%s\n", DIM, RESET)
-			} else if err := secv.Run(args[0]); err != nil {
-				// error already printed inside Run
+			target := ""
+			if len(args) > 0 {
+				target = args[0]
 			}
+			if err := secv.Run(target); err != nil {
+				fmt.Printf("%s%s %v%s\n", RED, CROSS, err, RESET)
+			}
+
+		case "setg":
+			if len(args) < 2 {
+				fmt.Printf("%ssetg <param> <value>%s\n", DIM, RESET)
+			} else {
+				secv.SetGlobal(args[0], strings.Join(args[1:], " "))
+			}
+
+		case "unsetg":
+			if len(args) == 0 {
+				fmt.Printf("%sunsetg <param>%s\n", DIM, RESET)
+			} else {
+				secv.UnsetGlobal(args[0])
+			}
+
+		case "options":
+			secv.ShowOptions()
+
+		case "modules":
+			secv.ShowModules()
 
 		case "show":
 			if len(args) == 0 {
-				fmt.Printf("%sshow modules | options%s\n", DIM, RESET)
+				fmt.Printf("%sshow modules | options | global%s\n", DIM, RESET)
 			} else {
 				switch args[0] {
 				case "modules":
 					secv.ShowModules()
 				case "options":
 					secv.ShowOptions()
+				case "global":
+					if len(secv.globalParams) == 0 {
+						fmt.Printf("%s  no global params set%s\n", DIM, RESET)
+					} else {
+						fmt.Printf("\n%sglobal params%s\n", BOLD, RESET)
+						for k, v := range secv.globalParams {
+							fmt.Printf("  %s%-20s%s %s%s%s\n", BOLD, k, RESET, CYAN, v, RESET)
+						}
+					}
 				default:
 					fmt.Printf("%sunknown: show %s%s\n", DIM, args[0], RESET)
 				}
