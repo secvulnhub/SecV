@@ -291,8 +291,9 @@ type SecV struct {
 	cacheDir      string
 	workDir       string
 	distro        distroInfo
-	msfToken      string        // authenticated MSF RPC token
-	msfCfg        *msfRPCConfig // loaded from ~/.secv/msf_rpc.json
+	suggEng       *suggestionEngine // fish-style suggestion engine
+	msfToken      string            // authenticated MSF RPC token
+	msfCfg        *msfRPCConfig     // loaded from ~/.secv/msf_rpc.json
 }
 
 // resolveSecvHome returns the directory that contains tools/ and update.py.
@@ -1373,6 +1374,154 @@ func CAPS_HAS(tool string) bool {
 }
 
 // ============================================================================
+// Fish-style suggestion engine
+// ============================================================================
+
+type suggestionEngine struct {
+	s              *SecV
+	history        []string // in-memory, most-recent first
+	current        string   // best suggestion for what the user is currently typing
+	nextSuggestion string   // predicted next command (shown before user starts typing)
+}
+
+func newSuggestionEngine(s *SecV, historyFile string) *suggestionEngine {
+	eng := &suggestionEngine{s: s}
+	// Load history from readline's history file (most recent last in file, so reverse)
+	if data, err := os.ReadFile(historyFile); err == nil {
+		lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+		for i := len(lines) - 1; i >= 0; i-- {
+			if l := strings.TrimSpace(lines[i]); l != "" {
+				eng.history = append(eng.history, l)
+			}
+		}
+	}
+	return eng
+}
+
+func (e *suggestionEngine) addHistory(line string) {
+	if line == "" {
+		return
+	}
+	e.history = append([]string{line}, e.history...)
+	if len(e.history) > 1000 {
+		e.history = e.history[:1000]
+	}
+}
+
+// suggest returns the best completion for what the user has typed so far.
+func (e *suggestionEngine) suggest(input string) string {
+	if input == "" {
+		return ""
+	}
+	// History search — most recent match wins
+	for _, h := range e.history {
+		if strings.HasPrefix(h, input) && h != input {
+			return h
+		}
+	}
+	// Contextual patterns
+	parts := strings.Fields(input)
+	if len(parts) == 0 {
+		return ""
+	}
+	cmd := parts[0]
+	switch {
+	case cmd == "run" && len(parts) == 1 && e.s.lastTarget != "":
+		return "run " + e.s.lastTarget
+	case cmd == "set" && len(parts) >= 2 && parts[1] == "operation" && len(parts) == 2:
+		if e.s.currentModule != nil {
+			for op := range e.s.currentModule.Operations {
+				return "set operation " + op
+			}
+		}
+	case cmd == "use" && len(parts) == 1:
+		if names := e.s.moduleNames(); len(names) > 0 {
+			return "use " + names[0]
+		}
+	case cmd == "show" && len(parts) == 1:
+		return "show options"
+	case cmd == "help" && len(parts) == 1:
+		return "help module"
+	}
+	return ""
+}
+
+// onCompleted is called after each command executes — predicts the next logical command.
+func (e *suggestionEngine) onCompleted(cmd string) {
+	parts := strings.Fields(cmd)
+	if len(parts) == 0 {
+		e.nextSuggestion = ""
+		return
+	}
+	switch parts[0] {
+	case "use":
+		e.nextSuggestion = "show options"
+	case "show":
+		if len(parts) > 1 && parts[1] == "options" {
+			if e.s.lastTarget != "" {
+				e.nextSuggestion = "run " + e.s.lastTarget
+			} else {
+				e.nextSuggestion = "set operation "
+			}
+		} else {
+			e.nextSuggestion = "use " + func() string {
+				if names := e.s.moduleNames(); len(names) > 0 {
+					return names[0]
+				}
+				return "<module>"
+			}()
+		}
+	case "set":
+		if e.s.lastTarget != "" {
+			e.nextSuggestion = "run " + e.s.lastTarget
+		} else {
+			e.nextSuggestion = ""
+		}
+	case "setg":
+		e.nextSuggestion = ""
+	case "run":
+		e.nextSuggestion = "show options"
+	case "back":
+		e.nextSuggestion = "use " + func() string {
+			if names := e.s.moduleNames(); len(names) > 0 {
+				return names[0]
+			}
+			return "<module>"
+		}()
+	default:
+		e.nextSuggestion = ""
+	}
+}
+
+// fishListener implements readline.Listener — Ctrl+F accepts the current suggestion.
+type fishListener struct {
+	eng *suggestionEngine
+}
+
+func (f *fishListener) OnChange(line []rune, pos int, key rune) ([]rune, int, bool) {
+	input := string(line[:pos])
+
+	// Ctrl+F (6) or Ctrl+E (5): accept suggestion
+	if key == 6 || key == 5 {
+		suggestion := f.eng.current
+		// At empty input, fall back to next-command prediction
+		if suggestion == "" && input == "" {
+			suggestion = f.eng.nextSuggestion
+		}
+		if suggestion != "" && strings.HasPrefix(suggestion, input) && suggestion != input {
+			f.eng.current = ""
+			f.eng.nextSuggestion = ""
+			newLine := []rune(suggestion)
+			return newLine, len(newLine), true
+		}
+	}
+
+	// Update live suggestion on every keystroke
+	f.eng.current = f.eng.suggest(input)
+	return nil, 0, false
+}
+
+// ============================================================================
 // Linux shell passthrough
 // ============================================================================
 
@@ -1606,16 +1755,25 @@ func (s *SecV) promptHint() {
 		}
 	}
 
-	statusIcon := GREEN + CHECK + RESET
 	statusMsg := ""
 	if missingReq > 0 {
-		statusIcon = YELLOW + WARNING + RESET
 		statusMsg = fmt.Sprintf("  %s%d required unset%s", YELLOW, missingReq, RESET)
 	}
 
 	fmt.Printf("%s  %d params:%s  %s%s\n",
 		DIM, len(s.params), RESET, hint, statusMsg)
-	_ = statusIcon // included in hint line above via icon choice
+
+	// Fish-style suggestion: show next predicted command or current best match
+	if s.suggEng != nil {
+		suggestion := s.suggEng.nextSuggestion
+		if suggestion == "" {
+			suggestion = s.suggEng.current
+		}
+		if suggestion != "" {
+			fmt.Printf("%s  -> %s%s%s  %sCtrl+F to accept%s\n",
+				DIM, CYAN, suggestion, RESET, DIM, RESET)
+		}
+	}
 }
 
 func (s *SecV) prompt() string {
@@ -1726,15 +1884,21 @@ func main() {
 	fmt.Printf("%s%s %d modules%s  %stype 'help' for commands%s\n\n",
 		GREEN, CHECK, len(secv.modules), RESET, DIM, RESET)
 
-	// Build readline instance with tab completion
+	// Build suggestion engine (fish-style) and wire it up
+	histFile := filepath.Join(secv.cacheDir, ".history")
+	secv.suggEng = newSuggestionEngine(secv, histFile)
+	fish := &fishListener{eng: secv.suggEng}
+
+	// Build readline instance with tab completion + fish listener
 	completer := secv.buildCompleter()
 	rl, err := readline.NewEx(&readline.Config{
-		Prompt:              secv.prompt(),
-		HistoryFile:         filepath.Join(secv.cacheDir, ".history"),
-		AutoComplete:        completer,
-		InterruptPrompt:     "^C",
-		EOFPrompt:           "exit",
-		HistorySearchFold:   true,
+		Prompt:            secv.prompt(),
+		HistoryFile:       histFile,
+		AutoComplete:      completer,
+		InterruptPrompt:   "^C",
+		EOFPrompt:         "exit",
+		HistorySearchFold: true,
+		Listener:          fish,
 	})
 	if err != nil {
 		panic(err)
@@ -1934,5 +2098,9 @@ func main() {
 				fmt.Printf("%s? %s  (type 'help')%s\n", YELLOW, cmd, RESET)
 			}
 		}
+
+		// Update fish-style history and next-command prediction
+		secv.suggEng.addHistory(line)
+		secv.suggEng.onCompleted(line)
 	}
 }
