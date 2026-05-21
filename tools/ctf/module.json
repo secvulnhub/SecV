@@ -2,7 +2,7 @@
   "name": "ctfpwn",
   "version": "1.2.0",
   "category": "ctf",
-  "description": "CTF autopwn module \u2014 syncs github.com/0xb0rn3/CTFs, lists all rooms by platform, runs standalone exploitation scripts for TryHackMe and HackTheBox, auto-extracts flags, saves output to ~/ZX01C/CTF/<room>/",
+  "description": "CTF autopwn module — syncs github.com/0xb0rn3/CTFs, lists all rooms by platform, runs standalone exploitation scripts for TryHackMe and HackTheBox, auto-extracts flags, saves output to ~/ZX01C/CTF/<room>/",
   "author": "dezthejackal | 0xb0rn3",
   "executable": "python3 ctfpwn.py",
   "dependencies": [
@@ -10,11 +10,11 @@
     "git"
   ],
   "optional_dependencies": {
-    "nmap": "Port scanning \u2014 used by most autopwn scripts",
-    "gobuster": "Directory enumeration \u2014 used by web-based CTF scripts",
-    "sshpass": "Automated SSH login \u2014 used by privilege escalation scripts",
+    "nmap": "Port scanning — used by most autopwn scripts",
+    "gobuster": "Directory enumeration — used by web-based CTF scripts",
+    "sshpass": "Automated SSH login — used by privilege escalation scripts",
     "node": "JavaScript exploit execution",
-    "hydra": "Brute force \u2014 used by some rooms"
+    "hydra": "Brute force — used by some rooms"
   },
   "help": {
     "description": "Pulls the latest autopwn scripts from 0xb0rn3/CTFs, presents them in a structured list, and runs them against a target machine. Supports TryHackMe and HackTheBox rooms. Automatically detects the latest added CTF, extracts flags from output, and saves everything to ~/ZX01C/CTF/<room>/",
@@ -33,13 +33,13 @@
         ],
         "default": "list",
         "examples": [
-          "list   \u2014 list all CTFs sorted newest first",
-          "pull   \u2014 clone/update repo + sync all rooms to ~/ZX01C/CTF/",
-          "latest \u2014 show newest CTF; run its script if target IP provided",
-          "run    \u2014 run a specific room's autopwn against target IP",
-          "info   \u2014 show README/writeup for a room",
-          "search \u2014 full-text search across room names, writeups, scripts",
-          "shell  \u2014 generate payloads for all 30+ reverse shell types; start handler"
+          "list   — list all CTFs sorted newest first",
+          "pull   — clone/update repo + sync all rooms to ~/ZX01C/CTF/",
+          "latest — show newest CTF; run its script if target IP provided",
+          "run    — run a specific room's autopwn against target IP",
+          "info   — show README/writeup for a room",
+          "search — full-text search across room names, writeups, scripts",
+          "shell  — generate payloads for all 30+ reverse shell types; start handler"
         ]
       },
       "ctf": {
@@ -64,7 +64,7 @@
         ]
       },
       "query": {
-        "description": "Search term for 'search' operation \u2014 searched across room names, writeups, and scripts",
+        "description": "Search term for 'search' operation — searched across room names, writeups, and scripts",
         "type": "string",
         "required": false,
         "examples": [
@@ -184,7 +184,14 @@
       "Flags are automatically extracted from output (THM{}, HTB{}, flag{} patterns)",
       "Scripts accept <target_ip> as first positional argument",
       "Connect to the platform VPN before running any script",
-      "search scans room names, README writeups, AND the exploit scripts themselves"
+      "search scans room names, README writeups, AND the exploit scripts themselves",
+      "[v2.4.3] setg <param> <value> - sets a global parameter that persists across all module switches and back/use commands",
+      "[v2.4.3] unsetg <param> - clears a global parameter",
+      "[v2.4.3] show global - shows all currently set global parameters",
+      "[v2.4.3] Bare run (no target) reuses the last target automatically",
+      "[v2.4.3] options - shortcut for show options | modules - shortcut for show modules",
+      "[v2.4.3] Tab after set shows all parameter names for the loaded module",
+      "[v2.4.3] Fish-style shell: predicted next command shown above prompt, Ctrl+F to accept suggestion"
     ],
     "rooms": {
       "THM": [

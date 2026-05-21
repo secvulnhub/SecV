@@ -5,18 +5,16 @@
   "description": "Full-stack web offensive tool: OSINT, headers, CORS, cookies, SQLi (error+time-blind), XSS, CSRF, 403 bypass, open redirect, framework CVEs, WordPress attack surface, WAF fingerprinting, directory discovery, spidering, Google dorks",
   "author": "dezthejackal",
   "executable": "python3 websec.py",
-
-  "dependencies": ["python3"],
-
+  "dependencies": [
+    "python3"
+  ],
   "optional_dependencies": {
     "requests": "Better HTTP handling, session management - pip3 install requests",
     "beautifulsoup4": "HTML parsing for spider/form detection - pip3 install beautifulsoup4",
     "dnspython": "Advanced DNS lookups - pip3 install dnspython"
   },
-
   "help": {
     "description": "A terminal-based web security research tool for bug bounty hunters and security researchers. Covers web OSINT, security header auditing, CORS testing, cookie analysis, directory discovery, SQL injection detection, XSS detection, web spidering, and WAF fingerprinting. Every operation includes educational explanations so users understand what they're doing and why it matters. For authorized testing only.",
-
     "parameters": {
       "operation": {
         "description": "The security testing operation to perform",
@@ -115,7 +113,6 @@
         "default": false
       }
     },
-
     "examples": [
       {
         "description": "Web OSINT - gather everything publicly available (start here)",
@@ -202,7 +199,6 @@
         ]
       }
     ],
-
     "features": [
       "Web OSINT: DNS records, WHOIS, SSL cert inspection, Wayback Machine, crt.sh",
       "Security headers audit: HSTS, CSP, X-Frame-Options, X-Content-Type-Options",
@@ -221,7 +217,6 @@
       "Structured JSON output for integration with other SecV tools",
       "Graceful degradation: works with stdlib only, enhanced with requests/bs4"
     ],
-
     "vulnerability_coverage": {
       "OWASP_A01_Broken_Access_Control": [
         "Open redirect detection",
@@ -256,13 +251,11 @@
         "Technology fingerprinting for CVE correlation"
       ]
     },
-
     "installation_tiers": {
       "basic": "Core functionality with Python stdlib - DNS, WHOIS, SSL, headers, dirs, dork, WAF",
       "standard": "Full functionality with requests - better HTTP, session handling, CORS testing",
       "full": "All features with bs4 - HTML parsing, form detection, spider, XSS/SQLi form testing"
     },
-
     "learning_resources": [
       "PortSwigger Web Security Academy (free): https://portswigger.net/web-security",
       "OWASP Testing Guide: https://owasp.org/www-project-web-security-testing-guide/",
@@ -271,7 +264,6 @@
       "HackTheBox (practice): https://www.hackthebox.com",
       "TryHackMe (learning): https://tryhackme.com"
     ],
-
     "notes": [
       "⚠️  AUTHORIZATION REQUIRED: Only test systems you own or have written permission to test",
       "⚠️  Bug bounty scope: always read the program's scope before testing",
@@ -283,12 +275,17 @@
       "💡 For deep testing, pair with Burp Suite Community (free): manual proxy + repeater",
       "💡 Always try manual testing after automated tools - logic flaws need human eyes",
       "💡 Responsible disclosure: follow the program's rules, report clearly, be patient",
-      "📚 Every operation prints [LEARN] context explaining what we're doing and why"
+      "📚 Every operation prints [LEARN] context explaining what we're doing and why",
+      "[v2.4.3] setg <param> <value> - sets a global parameter that persists across all module switches and back/use commands",
+      "[v2.4.3] unsetg <param> - clears a global parameter",
+      "[v2.4.3] show global - shows all currently set global parameters",
+      "[v2.4.3] Bare run (no target) reuses the last target automatically",
+      "[v2.4.3] options - shortcut for show options | modules - shortcut for show modules",
+      "[v2.4.3] Tab after set shows all parameter names for the loaded module",
+      "[v2.4.3] Fish-style shell: predicted next command shown above prompt, Ctrl+F to accept suggestion"
     ],
-
     "legal_disclaimer": "This tool is designed exclusively for authorized security testing, bug bounty research, and educational purposes. Users must obtain explicit written permission before testing any system they do not own. Unauthorized testing may violate the Computer Fraud and Abuse Act (CFAA), Computer Misuse Act, and similar laws globally. The authors assume no liability for misuse. Always follow responsible disclosure practices and bug bounty program rules."
   },
-
   "inputs": {
     "operation": {
       "type": "string",
@@ -391,7 +388,12 @@
       "description": "PHP payload type for php_payload operation: reverse, webshell, cmd, obfuscated",
       "required": false,
       "default": "reverse",
-      "options": ["reverse", "webshell", "cmd", "obfuscated"]
+      "options": [
+        "reverse",
+        "webshell",
+        "cmd",
+        "obfuscated"
+      ]
     },
     "lhost": {
       "type": "string",
@@ -415,7 +417,12 @@
       "description": "msfvenom payload type for msf_payload operation: php, war, jsp, aspx",
       "required": false,
       "default": "php",
-      "options": ["php", "war", "jsp", "aspx"]
+      "options": [
+        "php",
+        "war",
+        "jsp",
+        "aspx"
+      ]
     },
     "msf_format": {
       "type": "string",
@@ -428,7 +435,12 @@
       "description": "Fuzzing tool to use: auto (detects ffuf→gobuster→dirbuster), ffuf, gobuster, dirbuster, or builtin",
       "required": false,
       "default": "auto",
-      "options": ["auto", "ffuf", "gobuster", "dirbuster"]
+      "options": [
+        "auto",
+        "ffuf",
+        "gobuster",
+        "dirbuster"
+      ]
     },
     "wordlist": {
       "type": "string",
@@ -446,10 +458,13 @@
       "description": "Fuzzing mode: dir (path brute-force), vhost (virtual host discovery), dns (subdomain brute-force)",
       "required": false,
       "default": "dir",
-      "options": ["dir", "vhost", "dns"]
+      "options": [
+        "dir",
+        "vhost",
+        "dns"
+      ]
     }
   },
-
   "outputs": {
     "target": {
       "type": "string",
@@ -472,7 +487,6 @@
       "description": "Count of findings by severity: critical, high, medium, low, info"
     }
   },
-
   "timeout": 300,
   "concurrent": true
 }

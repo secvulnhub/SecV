@@ -5,41 +5,56 @@
   "description": "MAC spoofer with per-interface rotation modes and active connection tracking",
   "author": "0xb0rn3 (oxbv1) - Connection-Preserving Edition",
   "executable": "python3 mac_spoof.py",
-  
   "dependencies": [
     "python3"
   ],
-  
   "optional_dependencies": {
     "psutil": "For connection tracking - pip3 install psutil --user --break-system-packages"
   },
-  
   "help": {
     "description": "MAC spoofer that tracks active TCP connections and rotates MAC addresses with minimal disruption. Supports smart (idle-only), session, periodic, and aggressive rotation modes. Uses locally-administered OUI prefix (02:00:00) with graceful DHCP renewal.",
-    
     "parameters": {
       "iface": {
         "description": "Interface name or comma-separated list",
         "type": "string",
-        "examples": ["wlan0", "eth0", "eth0,wlan0"],
+        "examples": [
+          "wlan0",
+          "eth0",
+          "eth0,wlan0"
+        ],
         "required": false
       },
       "all_up": {
         "description": "If true, select all non-loopback interfaces currently UP",
         "type": "boolean",
-        "options": ["true", "false"],
+        "options": [
+          "true",
+          "false"
+        ],
         "default": "false"
       },
       "action": {
         "description": "Operation to perform",
         "type": "string",
-        "options": ["start", "stop", "status", "vendor", "restore", "history"],
+        "options": [
+          "start",
+          "stop",
+          "status",
+          "vendor",
+          "restore",
+          "history"
+        ],
         "default": "start"
       },
       "mode": {
         "description": "Spoofing mode strategy",
         "type": "string",
-        "options": ["smart", "session", "periodic", "aggressive"],
+        "options": [
+          "smart",
+          "session",
+          "periodic",
+          "aggressive"
+        ],
         "default": "smart",
         "examples": [
           "smart - Changes only when no active connections (safest)",
@@ -53,18 +68,28 @@
         "type": "number",
         "default": "30.0",
         "range": "5.0-3600",
-        "examples": ["30.0", "60.0", "300.0"]
+        "examples": [
+          "30.0",
+          "60.0",
+          "300.0"
+        ]
       },
       "preserve_connections": {
         "description": "Protect active connections from disruption",
         "type": "boolean",
-        "options": ["true", "false"],
+        "options": [
+          "true",
+          "false"
+        ],
         "default": "true"
       },
       "wait_for_quiet": {
         "description": "Wait for connections to close before changing MAC",
         "type": "boolean",
-        "options": ["true", "false"],
+        "options": [
+          "true",
+          "false"
+        ],
         "default": "true"
       },
       "max_wait": {
@@ -76,29 +101,43 @@
       "dry_run": {
         "description": "Preview actions without making changes",
         "type": "boolean",
-        "options": ["true", "false"],
+        "options": [
+          "true",
+          "false"
+        ],
         "default": "false"
       },
       "vendor": {
         "description": "Vendor name for vendor_spoof action (apple, samsung, intel, cisco, dell)",
         "type": "string",
-        "options": ["apple", "samsung", "intel", "cisco", "dell"],
+        "options": [
+          "apple",
+          "samsung",
+          "intel",
+          "cisco",
+          "dell"
+        ],
         "default": ""
       },
       "stealth": {
         "description": "Rotate MAC only on reconnect events instead of a fixed interval",
         "type": "boolean",
-        "options": ["true", "false"],
+        "options": [
+          "true",
+          "false"
+        ],
         "default": "false"
       },
       "persistent": {
         "description": "Write a systemd user service so mac_spoof starts at login",
         "type": "boolean",
-        "options": ["true", "false"],
+        "options": [
+          "true",
+          "false"
+        ],
         "default": "false"
       }
     },
-
     "examples": [
       {
         "description": "Smart mode - safest for daily use",
@@ -168,7 +207,6 @@
         ]
       }
     ],
-    
     "features": [
       "Connection-aware MAC rotation (tracks active TCP connections)",
       "Multiple spoofing modes: smart, session, periodic, aggressive",
@@ -183,7 +221,6 @@
       "Dry-run mode for safe testing",
       "Minimal connection disruption"
     ],
-    
     "modes_explained": {
       "smart": {
         "description": "Safest mode - only changes MAC when interface is idle",
@@ -210,13 +247,11 @@
         "disruption": "High - will break active connections"
       }
     },
-    
     "installation_tiers": {
       "basic": "Full functionality with psutil installed",
       "standard": "Same as basic - no additional dependencies",
       "full": "Same as basic - no additional dependencies"
     },
-    
     "notes": [
       "⚠️  Requires root/sudo privileges for MAC address changes",
       "⚠️  Requires psutil: pip3 install psutil --user --break-system-packages",
@@ -229,10 +264,16 @@
       "💡 Use dry_run to preview behavior before executing",
       "💡 Longer intervals (300+) provide better stability",
       "💡 Check 'total_changes' in status to track rotations",
-      "💡 Stop spoofer cleanly before system shutdown"
+      "💡 Stop spoofer cleanly before system shutdown",
+      "[v2.4.3] setg <param> <value> - sets a global parameter that persists across all module switches and back/use commands",
+      "[v2.4.3] unsetg <param> - clears a global parameter",
+      "[v2.4.3] show global - shows all currently set global parameters",
+      "[v2.4.3] Bare run (no target) reuses the last target automatically",
+      "[v2.4.3] options - shortcut for show options | modules - shortcut for show modules",
+      "[v2.4.3] Tab after set shows all parameter names for the loaded module",
+      "[v2.4.3] Fish-style shell: predicted next command shown above prompt, Ctrl+F to accept suggestion"
     ]
   },
-  
   "inputs": {
     "iface": {
       "type": "string",
@@ -307,7 +348,6 @@
       "default": false
     }
   },
-
   "outputs": {
     "action": {
       "type": "string",
@@ -326,7 +366,6 @@
       "description": "Whether this was a dry run"
     }
   },
-  
   "timeout": 30,
   "concurrent": false
 }

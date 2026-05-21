@@ -5,30 +5,36 @@
   "description": "BadUSB / Rubber Ducky payload encoder: base64-encodes a PowerShell script and wraps it in DuckyScript that opens Run→powershell, then decodes and executes via certutil",
   "author": "malwarekid (contrib) | secV",
   "executable": "python3 badusb.py",
-
-  "dependencies": ["python3"],
+  "dependencies": [
+    "python3"
+  ],
   "optional_dependencies": {},
-
   "help": {
     "description": "Generates a Rubber Ducky / HID attack payload from a PowerShell script. The .ps1 file is base64-encoded (via Python, no certutil needed on the attacker side), then the DuckyScript payload uses Win+R → powershell → certutil to decode and run it on the target. Output is a .txt file ready to flash to a USB Rubber Ducky or any compatible HID device.",
-
     "parameters": {
       "mode": {
         "description": "Operation mode",
         "type": "string",
-        "options": ["generate", "preview", "encode"],
+        "options": [
+          "generate",
+          "preview",
+          "encode"
+        ],
         "default": "generate",
         "examples": [
-          "generate — encode .ps1 to DuckyScript payload file",
-          "preview  — same as generate but also prints the payload to stdout",
-          "encode   — return only the base64 of the .ps1 (no DuckyScript wrapper)"
+          "generate - encode .ps1 to DuckyScript payload file",
+          "preview  - same as generate but also prints the payload to stdout",
+          "encode   - return only the base64 of the .ps1 (no DuckyScript wrapper)"
         ]
       },
       "file_path": {
         "description": "Path to the .ps1 PowerShell script to encode",
         "type": "string",
         "required": true,
-        "examples": ["/tmp/rev.ps1", "~/payloads/stager.ps1"]
+        "examples": [
+          "/tmp/rev.ps1",
+          "~/payloads/stager.ps1"
+        ]
       },
       "output": {
         "description": "Output file path for the DuckyScript payload (default: ~/.secv/badusb/<stem>_badusb.txt)",
@@ -57,7 +63,7 @@
         "required": false
       },
       "delay_after_ps": {
-        "description": "DELAY (ms) after PowerShell window opens — increase on slow targets",
+        "description": "DELAY (ms) after PowerShell window opens - increase on slow targets",
         "type": "integer",
         "required": false,
         "default": 500
@@ -69,7 +75,6 @@
         "default": false
       }
     },
-
     "examples": [
       {
         "description": "Encode a PS1 reverse shell and save the DuckyScript payload",
@@ -112,17 +117,22 @@
         ]
       }
     ],
-
     "notes": [
       "Only .ps1 (PowerShell) files are supported as source",
-      "DuckyScript uses certutil -f -decode on the target — certutil is present on all Windows versions",
+      "DuckyScript uses certutil -f -decode on the target - certutil is present on all Windows versions",
       "Adjust delay_after_ps for slower hardware (try 1000-2000ms on cold machines)",
       "Test payload timing in a VM before deploying on a real device",
       "Compatible with USB Rubber Ducky, Hak5 devices, and any tool that accepts DuckyScript",
-      "payload.txt output is saved to ~/.secv/badusb/ by default"
+      "payload.txt output is saved to ~/.secv/badusb/ by default",
+      "[v2.4.3] setg <param> <value> - sets a global parameter that persists across all module switches and back/use commands",
+      "[v2.4.3] unsetg <param> - clears a global parameter",
+      "[v2.4.3] show global - shows all currently set global parameters",
+      "[v2.4.3] Bare run (no target) reuses the last target automatically",
+      "[v2.4.3] options - shortcut for show options | modules - shortcut for show modules",
+      "[v2.4.3] Tab after set shows all parameter names for the loaded module",
+      "[v2.4.3] Fish-style shell: predicted next command shown above prompt, Ctrl+F to accept suggestion"
     ]
   },
-
   "inputs": {
     "mode": {
       "type": "string",
@@ -141,23 +151,62 @@
       "required": false,
       "default": ""
     },
-    "title": {"type": "string", "required": false, "default": ""},
-    "description": {"type": "string", "required": false, "default": ""},
-    "author": {"type": "string", "required": false, "default": ""},
-    "version": {"type": "string", "required": false, "default": ""},
-    "delay_after_ps": {"type": "integer", "required": false, "default": 500},
-    "ducky_lang": {"type": "boolean", "required": false, "default": false}
+    "title": {
+      "type": "string",
+      "required": false,
+      "default": ""
+    },
+    "description": {
+      "type": "string",
+      "required": false,
+      "default": ""
+    },
+    "author": {
+      "type": "string",
+      "required": false,
+      "default": ""
+    },
+    "version": {
+      "type": "string",
+      "required": false,
+      "default": ""
+    },
+    "delay_after_ps": {
+      "type": "integer",
+      "required": false,
+      "default": 500
+    },
+    "ducky_lang": {
+      "type": "boolean",
+      "required": false,
+      "default": false
+    }
   },
-
   "outputs": {
-    "success": {"type": "boolean"},
-    "source": {"type": "string", "description": "Input .ps1 path"},
-    "payload": {"type": "string", "description": "Full DuckyScript payload text"},
-    "saved_to": {"type": "string", "description": "Path the payload file was written to"},
-    "b64_size": {"type": "integer", "description": "Length of base64-encoded script"},
-    "base64": {"type": "string", "description": "Raw base64 (encode mode only)"}
+    "success": {
+      "type": "boolean"
+    },
+    "source": {
+      "type": "string",
+      "description": "Input .ps1 path"
+    },
+    "payload": {
+      "type": "string",
+      "description": "Full DuckyScript payload text"
+    },
+    "saved_to": {
+      "type": "string",
+      "description": "Path the payload file was written to"
+    },
+    "b64_size": {
+      "type": "integer",
+      "description": "Length of base64-encoded script"
+    },
+    "base64": {
+      "type": "string",
+      "description": "Raw base64 (encode mode only)"
+    }
   },
-
   "timeout": 30,
   "concurrent": true
 }

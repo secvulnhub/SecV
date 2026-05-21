@@ -5,24 +5,26 @@
   "description": "BitLocker bypass & recovery: YellowKey (0-day FsTx WinRE), Bitpixie (CVE-2023-21563), cold boot VMK extraction, TPM SPI sniffing, DMA/PCILeech, AD recovery key extraction, exploit chain generation. Includes cross-compiled Windows exploit tool builds.",
   "author": "0xb0rn3 | oxbv1",
   "executable": "python3 bitlocker.py",
-  "dependencies": ["python3"],
+  "dependencies": [
+    "python3"
+  ],
   "optional_dependencies": {
-    "dislocker":          "Mount BitLocker volumes — apt install dislocker",
-    "ldap-utils":         "AD recovery key extraction — apt install ldap-utils",
-    "smbclient":          "Remote SMB deployment — apt install smbclient",
-    "pcileech":           "DMA attacks — github.com/ufrisk/pcileech",
-    "volatility3":        "Memory analysis — pip install volatility3",
-    "mingw-w64":          "Cross-compile Windows exploit tools — pacman -S mingw-w64-gcc",
-    "dotnet-sdk":         "Build MiniPlasma (.NET PoC) — pacman -S dotnet-sdk",
-    "impacket":           "SMB/LDAP operations — pip install impacket"
+    "dislocker": "Mount BitLocker volumes - apt install dislocker",
+    "ldap-utils": "AD recovery key extraction - apt install ldap-utils",
+    "smbclient": "Remote SMB deployment - apt install smbclient",
+    "pcileech": "DMA attacks - github.com/ufrisk/pcileech",
+    "volatility3": "Memory analysis - pip install volatility3",
+    "mingw-w64": "Cross-compile Windows exploit tools - pacman -S mingw-w64-gcc",
+    "dotnet-sdk": "Build MiniPlasma (.NET PoC) - pacman -S dotnet-sdk",
+    "impacket": "SMB/LDAP operations - pip install impacket"
   },
   "payload_sources": {
-    "yellowkey_fstx":   "/home/oxbv1/Projects/contribsbyEclipse/YellowKey/FsTx",
-    "bluehammer_src":   "/home/oxbv1/Projects/contribsbyEclipse/BlueHammer/FunnyApp.cpp",
-    "redsun_src":       "/home/oxbv1/Projects/contribsbyEclipse/RedSun/RedSun.cpp",
-    "greenplasma_src":  "/home/oxbv1/Projects/contribsbyEclipse/GreenPlasma/GreenPlasma.cpp",
-    "miniplasma_proj":  "/home/oxbv1/Projects/contribsbyEclipse/MiniPlasma/PoC_AbortHydration_ArbitraryRegKey_EoP/",
-    "undefend_src":     "/home/oxbv1/Projects/contribsbyEclipse/UnDefend/UnDefend.cpp"
+    "yellowkey_fstx": "/home/oxbv1/Projects/contribsbyEclipse/YellowKey/FsTx",
+    "bluehammer_src": "/home/oxbv1/Projects/contribsbyEclipse/BlueHammer/FunnyApp.cpp",
+    "redsun_src": "/home/oxbv1/Projects/contribsbyEclipse/RedSun/RedSun.cpp",
+    "greenplasma_src": "/home/oxbv1/Projects/contribsbyEclipse/GreenPlasma/GreenPlasma.cpp",
+    "miniplasma_proj": "/home/oxbv1/Projects/contribsbyEclipse/MiniPlasma/PoC_AbortHydration_ArbitraryRegKey_EoP/",
+    "undefend_src": "/home/oxbv1/Projects/contribsbyEclipse/UnDefend/UnDefend.cpp"
   },
   "inputs": {
     "operation": {
@@ -36,53 +38,154 @@
       "required": false,
       "description": "Target IP (remote operations) or empty for physical"
     },
-    "username": {"type": "string", "default": "", "required": false},
-    "password": {"type": "string", "default": "", "required": false},
-    "domain":   {"type": "string", "default": "", "required": false},
-    "dc_ip":    {"type": "string", "default": "", "required": false},
-    "computer": {"type": "string", "default": "", "required": false, "description": "Target computer name for AD recovery key lookup"},
-    "target_drive":  {"type": "string", "default": "", "required": false, "description": "Drive letter (e.g. E:) for local YellowKey deploy"},
-    "usb_path":      {"type": "string", "default": "", "required": false, "description": "Mount point of USB drive for YellowKey payload"},
-    "efi_path":      {"type": "string", "default": "", "required": false, "description": "Mount point of EFI partition for YellowKey payload"},
-    "smb_share":     {"type": "string", "default": "C$", "required": false},
-    "mem_image":     {"type": "string", "default": "", "required": false, "description": "Path to memory dump file for cold_boot/dma_pcileech analysis"},
-    "lhost":         {"type": "string", "default": "", "required": false},
-    "os_version":    {"type": "string", "default": "", "required": false, "description": "Target OS version (for exploit_generate)"},
-    "has_pin":       {"type": "boolean", "default": false, "required": false},
-    "has_network":   {"type": "boolean", "default": true, "required": false},
-    "has_usb":       {"type": "boolean", "default": false, "required": false},
-    "has_phys":      {"type": "boolean", "default": false, "required": false},
-    "has_domain":    {"type": "boolean", "default": false, "required": false},
-    "tpm_discrete":  {"type": "boolean", "default": false, "required": false},
-    "winre_enabled": {"type": "boolean", "default": true, "required": false},
-    "bitpixie_patched": {"type": "boolean", "default": true, "required": false},
-    "usb_timeout": {"type": "integer", "default": 120,   "required": false, "description": "Seconds to wait for USB insertion (usb_deploy)"},
-    "usb_index":   {"type": "integer", "default": 0,    "required": false, "description": "Drive index to select if multiple USBs detected"},
-    "auto_select": {"type": "boolean", "default": false, "required": false, "description": "Auto-select first detected drive without prompt"}
+    "username": {
+      "type": "string",
+      "default": "",
+      "required": false
+    },
+    "password": {
+      "type": "string",
+      "default": "",
+      "required": false
+    },
+    "domain": {
+      "type": "string",
+      "default": "",
+      "required": false
+    },
+    "dc_ip": {
+      "type": "string",
+      "default": "",
+      "required": false
+    },
+    "computer": {
+      "type": "string",
+      "default": "",
+      "required": false,
+      "description": "Target computer name for AD recovery key lookup"
+    },
+    "target_drive": {
+      "type": "string",
+      "default": "",
+      "required": false,
+      "description": "Drive letter (e.g. E:) for local YellowKey deploy"
+    },
+    "usb_path": {
+      "type": "string",
+      "default": "",
+      "required": false,
+      "description": "Mount point of USB drive for YellowKey payload"
+    },
+    "efi_path": {
+      "type": "string",
+      "default": "",
+      "required": false,
+      "description": "Mount point of EFI partition for YellowKey payload"
+    },
+    "smb_share": {
+      "type": "string",
+      "default": "C$",
+      "required": false
+    },
+    "mem_image": {
+      "type": "string",
+      "default": "",
+      "required": false,
+      "description": "Path to memory dump file for cold_boot/dma_pcileech analysis"
+    },
+    "lhost": {
+      "type": "string",
+      "default": "",
+      "required": false
+    },
+    "os_version": {
+      "type": "string",
+      "default": "",
+      "required": false,
+      "description": "Target OS version (for exploit_generate)"
+    },
+    "has_pin": {
+      "type": "boolean",
+      "default": false,
+      "required": false
+    },
+    "has_network": {
+      "type": "boolean",
+      "default": true,
+      "required": false
+    },
+    "has_usb": {
+      "type": "boolean",
+      "default": false,
+      "required": false
+    },
+    "has_phys": {
+      "type": "boolean",
+      "default": false,
+      "required": false
+    },
+    "has_domain": {
+      "type": "boolean",
+      "default": false,
+      "required": false
+    },
+    "tpm_discrete": {
+      "type": "boolean",
+      "default": false,
+      "required": false
+    },
+    "winre_enabled": {
+      "type": "boolean",
+      "default": true,
+      "required": false
+    },
+    "bitpixie_patched": {
+      "type": "boolean",
+      "default": true,
+      "required": false
+    },
+    "usb_timeout": {
+      "type": "integer",
+      "default": 120,
+      "required": false,
+      "description": "Seconds to wait for USB insertion (usb_deploy)"
+    },
+    "usb_index": {
+      "type": "integer",
+      "default": 0,
+      "required": false,
+      "description": "Drive index to select if multiple USBs detected"
+    },
+    "auto_select": {
+      "type": "boolean",
+      "default": false,
+      "required": false,
+      "description": "Auto-select first detected drive without prompt"
+    }
   },
   "operations": {
-    "survey":           "Enumerate BitLocker attack surface: applicable techniques ranked by requirements, tool availability, YellowKey payload readiness",
-    "usb_deploy":       "Interactive USB detection loop: waits for USB insertion (like ADB loop in android_pentest), lists detected drives with size/model/label, auto-mounts selected drive, deploys YellowKey FsTx payload to System Volume Information, provides step-by-step trigger instructions",
-    "yellowkey":        "YellowKey (0-day): deploy FsTx payload to USB/EFI partition System Volume Information. SHIFT+Restart+hold CTRL → WinRE SYSTEM shell bypasses BitLocker. Windows 11/Server 2022/2025",
+    "survey": "Enumerate BitLocker attack surface: applicable techniques ranked by requirements, tool availability, YellowKey payload readiness",
+    "usb_deploy": "Interactive USB detection loop: waits for USB insertion (like ADB loop in android_pentest), lists detected drives with size/model/label, auto-mounts selected drive, deploys YellowKey FsTx payload to System Volume Information, provides step-by-step trigger instructions",
+    "yellowkey": "YellowKey (0-day): deploy FsTx payload to USB/EFI partition System Volume Information. SHIFT+Restart+hold CTRL → WinRE SYSTEM shell bypasses BitLocker. Windows 11/Server 2022/2025",
     "yellowkey_remote": "Deploy YellowKey FsTx payload remotely via SMB to target Windows machine System Volume Information",
-    "bitpixie":         "CVE-2023-21563 network BitLocker bypass: malicious PXE bootloader captures TPM-released VMK (TPM-only, no PIN, pre-patch)",
-    "cold_boot":        "Cold boot attack: analyze RAM dump for BitLocker VMK (volatility3 bitlocker plugin). Chilling RAM extends retention window",
-    "tpm_sniff":        "TPM SPI bus interception guide: discrete TPM VMK capture via logic analyzer (Saleae/Bus Pirate) during pre-boot",
-    "dma_pcileech":     "DMA attack via PCILeech (Thunderbolt/PCIe): full RAM read/write on running system, extract VMK or patch LSASS",
-    "recovery_key_ad":  "Extract BitLocker recovery keys from AD msFVE-RecoveryInformation objects (domain-joined targets, any domain user)",
-    "tool_build":       "Compile Windows exploit tools (BlueHammer/RedSun/GreenPlasma/UnDefend) via mingw cross-compiler + MiniPlasma via dotnet build",
+    "bitpixie": "CVE-2023-21563 network BitLocker bypass: malicious PXE bootloader captures TPM-released VMK (TPM-only, no PIN, pre-patch)",
+    "cold_boot": "Cold boot attack: analyze RAM dump for BitLocker VMK (volatility3 bitlocker plugin). Chilling RAM extends retention window",
+    "tpm_sniff": "TPM SPI bus interception guide: discrete TPM VMK capture via logic analyzer (Saleae/Bus Pirate) during pre-boot",
+    "dma_pcileech": "DMA attack via PCILeech (Thunderbolt/PCIe): full RAM read/write on running system, extract VMK or patch LSASS",
+    "recovery_key_ad": "Extract BitLocker recovery keys from AD msFVE-RecoveryInformation objects (domain-joined targets, any domain user)",
+    "tool_build": "Compile Windows exploit tools (BlueHammer/RedSun/GreenPlasma/UnDefend) via mingw cross-compiler + MiniPlasma via dotnet build",
     "exploit_generate": "Generate prioritized BitLocker bypass chain for target profile (OS version, PIN, domain join, network/USB/physical access)",
-    "auto":             "Survey target + generate recommended exploit chain. For USB delivery: use usb_deploy operation"
+    "auto": "Survey target + generate recommended exploit chain. For USB delivery: use usb_deploy operation"
   },
   "help": {
     "attack_chain": [
-      "1. tool_build — cross-compile all Windows exploit tools",
-      "2. survey — profile target attack surface",
-      "3. exploit_generate — get ranked bypass chain",
-      "4. yellowkey — easiest: FsTx in System Volume Information + SHIFT+Restart+CTRL",
-      "5. recovery_key_ad — if domain-joined: read msFVE-RecoveryPassword from AD",
-      "6. bitpixie — if network and no PIN: CVE-2023-21563 PXE VMK capture",
-      "7. tpm_sniff or dma_pcileech — last resort: hardware attacks",
+      "1. tool_build - cross-compile all Windows exploit tools",
+      "2. survey - profile target attack surface",
+      "3. exploit_generate - get ranked bypass chain",
+      "4. yellowkey - easiest: FsTx in System Volume Information + SHIFT+Restart+CTRL",
+      "5. recovery_key_ad - if domain-joined: read msFVE-RecoveryPassword from AD",
+      "6. bitpixie - if network and no PIN: CVE-2023-21563 PXE VMK capture",
+      "7. tpm_sniff or dma_pcileech - last resort: hardware attacks",
       "",
       "After BitLocker bypass → volume mounted → deploy winadsec operations for full Windows compromise"
     ],
@@ -113,11 +216,18 @@
       "run"
     ],
     "notes": [
-      "YellowKey: WinRE cldflt.sys FsTx component present only in WinRE image — possibly intentional backdoor",
-      "YellowKey Windows 11/Server 2022/2025 only — Windows 10 not affected",
+      "YellowKey: WinRE cldflt.sys FsTx component present only in WinRE image - possibly intentional backdoor",
+      "YellowKey Windows 11/Server 2022/2025 only - Windows 10 not affected",
       "BitLocker PIN is the strongest mitigation: prevents cold boot AND TPM SPI sniffing",
-      "AD recovery keys are often readable by any domain user — first thing to check on domain-joined targets",
-      "Exploit tool sources: /home/oxbv1/Projects/contribsbyEclipse/"
+      "AD recovery keys are often readable by any domain user - first thing to check on domain-joined targets",
+      "Exploit tool sources: /home/oxbv1/Projects/contribsbyEclipse/",
+      "[v2.4.3] setg <param> <value> - sets a global parameter that persists across all module switches and back/use commands",
+      "[v2.4.3] unsetg <param> - clears a global parameter",
+      "[v2.4.3] show global - shows all currently set global parameters",
+      "[v2.4.3] Bare run (no target) reuses the last target automatically",
+      "[v2.4.3] options - shortcut for show options | modules - shortcut for show modules",
+      "[v2.4.3] Tab after set shows all parameter names for the loaded module",
+      "[v2.4.3] Fish-style shell: predicted next command shown above prompt, Ctrl+F to accept suggestion"
     ]
   },
   "timeout": 600,

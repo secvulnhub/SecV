@@ -9,7 +9,7 @@
     "python3"
   ],
   "optional_dependencies": {
-    "nc / ncat / socat": "For generated payload options \u2014 not required by the handler itself"
+    "nc / ncat / socat": "For generated payload options — not required by the handler itself"
   },
   "help": {
     "description": "Feature-complete Python port of OnlyShell (github.com/malwarekid/OnlyShell). Accepts unlimited simultaneous reverse shell connections, auto-detects shell type (bash/powershell/cmd/zsh/sh) and OS, supports backgrounding sessions, broadcasting commands, TLS-encrypted listeners, PTY stabilization, and session output buffering. Also generates 30+ ready-to-paste reverse shell payloads for bash, python, perl, ruby, php, nodejs, go, awk, lua, java, PowerShell, netcat, socat, and msfvenom stagers.",
@@ -24,7 +24,7 @@
         ]
       },
       "listen": {
-        "description": "Headless listener \u2014 starts on port(s), collects shells for duration seconds, optionally runs initial_cmd on each, returns JSON report with all session details.",
+        "description": "Headless listener — starts on port(s), collects shells for duration seconds, optionally runs initial_cmd on each, returns JSON report with all session details.",
         "params": [
           "ports",
           "duration",
@@ -60,8 +60,8 @@
       "exit / quit": "Shutdown the handler (does not kill connected shells)"
     },
     "shell_status": {
-      "Active": "Connected and responsive \u2014 seen within last 60 seconds",
-      "Stale": "No activity for more than 60 seconds \u2014 may still be alive",
+      "Active": "Connected and responsive — seen within last 60 seconds",
+      "Stale": "No activity for more than 60 seconds — may still be alive",
       "Dead": "Connection lost or explicitly closed"
     },
     "parameters": {
@@ -78,7 +78,7 @@
           "nim_backdoor"
         ],
         "examples": [
-          "nim_backdoor \u2014 compile a Nim reverse shell binary with reconnect loop (requires nim compiler)"
+          "nim_backdoor — compile a Nim reverse shell binary with reconnect loop (requires nim compiler)"
         ]
       },
       "ports": {
@@ -270,7 +270,7 @@
       "Auto-detects shell type: bash, zsh, sh, PowerShell, cmd",
       "Auto-detects OS: linux, windows, macos",
       "Background/foreground session management without losing connection",
-      "Silent keepalive (bash no-op ':') \u2014 does not pollute shell output",
+      "Silent keepalive (bash no-op ':') — does not pollute shell output",
       "Status tracking: Active (<60s), Stale (>60s), Dead",
       "Command broadcast to all active shells (exec-all)",
       "PTY stabilizer: python3 pty.spawn + script(1) fallback + TERM/stty setup",
@@ -283,11 +283,18 @@
     ],
     "notes": [
       "AUTHORIZATION REQUIRED: Only use against systems you own or have explicit written permission to test",
-      "serve mode outputs directly to the terminal (not JSON) \u2014 use it from CLI or terminal tab in the GUI",
-      "listen mode is the JSON-friendly mode \u2014 use it from the GUI for automated workflows",
+      "serve mode outputs directly to the terminal (not JSON) — use it from CLI or terminal tab in the GUI",
+      "listen mode is the JSON-friendly mode — use it from the GUI for automated workflows",
       "For a stable interactive shell, run stabilize <id> after receiving the connection",
-      "TLS listener requires a cert+key pair \u2014 generate with: openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes",
-      "Payloads with mkfifo or /tmp paths may require cleanup on the target after the session"
+      "TLS listener requires a cert+key pair — generate with: openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes",
+      "Payloads with mkfifo or /tmp paths may require cleanup on the target after the session",
+      "[v2.4.3] setg <param> <value> - sets a global parameter that persists across all module switches and back/use commands",
+      "[v2.4.3] unsetg <param> - clears a global parameter",
+      "[v2.4.3] show global - shows all currently set global parameters",
+      "[v2.4.3] Bare run (no target) reuses the last target automatically",
+      "[v2.4.3] options - shortcut for show options | modules - shortcut for show modules",
+      "[v2.4.3] Tab after set shows all parameter names for the loaded module",
+      "[v2.4.3] Fish-style shell: predicted next command shown above prompt, Ctrl+F to accept suggestion"
     ]
   },
   "timeout": 0,
