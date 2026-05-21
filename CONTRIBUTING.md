@@ -780,7 +780,7 @@ cd secV
 
 # Install all dependencies
 bash install.sh
-# Answer N to the system-wide install prompt — use ./secV from the repo for dev
+# Answer N to the system-wide install prompt - use ./secV from the repo for dev
 ```
 
 The loader finds `tools/` relative to the binary, so `./secV` always works from the repo without copying anything to `/var/lib/secv/`. Only answer Y to the system-wide prompt when packaging a release build.

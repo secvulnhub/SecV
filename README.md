@@ -10,13 +10,13 @@
    ╚══════╝╚══════╝ ╚═════╝  ╚═══╝                               
 
 ```
-### tauri v2.4.2 — The Official Manual
+### tauri v2.4.3 - The Official Manual
 
-`Go` · `Python` · `Bash` · `Rust` · `C++` — one shell, any language
+`Go` · `Python` · `Bash` · `Rust` · `C++` - one shell, any language
 
 ---
 
-[![Version](https://img.shields.io/badge/v2.4.2-tauri-0d1117?style=flat-square&labelColor=00d9ff&color=0d1117)](https://github.com/secvulnhub/secV)
+[![Version](https://img.shields.io/badge/v2.4.3-tauri-0d1117?style=flat-square&labelColor=00d9ff&color=0d1117)](https://github.com/secvulnhub/secV)
 [![License](https://img.shields.io/badge/MIT-license-0d1117?style=flat-square&labelColor=8b5cf6&color=0d1117)](LICENSE)
 [![Go](https://img.shields.io/badge/Go_1.21+-required-0d1117?style=flat-square&labelColor=00ADD8&color=0d1117)](https://golang.org/)
 [![Platform](https://img.shields.io/badge/Linux%20%7C%20macOS-0d1117?style=flat-square&labelColor=3a3f4b&color=0d1117)](#)
@@ -25,104 +25,132 @@
 
 ---
 
-> This document is the complete secV reference — written for everyone from first-time Linux users to contributors building new modules. It starts at the very beginning and builds up. If you already know the basics, use the table of contents to jump to what you need.
+> This document is the complete secV reference - written for everyone from first-time Linux users to contributors building new modules. It starts at the very beginning and builds up. If you already know the basics, use the table of contents to jump to what you need.
 
 ---
 
 ## Table of Contents
 
-**Part I — Foundations** (read this if you're new)
-- [Chapter 1 — What Is secV?](#chapter-1--what-is-secv)
-- [Chapter 2 — What Is a Terminal?](#chapter-2--what-is-a-terminal)
-- [Chapter 3 — What Is a Shell?](#chapter-3--what-is-a-shell)
-- [Chapter 4 — What Is a Binary / Executable?](#chapter-4--what-is-a-binary--executable)
-- [Chapter 5 — What Is stdin and stdout?](#chapter-5--what-is-stdin-and-stdout)
-- [Chapter 6 — What Is JSON?](#chapter-6--what-is-json)
-- [Chapter 7 — What Is a Port?](#chapter-7--what-is-a-port)
-- [Chapter 8 — What Is a Network Protocol?](#chapter-8--what-is-a-network-protocol)
-- [Chapter 9 — What Are Dependencies?](#chapter-9--what-are-dependencies)
-- [Chapter 10 — What Is a Security Module?](#chapter-10--what-is-a-security-module)
+**Part I - Foundations** (read this if you're new)
+- [Chapter 1 - What Is secV?](#chapter-1--what-is-secv)
+- [Chapter 2 - What Is a Terminal?](#chapter-2--what-is-a-terminal)
+- [Chapter 3 - What Is a Shell?](#chapter-3--what-is-a-shell)
+- [Chapter 4 - What Is a Binary / Executable?](#chapter-4--what-is-a-binary--executable)
+- [Chapter 5 - What Is stdin and stdout?](#chapter-5--what-is-stdin-and-stdout)
+- [Chapter 6 - What Is JSON?](#chapter-6--what-is-json)
+- [Chapter 7 - What Is a Port?](#chapter-7--what-is-a-port)
+- [Chapter 8 - What Is a Network Protocol?](#chapter-8--what-is-a-network-protocol)
+- [Chapter 9 - What Are Dependencies?](#chapter-9--what-are-dependencies)
+- [Chapter 10 - What Is a Security Module?](#chapter-10--what-is-a-security-module)
 
-**Part II — Getting secV**
-- [Chapter 11 — System Requirements](#chapter-11--system-requirements)
-- [Chapter 12 — Installation](#chapter-12--installation)
-  - [12.1 — Quick Install (Recommended)](#121--quick-install-recommended)
-  - [12.2 — Bare Metal Setup](#122--bare-metal-setup)
-  - [12.3 — VM Setup: Arch Linux (Primary)](#123--vm-setup-arch-linux-primary)
-  - [12.4 — VM Setup: Kali Linux](#124--vm-setup-kali-linux)
-  - [12.5 — VM Setup: Ubuntu / Debian](#125--vm-setup-ubuntu--debian)
-  - [12.6 — VM Setup: Fedora](#126--vm-setup-fedora)
-- [Chapter 13 — First Run](#chapter-13--first-run)
+**Part II - Getting secV**
+- [Chapter 11 - System Requirements](#chapter-11--system-requirements)
+- [Chapter 12 - Installation](#chapter-12--installation)
+  - [12.1 - Quick Install (Recommended)](#121--quick-install-recommended)
+  - [12.2 - Bare Metal Setup](#122--bare-metal-setup)
+  - [12.3 - VM Setup: Arch Linux (Primary)](#123--vm-setup-arch-linux-primary)
+  - [12.4 - VM Setup: Kali Linux](#124--vm-setup-kali-linux)
+  - [12.5 - VM Setup: Ubuntu / Debian](#125--vm-setup-ubuntu--debian)
+  - [12.6 - VM Setup: Fedora](#126--vm-setup-fedora)
+- [Chapter 13 - First Run](#chapter-13--first-run)
 
-**Part III — Using secV**
-- [Chapter 14 — The secV Shell](#chapter-14--the-secv-shell)
-- [Chapter 15 — Running Your First Module](#chapter-15--running-your-first-module)
-- [Chapter 16 — Parameters Deep Dive](#chapter-16--parameters-deep-dive)
-- [Chapter 17 — Targets and Output](#chapter-17--targets-and-output)
+**Part III - Using secV**
+- [Chapter 14 - The secV Shell](#chapter-14--the-secv-shell)
+- [Chapter 15 - Running Your First Module](#chapter-15--running-your-first-module)
+- [Chapter 16 - Parameters Deep Dive](#chapter-16--parameters-deep-dive)
+- [Chapter 17 - Targets and Output](#chapter-17--targets-and-output)
 
-**Part IV — Every Built-in Module**
-- [Chapter 18 — netrecon](#chapter-18--netrecon)
-- [Chapter 19 — android_pentest](#chapter-19--android_pentest)
-- [Chapter 20 — ios_pentest](#chapter-20--ios_pentest)
-- [Chapter 21 — adsec](#chapter-21--adsec)
-- [Chapter 22 — winadsec](#chapter-22--winadsec)
-- [Chapter 23 — websec](#chapter-23--websec)
-- [Chapter 24 — wifi_monitor](#chapter-24--wifi_monitor)
-- [Chapter 25 — mac_spoof](#chapter-25--mac_spoof)
-- [Chapter 26 — revshell](#chapter-26--revshell)
-- [Chapter 27 — iot_pwn](#chapter-27--iot_pwn)
-- [Chapter 28 — ctfpwn](#chapter-28--ctfpwn)
-- [Chapter 29 — badusb](#chapter-29--badusb)
+**Part IV - Every Built-in Module**
+- [Chapter 18 - netrecon](#chapter-18--netrecon)
+- [Chapter 19 - android_pentest](#chapter-19--android_pentest)
+- [Chapter 20 - ios_pentest](#chapter-20--ios_pentest)
+- [Chapter 21 - adsec](#chapter-21--adsec)
+- [Chapter 22 - winadsec](#chapter-22--winadsec)
+- [Chapter 23 - websec](#chapter-23--websec)
+- [Chapter 24 - wifi_monitor](#chapter-24--wifi_monitor)
+- [Chapter 25 - mac_spoof](#chapter-25--mac_spoof)
+- [Chapter 26 - revshell](#chapter-26--revshell)
+- [Chapter 27 - iot_pwn](#chapter-27--iot_pwn)
+- [Chapter 28 - ctfpwn](#chapter-28--ctfpwn)
+- [Chapter 29 - badusb](#chapter-29--badusb)
 
-**Part V — How secV Works**
-- [Chapter 30 — Architecture](#chapter-30--architecture)
-- [Chapter 31 — The JSON Protocol](#chapter-31--the-json-protocol)
-- [Chapter 32 — The module.json Manifest](#chapter-32--the-modulejson-manifest)
-- [Chapter 33 — The Dependency System](#chapter-33--the-dependency-system)
-- [Chapter 34 — The Update System](#chapter-34--the-update-system)
+**Part V - How secV Works**
+- [Chapter 30 - Architecture](#chapter-30--architecture)
+- [Chapter 31 - The JSON Protocol](#chapter-31--the-json-protocol)
+- [Chapter 32 - The module.json Manifest](#chapter-32--the-modulejson-manifest)
+- [Chapter 33 - The Dependency System](#chapter-33--the-dependency-system)
+- [Chapter 34 - The Update System](#chapter-34--the-update-system)
 
-**Part VI — Building Your Own Module**
-- [Chapter 35 — Module Structure](#chapter-35--module-structure)
-- [Chapter 36 — Your First Python Module](#chapter-36--your-first-python-module)
-- [Chapter 37 — Your First Bash Module](#chapter-37--your-first-bash-module)
-- [Chapter 38 — Other Languages](#chapter-38--other-languages)
-- [Chapter 39 — The module.json Specification](#chapter-39--the-modulejson-specification)
-- [Chapter 40 — gen_module.py](#chapter-40--gen_modulepy)
-- [Chapter 41 — Testing Your Module](#chapter-41--testing-your-module)
-- [Chapter 42 — Contribution Checklist and PR Guide](#chapter-42--contribution-checklist-and-pr-guide)
+**Part VI - Building Your Own Module**
+- [Chapter 35 - Module Structure](#chapter-35--module-structure)
+- [Chapter 36 - Your First Python Module](#chapter-36--your-first-python-module)
+- [Chapter 37 - Your First Bash Module](#chapter-37--your-first-bash-module)
+- [Chapter 38 - Other Languages](#chapter-38--other-languages)
+- [Chapter 39 - The module.json Specification](#chapter-39--the-modulejson-specification)
+- [Chapter 40 - gen_module.py](#chapter-40--gen_modulepy)
+- [Chapter 41 - Testing Your Module](#chapter-41--testing-your-module)
+- [Chapter 42 - Contribution Checklist and PR Guide](#chapter-42--contribution-checklist-and-pr-guide)
 
-**Part VII — Reference**
-- [Chapter 43 — Shell Command Reference](#chapter-43--shell-command-reference)
-- [Chapter 44 — Troubleshooting](#chapter-44--troubleshooting)
-- [Chapter 45 — Legal](#chapter-45--legal)
-
----
-
-# Part I — Foundations
+**Part VII - Reference**
+- [Chapter 43 - Shell Command Reference](#chapter-43--shell-command-reference)
+- [Chapter 44 - Troubleshooting](#chapter-44--troubleshooting)
+- [Chapter 45 - Legal](#chapter-45--legal)
 
 ---
 
-## Chapter 1 — What Is secV?
+# Part I - Foundations
 
-secV is a **security testing framework**. It is one program — called a *loader* or *shell* — that can run any number of separate security tools, called *modules*. Instead of learning a different command-line interface for every tool you use, you learn secV once and it works the same way for everything.
+---
 
-Think of it like a Swiss Army knife. The knife itself is secV. Each blade (network scanner, Android pentest tool, password cracker, etc.) is a module. You open the blade you want (`use android_pentest`), set it up the way you need (`set operation backdoor_apk`), and use it (`run device`).
+## Chapter 1 - What Is secV?
+
+secV is a **security testing framework**. It is one program - called a *loader* or *shell* - that can run any number of separate security tools, called *modules*. Instead of learning a different command-line interface for every tool you use, you learn secV once and it works the same way for everything.
+
+Think of it like a Swiss Army knife. The knife itself is secV. Each blade is a module - a self-contained security tool for a specific task. You pick the blade you need, configure it once, and run it. The interface never changes, regardless of which module you load:
+
+```
+secV > use netrecon               # network reconnaissance
+secV (netrecon) > set mode deep
+secV (netrecon) > run 192.168.1.0/24
+
+secV > use adsec                  # Active Directory attack and audit
+secV (adsec) > set operation enumerate_users
+secV (adsec) > run 10.0.0.5
+
+secV > use wifi_monitor           # wireless network analysis
+secV (wifi_monitor) > set interface wlan0
+secV (wifi_monitor) > run
+
+secV > use websec                 # web application testing
+secV (websec) > set operation scan_headers
+secV (websec) > run https://target.local
+
+secV > use android_pentest        # mobile device security
+secV (android_pentest) > set operation apk_static_analysis
+secV (android_pentest) > run device
+
+secV > use bitlocker              # Windows full-disk encryption testing
+secV (bitlocker) > set operation analyze_volume
+secV (bitlocker) > run /dev/sda
+```
+
+Every module - network, Active Directory, wireless, web, mobile, Windows, CTF, physical - uses the same three steps: `use`, `set`, `run`.
 
 **Why does this matter?**
 
-Security testing involves dozens of different tools — nmap, metasploit, frida, adb, aircrack, impacket, and more. Every tool has its own syntax, its own flags, its own quirks. New learners spend more time reading man pages than actually testing. Experienced testers lose time switching context between tool ecosystems.
+Security testing involves dozens of different tools - nmap, metasploit, frida, adb, aircrack, impacket, and more. Every tool has its own syntax, its own flags, its own quirks. New learners spend more time reading man pages than actually testing. Experienced testers lose time switching context between tool ecosystems.
 
 secV gives everything a uniform interface. If you know how to set a parameter and run a module, you know how to use every module in the framework. You can focus on understanding *what* you're testing, not memorising forty different command-line syntaxes.
 
 **What secV is NOT:**
 
-- It is not a hacking tool for unauthorized access. Every operation requires an authorized target — a system you own or have written permission to test.
+- It is not a hacking tool for unauthorized access. Every operation requires an authorized target - a system you own or have written permission to test.
 - It is not magic. It calls the same underlying tools (nmap, metasploit, frida, etc.) that you'd call manually. secV wires them together and gives them a consistent interface.
 - It is not finished. secV is actively developed and welcomes contributors. This manual will teach you enough to build your own module by Chapter 36.
 
 ---
 
-## Chapter 2 — What Is a Terminal?
+## Chapter 2 - What Is a Terminal?
 
 A **terminal** (also called a *command line*, *console*, or *command prompt*) is a text-based interface to your computer. Instead of clicking icons, you type text commands and get text back.
 
@@ -141,7 +169,7 @@ This is called a **prompt**. It tells you who you are (`user`), what computer yo
 **Navigating the file system in a terminal:**
 
 ```bash
-pwd          # print working directory — where am I right now?
+pwd          # print working directory - where am I right now?
 ls           # list files in the current directory
 cd Documents # change directory into Documents
 cd ..        # go up one level
@@ -152,13 +180,13 @@ You don't need to be a terminal expert to use secV, but you do need to know thes
 
 ---
 
-## Chapter 3 — What Is a Shell?
+## Chapter 3 - What Is a Shell?
 
 A **shell** is the program that reads what you type in the terminal and executes it. Common shells: `bash` (default on most Linux), `zsh` (default on macOS), `sh` (minimal POSIX shell), `fish`.
 
 When you type `ls` and press Enter, your shell finds the `ls` program, runs it, and shows you the output.
 
-secV is itself a custom shell — a *nested* shell. When you run `./secV`, you drop into the secV shell:
+secV is itself a custom shell - a *nested* shell. When you run `./secV`, you drop into the secV shell:
 
 ```
 secV ❯
@@ -168,37 +196,37 @@ Now everything you type is interpreted by secV, not by bash. secV knows about mo
 
 **Why a custom shell?**
 
-secV provides tab completion, persistent parameters, module state, output formatting, and dependency checking — things that would be awkward to bolt onto a plain bash script. Putting this in a compiled Go binary means it starts instantly, handles large output without choking, and works identically on any Linux or macOS machine.
+secV provides tab completion, persistent parameters, module state, output formatting, and dependency checking - things that would be awkward to bolt onto a plain bash script. Putting this in a compiled Go binary means it starts instantly, handles large output without choking, and works identically on any Linux or macOS machine.
 
 ---
 
-## Chapter 4 — What Is a Binary / Executable?
+## Chapter 4 - What Is a Binary / Executable?
 
-When you write code — say, a Python script — it exists as a **source file**: human-readable text. To run it, Python (the interpreter) reads the text and executes it line by line.
+When you write code - say, a Python script - it exists as a **source file**: human-readable text. To run it, Python (the interpreter) reads the text and executes it line by line.
 
-A **binary** (or *executable* or *compiled binary*) is different. It has been translated (compiled) from source code into machine instructions — raw numbers that your CPU can execute directly, without any interpreter. Binaries run faster and don't require the original language to be installed.
+A **binary** (or *executable* or *compiled binary*) is different. It has been translated (compiled) from source code into machine instructions - raw numbers that your CPU can execute directly, without any interpreter. Binaries run faster and don't require the original language to be installed.
 
-secV's loader (`./secV` or `/usr/local/bin/secV`) is a compiled Go binary. When you run `./secV`, the operating system loads those machine instructions directly into memory and starts executing. There's no "Go runtime" needed at that point — the binary is self-contained.
+secV's loader (`./secV` or `/usr/local/bin/secV`) is a compiled Go binary. When you run `./secV`, the operating system loads those machine instructions directly into memory and starts executing. There's no "Go runtime" needed at that point - the binary is self-contained.
 
-The modules secV loads (Python scripts, Bash scripts) are *not* binaries — they're interpreted source files that need Python or Bash to run them. That's why Python and Bash are listed as requirements (Chapter 11).
+The modules secV loads can be written in **any language** - Python scripts, Bash scripts, compiled Go or Rust binaries, Ruby programs, Node.js scripts, C executables. What ties them together is the `module.json` file, which tells secV what command to run, what parameters exist, and what dependencies to check. If the program reads JSON from stdin and writes JSON to stdout, it is a valid secV module. Python and Bash are common because they're fast to write and widely available, which is why they're listed as requirements - but the framework itself imposes no language restriction.
 
-**File permissions:** On Linux/macOS, a file must be *executable* before you can run it. That's what `chmod +x secV` does — it sets the "execute" permission bit on the file.
+**File permissions:** On Linux/macOS, a file must be *executable* before you can run it. That's what `chmod +x secV` does - it sets the "execute" permission bit on the file.
 
 ---
 
-## Chapter 5 — What Is stdin and stdout?
+## Chapter 5 - What Is stdin and stdout?
 
 Every program on Linux/macOS has three standard data streams:
 
 | Stream | Number | Purpose |
 |--------|--------|---------|
-| stdin  | 0 | Input — data the program reads |
-| stdout | 1 | Output — data the program writes (normal results) |
-| stderr | 2 | Error output — error messages, warnings |
+| stdin  | 0 | Input - data the program reads |
+| stdout | 1 | Output - data the program writes (normal results) |
+| stderr | 2 | Error output - error messages, warnings |
 
 When you run `echo hello`, `hello` goes to stdout, which by default appears in your terminal.
 
-When you run `cat`, the program reads from stdin — it waits for you to type something. Whatever you type goes to stdin.
+When you run `cat`, the program reads from stdin - it waits for you to type something. Whatever you type goes to stdin.
 
 **Piping** (`|`) connects stdout of one program to stdin of the next:
 
@@ -210,11 +238,11 @@ echo "hello world" | wc -w    # → 2
 
 **This is exactly how secV talks to modules.** When you run a module, secV builds a JSON object with the target and parameters, and *writes it to the module's stdin*. The module reads it, does its work, and *writes results to its stdout*. secV reads that stdout, parses the JSON results, and displays them.
 
-This design means modules can be written in any language — as long as they can read stdin and write to stdout (every language can), they work with secV.
+This design means modules can be written in any language - as long as they can read stdin and write to stdout (every language can), they work with secV.
 
 ---
 
-## Chapter 6 — What Is JSON?
+## Chapter 6 - What Is JSON?
 
 **JSON** (JavaScript Object Notation) is a text format for structured data. It looks like this:
 
@@ -245,20 +273,20 @@ JSON has six data types:
 **Why JSON?** It's human-readable, language-agnostic (every language has a JSON library), and easy to debug by just printing it. When secV sends parameters to a module, it sends them as JSON. When a module sends results back, it sends them as JSON.
 
 **In practice**, you'll see JSON in:
-- `module.json` — the module manifest file
+- `module.json` - the module manifest file
 - secV's stdin payload to a module
 - The module's stdout response
 - API responses from web services
 
-You don't need to write JSON by hand often — but you need to understand the structure because error messages and output often show JSON data.
+You don't need to write JSON by hand often - but you need to understand the structure because error messages and output often show JSON data.
 
 ---
 
-## Chapter 7 — What Is a Port?
+## Chapter 7 - What Is a Port?
 
 A **port** is a number from 0 to 65535 that identifies a specific service on a computer.
 
-When you visit `http://example.com`, your browser actually connects to `example.com:80` — port 80 is where web servers listen by default. When you visit `https://example.com`, that's port 443.
+When you visit `http://example.com`, your browser actually connects to `example.com:80` - port 80 is where web servers listen by default. When you visit `https://example.com`, that's port 443.
 
 Think of a computer's IP address like a building's street address. Ports are the individual apartment numbers. The IP gets you to the building; the port gets you to the right apartment.
 
@@ -287,7 +315,7 @@ Think of a computer's IP address like a building's street address. Ports are the
 
 ---
 
-## Chapter 8 — What Is a Network Protocol?
+## Chapter 8 - What Is a Network Protocol?
 
 A **protocol** is an agreed-upon set of rules for how two machines talk to each other. Without a common protocol, one machine's "hello" is meaningless noise to the other.
 
@@ -295,7 +323,7 @@ A **protocol** is an agreed-upon set of rules for how two machines talk to each 
 
 | | TCP | UDP |
 |--|-----|-----|
-| Connection | Yes — handshake before data | No — fire and forget |
+| Connection | Yes - handshake before data | No - fire and forget |
 | Reliability | Guaranteed delivery, in order | No guarantees |
 | Speed | Slower (overhead) | Faster |
 | Use cases | HTTP, SSH, FTP, anything that needs reliability | DNS, VoIP, video streaming, gaming |
@@ -310,14 +338,14 @@ A **protocol** is an agreed-upon set of rules for how two machines talk to each 
 
 ---
 
-## Chapter 9 — What Are Dependencies?
+## Chapter 9 - What Are Dependencies?
 
 A **dependency** is another program or library that a piece of software requires in order to work.
 
 secV's loader (the binary itself) has one dependency: Go 1.21+ at *build time*. Once compiled, the binary is self-contained.
 
 secV's modules have their own dependencies. For example:
-- `android_pentest` requires `adb` — the Android Debug Bridge command-line tool
+- `android_pentest` requires `adb` - the Android Debug Bridge command-line tool
 - `netrecon` works better with `nmap`, `masscan`, and `rustscan` installed
 - `wifi_monitor` requires `aircrack-ng`, `hostapd`, and `hcxdumptool`
 
@@ -335,11 +363,11 @@ pip3 install requests frida-tools impacket
 
 **secV checks dependencies automatically.** When you run `info android_pentest`, it tells you which dependencies are installed and which are missing. When a module starts, it checks for required tools and warns you about missing optional ones.
 
-The `install.sh` script handles most dependencies automatically — it detects your distro and installs what's needed. For anything optional, the module tells you what to install and why.
+The `install.sh` script handles most dependencies automatically - it detects your distro and installs what's needed. For anything optional, the module tells you what to install and why.
 
 ---
 
-## Chapter 10 — What Is a Security Module?
+## Chapter 10 - What Is a Security Module?
 
 A **security module** in the secV ecosystem is any program that:
 
@@ -347,7 +375,7 @@ A **security module** in the secV ecosystem is any program that:
 2. Does something security-related
 3. Writes a JSON result to stdout
 
-That's it. The module can be a single Python file, a Bash script, a compiled binary, a Go program — anything that satisfies those three requirements.
+That's it. The module can be written in any language - Python, Bash, Go, Rust, Ruby, Node.js, C, or any language that produces an executable. The only requirement is stdin-to-JSON-in, JSON-to-stdout-out. The `module.json` file describes what to run; the language is irrelevant.
 
 Each module lives in its own directory under `tools/`:
 
@@ -377,11 +405,11 @@ Building a module means writing a script (in any language), writing a `module.js
 
 ---
 
-# Part II — Getting secV
+# Part II - Getting secV
 
 ---
 
-## Chapter 11 — System Requirements
+## Chapter 11 - System Requirements
 
 The installer (`install.sh`) handles most of this automatically. This table is for reference and for users who want manual control.
 
@@ -433,21 +461,21 @@ sudo dnf install golang python3 python3-pip git nmap gobuster hydra sshpass node
 
 **Optional extras:**
 
-- **rustscan** — fast port scanner: `cargo install rustscan`
-- **bore v0.5.1** — NAT bypass tunnel (required for `android_pentest` WAN mode):
+- **rustscan** - fast port scanner: `cargo install rustscan`
+- **bore v0.5.1** - NAT bypass tunnel (required for `android_pentest` WAN mode):
   ```bash
   curl -sL https://github.com/ekzhang/bore/releases/download/v0.5.1/bore-v0.5.1-x86_64-unknown-linux-musl.tar.gz | tar xz -C ~/.local/bin
   ```
-- **cloudflared** — alternative tunnel for `android_pentest wan_expose`: download from Cloudflare or let the module fall back to bore automatically
-- **jadx** — Java decompiler for APK analysis: download from [GitHub releases](https://github.com/skylot/jadx/releases)
-- **Shodan API key** — enriches `netrecon` with external intelligence: `pip3 install shodan`, then `set shodan_key YOUR_KEY`
-- **Tor** — anonymous routing in `websec`: `sudo apt install tor && sudo systemctl start tor`
+- **cloudflared** - alternative tunnel for `android_pentest wan_expose`: download from Cloudflare or let the module fall back to bore automatically
+- **jadx** - Java decompiler for APK analysis: download from [GitHub releases](https://github.com/skylot/jadx/releases)
+- **Shodan API key** - enriches `netrecon` with external intelligence: `pip3 install shodan`, then `set shodan_key YOUR_KEY`
+- **Tor** - anonymous routing in `websec`: `sudo apt install tor && sudo systemctl start tor`
 
 ---
 
-## Chapter 12 — Installation
+## Chapter 12 - Installation
 
-### 12.1 — Quick Install (Recommended)
+### 12.1 - Quick Install (Recommended)
 
 **Standard installation:**
 
@@ -501,9 +529,9 @@ secV ❯ show modules # should list all built-in modules
 
 ---
 
-### 12.2 — Bare Metal Setup
+### 12.2 - Bare Metal Setup
 
-Running secV on a physical machine gives full hardware access — real USB ports for ADB and BadUSB, a physical Wi-Fi card you can put into monitor mode, and bore tunnels through the actual NIC. This section covers everything install.sh does not handle automatically.
+Running secV on a physical machine gives full hardware access - real USB ports for ADB and BadUSB, a physical Wi-Fi card you can put into monitor mode, and bore tunnels through the actual NIC. This section covers everything install.sh does not handle automatically.
 
 **WSL2 is not supported.** WSL2 cannot pass USB devices to ADB, cannot put the host Wi-Fi card into monitor mode, and isolates the network stack. If you are on Windows, install a VM (see 12.3–12.6) or dual-boot.
 
@@ -512,10 +540,10 @@ Running secV on a physical machine gives full hardware access — real USB ports
 | Component | Minimum | Recommended |
 |-----------|---------|-------------|
 | CPU | x86_64 64-bit, 2 cores | 4+ cores |
-| RAM | 4 GB | 8 GB — MSF alone uses ~1 GB at rest |
-| Storage | 20 GB free | 50 GB — APK builds, scan logs, media captures |
-| Wi-Fi | — | Alfa AWUS036ACH or AWUS036NHA (monitor mode + injection confirmed) |
-| USB | 1× USB 2.0+ | 2× ports — ADB on one, BadUSB device on the other |
+| RAM | 4 GB | 8 GB - MSF alone uses ~1 GB at rest |
+| Storage | 20 GB free | 50 GB - APK builds, scan logs, media captures |
+| Wi-Fi | - | Alfa AWUS036ACH or AWUS036NHA (monitor mode + injection confirmed) |
+| USB | 1× USB 2.0+ | 2× ports - ADB on one, BadUSB device on the other |
 | OS | Arch / Kali / Ubuntu / Fedora bare metal | CachyOS or Arch (primary dev platform) |
 
 **ADB and USB device permissions**
@@ -539,13 +567,13 @@ sudo chmod a+r /etc/udev/rules.d/51-android.rules
 sudo udevadm control --reload-rules
 sudo udevadm trigger
 
-# Add your user to plugdev — log out and back in after
+# Add your user to plugdev - log out and back in after
 sudo usermod -aG plugdev $USER
 ```
 
 install.sh writes this rule automatically if it does not already exist.
 
-**Wi-Fi adapter — enabling monitor mode**
+**Wi-Fi adapter - enabling monitor mode**
 
 Internal laptop adapters almost never support monitor mode. Use an external USB adapter (Alfa recommended). After plugging in:
 
@@ -571,31 +599,31 @@ sudo ip link set wlan0 up
 sudo systemctl restart NetworkManager
 ```
 
-**Bore — NAT bypass tunnel**
+**Bore - NAT bypass tunnel**
 
 Required for `android_pentest` WAN mode. Without bore, the DexClassLoader payload cannot reach your machine through carrier NAT.
 
 ```bash
-# Arch / CachyOS — AUR
+# Arch / CachyOS - AUR
 yay -S bore-cli
 
-# Any distro — Cargo (Rust required)
+# Any distro - Cargo (Rust required)
 cargo install bore-cli
 
-# Any distro — pre-built binary (no Rust needed)
+# Any distro - pre-built binary (no Rust needed)
 curl -L https://github.com/ekzhang/bore/releases/latest/download/bore-x86_64-unknown-linux-musl.tar.gz \
   | tar xz
 sudo mv bore /usr/local/bin/bore
 bore --version
 ```
 
-**Metasploit — one-time database initialisation**
+**Metasploit - one-time database initialisation**
 
 MSF requires a PostgreSQL database for session tracking. Initialise it once after installing:
 
 ```bash
 sudo msfdb init
-msfconsole -q -x "version; exit"    # smoke test — must print version and exit cleanly
+msfconsole -q -x "version; exit"    # smoke test - must print version and exit cleanly
 ```
 
 **System-wide install (callable from anywhere)**
@@ -606,13 +634,13 @@ sudo chmod +x /usr/local/bin/secV
 secV --version     # from any directory
 ```
 
-**Pre-session health check — run this before every operational session**
+**Pre-session health check - run this before every operational session**
 
 ```bash
-# ADB — device must appear here before any android_pentest operation
+# ADB - device must appear here before any android_pentest operation
 adb devices
 
-# Wi-Fi — confirm monitor-mode adapter is visible
+# Wi-Fi - confirm monitor-mode adapter is visible
 ip link show && iw dev
 
 # MSF database
@@ -621,21 +649,21 @@ sudo msfdb status
 # Bore
 bore --version
 
-# secV dependency table — ✓/✗ for every module and every dep
+# secV dependency table - ✓/✗ for every module and every dep
 ./secV -check-deps
 
-# Smoke test — quick localhost recon, must complete in <5 s
+# Smoke test - quick localhost recon, must complete in <5 s
 echo '{"target":"127.0.0.1","params":{"mode":"quick"}}' \
   | python3 tools/network/netrecon/netrecon.py
 ```
 
 ---
 
-### 12.3 — VM Setup: Arch Linux (Primary)
+### 12.3 - VM Setup: Arch Linux (Primary)
 
 Arch Linux is the primary secV development and testing platform. CachyOS (a real-time kernel, performance-tuned Arch fork) is what the core team runs. This guide builds a clean Arch VM from the ISO to a working secV installation.
 
-**Create the VM — QEMU/KVM (recommended on Linux hosts)**
+**Create the VM - QEMU/KVM (recommended on Linux hosts)**
 
 ```bash
 # Install the hypervisor stack if not present
@@ -656,7 +684,7 @@ virt-install \
   --graphics spice
 ```
 
-**Create the VM — VirtualBox (cross-platform)**
+**Create the VM - VirtualBox (cross-platform)**
 
 1. New → Name: `secv-arch`, Type: `Linux`, Version: `Arch Linux (64-bit)`
 2. RAM: `8192 MB`, CPU: `4 cores`
@@ -671,7 +699,7 @@ virt-install \
 ```bash
 # 1. Verify boot and internet
 loadkeys us
-ping -c3 archlinux.org        # must succeed — if not, check VM network settings
+ping -c3 archlinux.org        # must succeed - if not, check VM network settings
 
 # 2. Sync clock
 timedatectl set-ntp true
@@ -781,9 +809,9 @@ bash install.sh
 
 ---
 
-### 12.4 — VM Setup: Kali Linux
+### 12.4 - VM Setup: Kali Linux
 
-Kali ships with most offensive tools already installed, making it the fastest path to a working secV environment. The main caveat is that Kali's packaged Go version is often outdated — secV requires Go 1.21+.
+Kali ships with most offensive tools already installed, making it the fastest path to a working secV environment. The main caveat is that Kali's packaged Go version is often outdated - secV requires Go 1.21+.
 
 **Create the VM**
 
@@ -797,7 +825,7 @@ Same specs as the Arch VM: 4 vCPUs, 8 GB RAM, 40 GB disk. Use QEMU/KVM or Virtua
 2. Language: `English` · Location: your country · Keyboard: `English (US)`
 3. Hostname: `secv-kali` · Domain: leave blank
 4. Full name and username (e.g. `oxbv1`) · set a password
-5. Partitioning: **Guided — use entire disk** → All files in one partition
+5. Partitioning: **Guided - use entire disk** → All files in one partition
 6. Software selection: leave defaults ticked (Kali desktop + top 10 tools)
 7. Install GRUB to the primary drive (`/dev/sda` or `/dev/vda`)
 8. Finish installation → reboot, remove ISO
@@ -807,7 +835,7 @@ Same specs as the Arch VM: 4 vCPUs, 8 GB RAM, 40 GB disk. Use QEMU/KVM or Virtua
 ```bash
 sudo apt update && sudo apt full-upgrade -y
 
-# Kali's golang-go is often 1.18 or older — install the official upstream binary
+# Kali's golang-go is often 1.18 or older - install the official upstream binary
 wget -q https://go.dev/dl/go1.21.13.linux-amd64.tar.gz
 sudo rm -rf /usr/local/go
 sudo tar -C /usr/local -xzf go1.21.13.linux-amd64.tar.gz
@@ -818,7 +846,7 @@ go version   # must print go1.21.x or higher
 curl -L https://github.com/ekzhang/bore/releases/latest/download/bore-x86_64-unknown-linux-musl.tar.gz \
   | tar xz && sudo mv bore /usr/local/bin/
 
-# MSF is pre-installed on Kali — just init the database
+# MSF is pre-installed on Kali - just init the database
 sudo msfdb init
 msfconsole -q -x "version; exit"
 
@@ -841,7 +869,7 @@ bash install.sh
 
 ---
 
-### 12.5 — VM Setup: Ubuntu / Debian
+### 12.5 - VM Setup: Ubuntu / Debian
 
 Ubuntu 24.04 LTS and Debian 12 Bookworm are both supported. The main difference from Kali: you need to install offensive tools that Kali ships by default, and both distros package an old Go that must be replaced.
 
@@ -851,7 +879,7 @@ Same specs: 4 vCPUs, 8 GB RAM, 40 GB disk.
 
 Downloads:
 - **Ubuntu 24.04 LTS:** `ubuntu.com/download/server` (server ISO is lighter) or desktop ISO
-- **Debian 12:** `debian.org/distrib/netinst` — netinstall ISO (~400 MB)
+- **Debian 12:** `debian.org/distrib/netinst` - netinstall ISO (~400 MB)
 
 **Installation**
 
@@ -861,7 +889,7 @@ Both use graphical or text installers with the same overall flow:
 3. Hostname: `secv-ubuntu` or `secv-debian`
 4. Create a user and password
 5. Partitioning: guided, use entire disk, single partition
-6. Software: for Debian, select only "SSH server" and "standard system utilities" — no desktop needed for a headless pentest box; add desktop if you prefer
+6. Software: for Debian, select only "SSH server" and "standard system utilities" - no desktop needed for a headless pentest box; add desktop if you prefer
 7. GRUB to primary drive → finish → reboot, remove ISO
 
 **Post-install: secV on Ubuntu / Debian**
@@ -881,7 +909,7 @@ sudo apt install -y python3 python3-pip git nmap masscan adb apktool \
                     default-jdk jq nodejs aircrack-ng iw wireless-tools \
                     imagemagick ffmpeg smbclient rpcclient
 
-# Metasploit — use the official installer
+# Metasploit - use the official installer
 curl https://raw.githubusercontent.com/rapid7/metasploit-omnibus/master/config/templates/metasploit-framework-wrappers/msfupdate.erb \
   > msfinstall && chmod 755 msfinstall && sudo ./msfinstall
 sudo msfdb init
@@ -914,7 +942,7 @@ bash install.sh
 
 ---
 
-### 12.6 — VM Setup: Fedora
+### 12.6 - VM Setup: Fedora
 
 Fedora 40+ ships a sufficiently modern Go in its official repositories, making it the easiest distro to get running after Arch. The catch is that Metasploit is not in the Fedora repos and must be installed from the Rapid7 installer.
 
@@ -940,17 +968,17 @@ Same specs: 4 vCPUs, 8 GB RAM, 40 GB disk.
 ```bash
 sudo dnf update -y
 
-# Go is current on Fedora — install from repo
+# Go is current on Fedora - install from repo
 sudo dnf install -y golang python3 python3-pip git nmap jq nodejs \
                     aircrack-ng iw android-tools imagemagick ffmpeg
 
-# apktool — not in Fedora repos, install manually
+# apktool - not in Fedora repos, install manually
 wget https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool \
      https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_2.9.3.jar
 sudo mv apktool /usr/local/bin/ && sudo mv apktool_*.jar /usr/local/bin/apktool.jar
 sudo chmod +x /usr/local/bin/apktool
 
-# Metasploit — Rapid7 installer
+# Metasploit - Rapid7 installer
 curl https://raw.githubusercontent.com/rapid7/metasploit-omnibus/master/config/templates/metasploit-framework-wrappers/msfupdate.erb \
   > msfinstall && chmod 755 msfinstall && sudo ./msfinstall
 sudo msfdb init
@@ -982,7 +1010,7 @@ bash install.sh
 
 ---
 
-## Chapter 13 — First Run
+## Chapter 13 - First Run
 
 Launch secV:
 
@@ -1011,17 +1039,17 @@ secV (netrecon) ❯ back      # unload the module
 secV ❯ exit                 # quit
 ```
 
-Notice the prompt changes when a module is loaded — `secV (netrecon) ❯` tells you which module you're working with. Parameters you set stay set until you `back` out or `set` them again.
+Notice the prompt changes when a module is loaded - `secV (netrecon) ❯` tells you which module you're working with. Parameters you set stay set until you `back` out or `set` them again.
 
 **Tab completion is active for everything:** module names, command names, and parameter names all autocomplete when you press Tab.
 
 ---
 
-# Part III — Using secV
+# Part III - Using secV
 
 ---
 
-## Chapter 14 — The secV Shell
+## Chapter 14 - The secV Shell
 
 secV's shell is a purpose-built command interpreter. Every command is one of these:
 
@@ -1093,7 +1121,7 @@ This shows version, description, category, dependencies (with ✓/✗ status che
 
 ---
 
-## Chapter 15 — Running Your First Module
+## Chapter 15 - Running Your First Module
 
 Let's do a real example: scan a local network.
 
@@ -1139,9 +1167,9 @@ secV (netrecon) ❯ run 192.168.0.0/16
 
 ---
 
-## Chapter 16 — Parameters Deep Dive
+## Chapter 16 - Parameters Deep Dive
 
-Parameters are how you configure what a module does. They work like settings — each one has a name, a type, and optionally a default value.
+Parameters are how you configure what a module does. They work like settings - each one has a name, a type, and optionally a default value.
 
 **Types:**
 
@@ -1192,11 +1220,11 @@ threads       int      20         20         no
 output_dir    string   -          /tmp/out   no
 ```
 
-**Parameters persist within a session.** If you `back` and then `use netrecon` again, parameters reset to their defaults. There's no saved state between secV sessions — set your parameters fresh each time.
+**Parameters persist within a session.** If you `back` and then `use netrecon` again, parameters reset to their defaults. There's no saved state between secV sessions - set your parameters fresh each time.
 
 ---
 
-## Chapter 17 — Targets and Output
+## Chapter 17 - Targets and Output
 
 **Targets** are passed to `run`:
 
@@ -1230,30 +1258,30 @@ secV (netrecon) ❯ run 192.168.1.0/24
 ```
 
 After the scan, `/tmp/pentest-report/` contains:
-- `report.html` — self-contained HTML report
-- `scan.xml` — nmap XML
-- `handler.rc` — Metasploit RC file for found services
+- `report.html` - self-contained HTML report
+- `scan.xml` - nmap XML
+- `handler.rc` - Metasploit RC file for found services
 
 Modules that generate files (APKs, PCAP captures, hash dumps) always tell you where they saved the output at the end of the run.
 
 ---
 
-# Part IV — Every Built-in Module
+# Part IV - Every Built-in Module
 
 ---
 
-## Chapter 18 — netrecon
+## Chapter 18 - netrecon
 
 **Version:** 1.0.0 | **Category:** network | **Path:** `tools/network/netrecon/`
 
 ### What it does
 
-`netrecon` is a multi-engine network reconnaissance tool. It doesn't just wrap nmap — it runs nmap, masscan, rustscan, and arp-scan simultaneously, merges all their results into a unified host model, and then enriches each host with:
+`netrecon` is a multi-engine network reconnaissance tool. It doesn't just wrap nmap - it runs nmap, masscan, rustscan, and arp-scan simultaneously, merges all their results into a unified host model, and then enriches each host with:
 
 - CVEs matched against discovered service versions (via live NVD lookups)
 - GeoIP country and ASN data
 - SSL certificate domain extraction (CN + SANs from every TLS port)
-- Camera fingerprinting (via favicon hash matching — recognises 17 camera models)
+- Camera fingerprinting (via favicon hash matching - recognises 17 camera models)
 - iOS/Apple device detection (port 62078 = lockdownd, mDNS patterns)
 - Shodan threat intelligence (if API key provided)
 - A self-contained HTML report (no xsltproc or external dependencies needed)
@@ -1291,15 +1319,15 @@ secV (netrecon) ❯ run 198.51.100.1
 | `timeout` | integer | `5` | Per-host timeout in seconds |
 | `os_detection` | boolean | `false` | OS fingerprinting (requires root) |
 | `vuln_scripts` | boolean | `false` | Run nmap vulnerability NSE scripts |
-| `shodan_key` | string | — | Shodan API key |
-| `interface` | string | — | Bind to a specific network interface |
-| `exclude` | string | — | Comma-separated hosts/CIDRs to skip |
-| `passive_only` | boolean | `false` | No active probing — Shodan and DNS only |
+| `shodan_key` | string | - | Shodan API key |
+| `interface` | string | - | Bind to a specific network interface |
+| `exclude` | string | - | Comma-separated hosts/CIDRs to skip |
+| `passive_only` | boolean | `false` | No active probing - Shodan and DNS only |
 | `max_hosts` | integer | `1024` | Max IPs sampled from `country:`/`asn:` targets |
 | `evasion` | boolean | `false` | IDS/FW bypass: fragmentation, decoys, source-port spoofing |
 | `proxychains` | boolean | `false` | Route nmap through proxychains4 |
 | `web_enum` | boolean | `false` | Run gobuster/ffuf on discovered web ports |
-| `output_dir` | string | — | Save HTML report, nmap XML, MSF RC file |
+| `output_dir` | string | - | Save HTML report, nmap XML, MSF RC file |
 
 ### Scan modes
 
@@ -1314,10 +1342,10 @@ secV (netrecon) ❯ run 198.51.100.1
 
 ### Output
 
-- `hosts[]` — per host: IP, hostname, OS, MAC, open ports, services, risk score, country, ASN, CVEs
-- `ssl_domains[]` — extracted certificate domains (CDN noise filtered)
-- `summary{}` — totals, risk breakdown, OS distribution, high-risk host list
-- `outputs{}` — paths to HTML report, nmap XML, MSF RC file
+- `hosts[]` - per host: IP, hostname, OS, MAC, open ports, services, risk score, country, ASN, CVEs
+- `ssl_domains[]` - extracted certificate domains (CDN noise filtered)
+- `summary{}` - totals, risk breakdown, OS distribution, high-risk host list
+- `outputs{}` - paths to HTML report, nmap XML, MSF RC file
 
 ### Feature tiers
 
@@ -1331,17 +1359,17 @@ secV (netrecon) ❯ run 198.51.100.1
 
 ---
 
-## Chapter 19 — android_pentest
+## Chapter 19 - android_pentest
 
-**Version:** 2.4.2 | **Category:** mobile | **Path:** `tools/mobile/android/`
+**Version:** 2.4.3 | **Category:** mobile | **Path:** `tools/mobile/android/`
 
 ### What it does
 
-`android_pentest` is a full-lifecycle Android security testing suite. It covers every phase from passive recon through active exploitation, persistence, and post-exploitation — for both rooted and non-rooted devices.
+`android_pentest` is a full-lifecycle Android security testing suite. It covers every phase from passive recon through active exploitation, persistence, and post-exploitation - for both rooted and non-rooted devices.
 
 The module has two interfaces:
-- **CLI mode:** `set operation <op>; run device` — runs a specific operation and returns JSON results
-- **GUI mode:** `set mode gui; run` — launches a full web interface at `http://localhost:8897` with an interactive operations panel, live terminal, ADB console, findings tab, live media tab, and embedded C2 dashboard
+- **CLI mode:** `set operation <op>; run device` - runs a specific operation and returns JSON results
+- **GUI mode:** `set mode gui; run` - launches a full web interface at `http://localhost:8897` with an interactive operations panel, live terminal, ADB console, findings tab, live media tab, and embedded C2 dashboard
 
 See the [android_pentest full module manual](tools/mobile/android/README.md) for a complete book-level reference covering everything from "what is an APK" to building new GUI panels.
 
@@ -1350,7 +1378,7 @@ See the [android_pentest full module manual](tools/mobile/android/README.md) for
 ```
 secV ❯ use android_pentest
 
-# GUI mode (recommended — all features accessible)
+# GUI mode (recommended - all features accessible)
 secV (android_pentest) ❯ set mode gui
 secV (android_pentest) ❯ run
 
@@ -1414,14 +1442,14 @@ secV (android_pentest) ❯ run connected
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `operation` | — | Operation to run |
+| `operation` | - | Operation to run |
 | `device` | auto | ADB device serial |
-| `package` | — | Target app package name |
-| `mode` | — | Set to `gui` for web interface |
-| `lhost` | — | Listener IP for payloads |
+| `package` | - | Target app package name |
+| `mode` | - | Set to `gui` for web interface |
+| `lhost` | - | Listener IP for payloads |
 | `lport` | `4444` | Listener port |
 | `bore_server` | `bore.pub` | Bore relay for WAN mode |
-| `apk_path` | — | Explicit APK path |
+| `apk_path` | - | Explicit APK path |
 
 ### bore install (required for WAN mode)
 
@@ -1431,7 +1459,7 @@ curl -sL https://github.com/ekzhang/bore/releases/download/v0.5.1/bore-v0.5.1-x8
 
 ---
 
-## Chapter 20 — ios_pentest
+## Chapter 20 - ios_pentest
 
 **Version:** 1.0.1 | **Category:** mobile | **Path:** `tools/mobile/ios/`
 
@@ -1459,10 +1487,10 @@ secV (ios_pentest) ❯ run device
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `operation` | string | `recon` | `recon` `app_scan` `vuln_scan` `exploit` `shell` `full` |
-| `udid` | string | — | Device UDID (auto-detect if single device) |
-| `bundle_id` | string | — | Target app bundle ID |
-| `ipa_path` | string | — | Path to local IPA for static analysis |
-| `ssh_host` | string | — | Jailbroken device IP |
+| `udid` | string | - | Device UDID (auto-detect if single device) |
+| `bundle_id` | string | - | Target app bundle ID |
+| `ipa_path` | string | - | Path to local IPA for static analysis |
+| `ssh_host` | string | - | Jailbroken device IP |
 | `ssh_port` | integer | `22` | SSH port |
 | `ssh_user` | string | `root` | SSH user |
 | `ssh_pass` | string | `alpine` | SSH password (default for checkra1n/unc0ver) |
@@ -1470,7 +1498,7 @@ secV (ios_pentest) ❯ run device
 | `deep_analysis` | boolean | `false` | Extended binary analysis |
 | `ssl_bypass` | boolean | `false` | Frida SSL pinning bypass |
 | `frida` | boolean | `false` | Enable Frida instrumentation |
-| `nvd_api_key` | string | — | NVD API key (higher rate limit) |
+| `nvd_api_key` | string | - | NVD API key (higher rate limit) |
 
 **Prerequisites:**
 - Non-jailbroken: `libimobiledevice` system package + local IPA file
@@ -1478,7 +1506,7 @@ secV (ios_pentest) ❯ run device
 
 ---
 
-## Chapter 21 — adsec
+## Chapter 21 - adsec
 
 **Version:** 1.0.2 | **Category:** AD | **Path:** `tools/AD/linux/`
 
@@ -1488,7 +1516,7 @@ secV (ios_pentest) ❯ run device
 
 **Pure-Python fallbacks** via `impacket` + `ldap3` mean it works without dozens of external CLIs installed.
 
-**Lockout safety** is on by default — `safe_spray=true` pulls the domain password policy first and leaves a 2-attempt buffer below the lockout threshold. `krbtgt`, `Administrator`, and `Guest` are always excluded from sprays.
+**Lockout safety** is on by default - `safe_spray=true` pulls the domain password policy first and leaves a 2-attempt buffer below the lockout threshold. `krbtgt`, `Administrator`, and `Guest` are always excluded from sprays.
 
 ### Quick start
 
@@ -1544,7 +1572,7 @@ secV (adsec) ❯ run 192.168.1.50
 
 ---
 
-## Chapter 22 — winadsec
+## Chapter 22 - winadsec
 
 **Version:** 1.0.2 | **Category:** AD | **Path:** `tools/AD/windows/`
 
@@ -1584,7 +1612,7 @@ secV (winadsec) ❯ run 192.168.1.50
 
 ---
 
-## Chapter 23 — websec
+## Chapter 23 - websec
 
 **Version:** 2.4.1 | **Category:** web | **Path:** `tools/web/websec/`
 
@@ -1592,7 +1620,7 @@ secV (winadsec) ❯ run 192.168.1.50
 
 `websec` is a full-stack web attack surface tool. It combines OSINT (DNS, WHOIS, SSL, Wayback), active scanning (headers, CORS, cookies, directories, SQLi, XSS, CSRF, 403 bypass, open redirect), framework CVEs (Jira, AEM, Confluence), WordPress attack surface, WAF fingerprinting, web spidering, Google dorks, and a stealth layer (UA rotation, delay/jitter, proxy/Tor).
 
-Everything uses pure Python `requests` — no Burp, no browser, no GUI required.
+Everything uses pure Python `requests` - no Burp, no browser, no GUI required.
 
 ### Quick start
 
@@ -1649,14 +1677,14 @@ secV (websec) ❯ run https://example.com
 | `stealth` | Show stealth config, test proxy reachability |
 | `php_payload` | PHP reverse shell, webshell, cmd page, or obfuscated payload |
 | `msf_payload` | msfvenom web payloads (php/war/jsp/aspx) + handler.rc |
-| `fuzz` | Directory fuzzing — auto-picks ffuf, gobuster, or dirbuster |
+| `fuzz` | Directory fuzzing - auto-picks ffuf, gobuster, or dirbuster |
 | `burp_export` | Raw HTTP request, Burp scope JSON, intruder payload list |
 | `shell` | Generate 30+ reverse shell one-liners; start OnlyShell handler |
 | `full` | All checks in one pass |
 
 ---
 
-## Chapter 24 — wifi_monitor
+## Chapter 24 - wifi_monitor
 
 **Version:** 2.1.0 | **Category:** network | **Path:** `tools/network/wifi_monitor/`
 
@@ -1664,7 +1692,7 @@ secV (websec) ❯ run https://example.com
 
 `wifi_monitor` is a full-stack WiFi attack and monitoring suite. It wraps the aircrack-ng toolchain, hostapd, hcxdumptool, reaver, hashcat, bettercap, and the OnlyShell reverse shell handler into a single module with 23 distinct modes covering every phase of wireless assessment.
 
-**Requires root** — `sudo secV` — because monitor mode and packet injection require elevated privileges.
+**Requires root** - `sudo secV` - because monitor mode and packet injection require elevated privileges.
 
 ### Quick start
 
@@ -1720,7 +1748,7 @@ secV (wifi_monitor) ❯ run target
 
 ---
 
-## Chapter 25 — mac_spoof
+## Chapter 25 - mac_spoof
 
 **Version:** 2.2.0 | **Category:** network | **Path:** `tools/network/mac_spoof/`
 
@@ -1728,7 +1756,7 @@ secV (wifi_monitor) ❯ run target
 
 `mac_spoof` manages per-interface background daemons that rotate your MAC address on a configurable schedule. Features: active connection tracking (won't rotate while you have live TCP connections), vendor OUI spoofing (looks like real Apple/Samsung/Intel hardware), stealth mode (rotate only on disconnect), persistent systemd service support, and rotation history logging.
 
-**Requires root** — `sudo secV`.
+**Requires root** - `sudo secV`.
 
 ### Quick start
 
@@ -1764,13 +1792,13 @@ secV (mac_spoof) ❯ run localhost
 
 ---
 
-## Chapter 26 — revshell
+## Chapter 26 - revshell
 
 **Version:** 1.0.1 | **Category:** network | **Path:** `tools/network/revshell/`
 
 ### What it does
 
-`revshell` is a multi-session reverse shell handler and payload generator — a Python port of [OnlyShell](https://github.com/malwarekid/OnlyShell) with an extended payload library (30+ one-liners) and a Nim backdoor compiler. Every other secV module that needs a shell handler imports `revshell` — it's the shared shell infrastructure for the whole framework.
+`revshell` is a multi-session reverse shell handler and payload generator - a Python port of [OnlyShell](https://github.com/malwarekid/OnlyShell) with an extended payload library (30+ one-liners) and a Nim backdoor compiler. Every other secV module that needs a shell handler imports `revshell` - it's the shared shell infrastructure for the whole framework.
 
 ### Quick start
 
@@ -1794,7 +1822,7 @@ secV (revshell) ❯ set lhost 10.10.10.10
 secV (revshell) ❯ set target_os linux
 secV (revshell) ❯ run target
 
-# CLI shortcut — start on port 4444 immediately
+# CLI shortcut - start on port 4444 immediately
 python3 tools/network/revshell/revshell.py 4444
 ```
 
@@ -1816,7 +1844,7 @@ Once the handler is running and a session connects:
 
 ---
 
-## Chapter 27 — iot_pwn
+## Chapter 27 - iot_pwn
 
 **Version:** 1.0.1 | **Category:** mobile (IoT) | **Path:** `tools/mobile/iot/`
 
@@ -1845,7 +1873,7 @@ secV (iot_pwn) ❯ run 192.168.1.1
 
 ---
 
-## Chapter 28 — ctfpwn
+## Chapter 28 - ctfpwn
 
 **Version:** 1.2.0 | **Category:** ctf | **Path:** `tools/ctf/ctfpwn/`
 
@@ -1885,13 +1913,13 @@ secV (ctfpwn) ❯ run none
 
 ---
 
-## Chapter 29 — badusb
+## Chapter 29 - badusb
 
 **Version:** 1.0.0 | **Category:** physical | **Path:** `tools/phys/badusb/`
 
 ### What it does
 
-`badusb` encodes a PowerShell `.ps1` script as base64 and wraps it in DuckyScript. On execution, the USB HID device opens Win+R → `powershell`, then uses `certutil` to decode and execute the payload — no external tools needed on the attack machine.
+`badusb` encodes a PowerShell `.ps1` script as base64 and wraps it in DuckyScript. On execution, the USB HID device opens Win+R → `powershell`, then uses `certutil` to decode and execute the payload - no external tools needed on the attack machine.
 
 Compatible with USB Rubber Ducky, Hak5 devices, and any DuckyScript-compatible tool.
 
@@ -1917,11 +1945,11 @@ Output saved to `~/.secv/badusb/<stem>_badusb.txt`.
 
 ---
 
-# Part V — How secV Works
+# Part V - How secV Works
 
 ---
 
-## Chapter 30 — Architecture
+## Chapter 30 - Architecture
 
 Understanding how secV is built helps you build modules for it and debug problems when things go wrong.
 
@@ -1970,7 +1998,7 @@ Understanding how secV is built helps you build modules for it and debug problem
 
 ---
 
-## Chapter 31 — The JSON Protocol
+## Chapter 31 - The JSON Protocol
 
 When you run `secV (netrecon) ❯ run 192.168.1.0/24`, secV builds this JSON and writes it to the module's stdin:
 
@@ -2036,7 +2064,7 @@ secV displays the error message clearly and doesn't try to parse `data`.
 
 ---
 
-## Chapter 32 — The module.json Manifest
+## Chapter 32 - The module.json Manifest
 
 Every module needs a `module.json` file in its directory. This is what secV reads to know the module exists and how to use it.
 
@@ -2053,8 +2081,8 @@ Every module needs a `module.json` file in its directory. This is what secV read
 
   "dependencies": ["python3", "nmap"],
   "optional_dependencies": {
-    "masscan": "Fast SYN port scanning — sudo apt install masscan",
-    "scapy": "Raw socket scanning — pip3 install scapy"
+    "masscan": "Fast SYN port scanning - sudo apt install masscan",
+    "scapy": "Raw socket scanning - pip3 install scapy"
   },
 
   "inputs": {
@@ -2111,7 +2139,7 @@ Every module needs a `module.json` file in its directory. This is what secV read
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `name` | string | Module name — must match directory name |
+| `name` | string | Module name - must match directory name |
 | `version` | string | Semantic version (e.g. `1.0.0`) |
 | `category` | string | `network`, `mobile`, `web`, `AD`, `ctf`, `phys` |
 | `description` | string | One-line description |
@@ -2139,7 +2167,7 @@ List **binary names**, not package names. secV checks them with `which`. Example
 
 ---
 
-## Chapter 33 — The Dependency System
+## Chapter 33 - The Dependency System
 
 When you run `info <module>`, secV checks every binary in `dependencies` using `which`. It shows:
 
@@ -2160,8 +2188,8 @@ When a module starts, it typically does its own dependency check in code and pro
 
 ```json
 "optional_dependencies": {
-  "masscan": "Fast SYN scanning — sudo apt install masscan",
-  "scapy": "Raw socket scanning — pip3 install scapy"
+  "masscan": "Fast SYN scanning - sudo apt install masscan",
+  "scapy": "Raw socket scanning - pip3 install scapy"
 }
 ```
 
@@ -2169,11 +2197,11 @@ The value is the install hint shown to the user. secV checks the key with `which
 
 **Graceful degradation:**
 
-Good modules work with minimal dependencies and unlock more features as dependencies are installed. For example, `netrecon` works with only Python stdlib (TCP connect scan) and adds features as nmap, masscan, cryptography, and geoip2 become available. Never fail hard when an optional dependency is missing — log a warning and skip that feature.
+Good modules work with minimal dependencies and unlock more features as dependencies are installed. For example, `netrecon` works with only Python stdlib (TCP connect scan) and adds features as nmap, masscan, cryptography, and geoip2 become available. Never fail hard when an optional dependency is missing - log a warning and skip that feature.
 
 ---
 
-## Chapter 34 — The Update System
+## Chapter 34 - The Update System
 
 ```bash
 secV ❯ update                  # interactive update from within secV
@@ -2203,11 +2231,11 @@ sudo install -m755 update.py /var/lib/secv/update.py
 
 ---
 
-# Part VI — Building Your Own Module
+# Part VI - Building Your Own Module
 
 ---
 
-## Chapter 35 — Module Structure
+## Chapter 35 - Module Structure
 
 A secV module is a directory containing:
 
@@ -2233,11 +2261,11 @@ secV ❯ use my_scanner
 secV (my_scanner) ❯ show options
 ```
 
-No restart needed — `reload` rescans `tools/` and picks up the new module instantly.
+No restart needed - `reload` rescans `tools/` and picks up the new module instantly.
 
 ---
 
-## Chapter 36 — Your First Python Module
+## Chapter 36 - Your First Python Module
 
 Let's build a simple port checker from scratch.
 
@@ -2252,7 +2280,7 @@ cd tools/network/portcheck
 
 ```python
 #!/usr/bin/env python3
-"""portcheck — check if a specific port is open on a host"""
+"""portcheck - check if a specific port is open on a host"""
 import json
 import sys
 import socket
@@ -2356,9 +2384,9 @@ This direct test is faster than going through secV every time you make a change.
 
 ---
 
-## Chapter 37 — Your First Bash Module
+## Chapter 37 - Your First Bash Module
 
-Bash modules work the same way — read JSON from stdin, write JSON to stdout. The only requirement is `jq` for JSON parsing.
+Bash modules work the same way - read JSON from stdin, write JSON to stdout. The only requirement is `jq` for JSON parsing.
 
 ```bash
 #!/usr/bin/env bash
@@ -2416,7 +2444,7 @@ echo '{"target": "192.168.1.1", "params": {"port": 22}}' | bash main.sh
 
 ---
 
-## Chapter 38 — Other Languages
+## Chapter 38 - Other Languages
 
 Any language works. The contract is: read `{"target": "...", "params": {...}}` from stdin, write `{"success": bool, "data": {...}}` to stdout.
 
@@ -2473,7 +2501,7 @@ func main() {
 Compile: `go build -o portcheck main.go`
 Executable in `module.json`: `"./portcheck"`
 
-**Rust, C, C++** — same pattern. Compile to a binary, set the executable path.
+**Rust, C, C++** - same pattern. Compile to a binary, set the executable path.
 
 **Node.js:**
 
@@ -2502,7 +2530,7 @@ Executable: `"node main.js"`
 
 ---
 
-## Chapter 39 — The module.json Specification
+## Chapter 39 - The module.json Specification
 
 Full field reference for `module.json`:
 
@@ -2529,7 +2557,7 @@ Full field reference for `module.json`:
 }
 ```
 
-**`inputs` object — per parameter:**
+**`inputs` object - per parameter:**
 
 ```
 {
@@ -2543,7 +2571,7 @@ Full field reference for `module.json`:
 
 ---
 
-## Chapter 40 — gen_module.py
+## Chapter 40 - gen_module.py
 
 `gen_module.py` auto-generates `module.json` by scanning your source for parameter usage patterns.
 
@@ -2566,8 +2594,8 @@ python3 gen_module.py tools/network/my-tool/ --update
 ```
 
 **Fill in manually after generation:**
-- `help.parameters[*].description` — the generator can't infer meaning
-- `help.examples` — same
+- `help.parameters[*].description` - the generator can't infer meaning
+- `help.examples` - same
 - `options` arrays on parameters with fixed valid values
 - `author`, `description`, `help.features`, `help.notes`
 
@@ -2575,11 +2603,11 @@ Use `gen_module.py --update` during development to add newly added parameters to
 
 ---
 
-## Chapter 41 — Testing Your Module
+## Chapter 41 - Testing Your Module
 
-All testing is done against real system tools on the live machine. There are no mocks, no sandboxes, no faked dependencies. If a command works in the terminal it should work through secV. If it does not, the failure is in the JSON dispatch, the executable path, or a missing system dependency — not in the logic of the underlying tool.
+All testing is done against real system tools on the live machine. There are no mocks, no sandboxes, no faked dependencies. If a command works in the terminal it should work through secV. If it does not, the failure is in the JSON dispatch, the executable path, or a missing system dependency - not in the logic of the underlying tool.
 
-**Step 1 — Pipe test directly (fastest, no secV needed)**
+**Step 1 - Pipe test directly (fastest, no secV needed)**
 
 From inside your module folder:
 
@@ -2597,22 +2625,22 @@ echo '{"target":"127.0.0.1","params":{"port":"22"}}' | python3 portcheck.py \
   | grep '^FINDING:' | sed 's/^FINDING: //' | python3 -m json.tool
 ```
 
-**Step 2 — Validate module.json**
+**Step 2 - Validate module.json**
 
 ```bash
 python3 -m json.tool module.json    # must print the parsed JSON with no errors
 ```
 
-**Step 3 — Dependency check inside secV**
+**Step 3 - Dependency check inside secV**
 
 ```
 ./secV
 secV ❯ info portcheck
 ```
 
-Every entry in `module.json dependencies` must show `✓ Found`. Any `✗ Missing` means the binary is not on PATH — install it system-wide with your package manager. Do not install dependencies into user-local or non-PATH locations.
+Every entry in `module.json dependencies` must show `✓ Found`. Any `✗ Missing` means the binary is not on PATH - install it system-wide with your package manager. Do not install dependencies into user-local or non-PATH locations.
 
-**Step 4 — Live reload cycle**
+**Step 4 - Live reload cycle**
 
 Edit the module file, then without restarting secV:
 
@@ -2629,9 +2657,9 @@ Confirm:
 - No Python traceback reaches stdout (tracebacks break secV's JSON parser)
 - The session finding count increments correctly
 
-**Step 5 — Error handling**
+**Step 5 - Error handling**
 
-Your module must never let an unhandled exception print to stdout — it breaks the protocol. Always wrap the entry point:
+Your module must never let an unhandled exception print to stdout - it breaks the protocol. Always wrap the entry point:
 
 ```python
 try:
@@ -2653,7 +2681,7 @@ echo '{"target":"127.0.0.1","params":{}}' | python3 portcheck.py
 
 Both must return a JSON line on stdout, not a Python traceback.
 
-**Step 6 — Missing optional dependency graceful degradation**
+**Step 6 - Missing optional dependency graceful degradation**
 
 Temporarily rename an optional binary to simulate its absence:
 
@@ -2665,10 +2693,10 @@ sudo mv /usr/bin/nmap.bak /usr/bin/nmap
 
 The module must:
 - Not crash
-- Print a clear `[!] nmap not found — skipping ...` warning
+- Print a clear `[!] nmap not found - skipping ...` warning
 - Complete with reduced output, not zero output
 
-**Step 7 — Cross-module regression**
+**Step 7 - Cross-module regression**
 
 After adding your module, run an existing module to confirm the `reload` did not corrupt the module registry:
 
@@ -2679,7 +2707,7 @@ secV (netrecon) ❯ show options    # all existing params must still appear
 secV (netrecon) ❯ run 127.0.0.1
 ```
 
-**Step 8 — System health check before PR**
+**Step 8 - System health check before PR**
 
 Run the full health check to confirm your module's deps are all present on a clean system:
 
@@ -2693,17 +2721,17 @@ echo '{"target":"127.0.0.1","params":{"port":"22","timeout_sec":"3"}}' \
 
 ---
 
-## Chapter 42 — Contribution Checklist and PR Guide
+## Chapter 42 - Contribution Checklist and PR Guide
 
 **Before opening a pull request:**
 
 - [ ] Module runs without optional dependencies (graceful degradation, not a crash)
-- [ ] `module.json` is valid JSON — verified with `python3 -m json.tool module.json`
+- [ ] `module.json` is valid JSON - verified with `python3 -m json.tool module.json`
 - [ ] All required fields present in `module.json`
 - [ ] `help.parameters` has descriptions for every parameter
 - [ ] `help.examples` has at least one working example
 - [ ] `README.md` inside the module directory explains what it does
-- [ ] No unhandled exceptions reach stdout — all errors return `{"success": false, "error": "..."}`
+- [ ] No unhandled exceptions reach stdout - all errors return `{"success": false, "error": "..."}`
 - [ ] Binary names (not pip package names) in `dependencies`
 - [ ] New pip packages added to top-level `rqm.md` under `#python`
 - [ ] New system packages added under the relevant distro sections in `rqm.md`
@@ -2734,7 +2762,7 @@ tools/<category>/<name>/
 **Code style (Python):**
 
 - Python 3.8+ compatible (no walrus operator in critical paths)
-- No print() to stdout except the final JSON result — use stderr for debug output
+- No print() to stdout except the final JSON result - use stderr for debug output
 - No global mutable state
 - `params.get("key", default)` not `params["key"]` for optional parameters
 
@@ -2744,11 +2772,11 @@ Open an issue on GitHub with your question or the error you're hitting.
 
 ---
 
-# Part VII — Reference
+# Part VII - Reference
 
 ---
 
-## Chapter 43 — Shell Command Reference
+## Chapter 43 - Shell Command Reference
 
 **Top-level commands (no module loaded):**
 
@@ -2777,14 +2805,14 @@ Open an issue on GitHub with your question or the error you're hitting.
 **Tab completion:**
 
 Tab works for:
-- `use <Tab>` — all available module names
-- `search <Tab>` — common search terms
-- `set <Tab>` — parameter names for the loaded module
+- `use <Tab>` - all available module names
+- `search <Tab>` - common search terms
+- `set <Tab>` - parameter names for the loaded module
 - Commands at the top-level prompt
 
 ---
 
-## Chapter 44 — Troubleshooting
+## Chapter 44 - Troubleshooting
 
 **Module not found after adding:**
 
@@ -2869,7 +2897,7 @@ This is a module bug. The module should catch all exceptions and return `{"succe
 
 ---
 
-## Chapter 45 — Legal
+## Chapter 45 - Legal
 
 SecV is built for **authorized security testing only.**
 
@@ -2900,7 +2928,7 @@ MIT © 2024–2026 SecVulnHub
 
 <div align="center">
 
-**SecV** · tauri v2.4.2 · built by 0xb0rn3
+**SecV** · tauri v2.4.3 · built by 0xb0rn3
 
 *one shell, any language*
 

@@ -5,7 +5,7 @@
 #
 # install.sh reads this file and installs everything listed.
 # If a section is empty or does not exist, it is silently skipped.
-# Per-module rqm.md files are DEPRECATED — all deps live here.
+# Per-module rqm.md files are DEPRECATED - all deps live here.
 #
 # Sections:
 #   #python   - pip packages (installed with pip3 --break-system-packages)
