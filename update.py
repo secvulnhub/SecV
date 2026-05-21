@@ -51,18 +51,18 @@ INFO = "ℹ"
 
 # --- Version Info Structure ---
 VERSION_INFO = {
-    "current_version": "2.4.2",
+    "current_version": "2.4.3",
     "last_check": None,
     "last_update": None,
     "go_compiled": True,
     "components": {
-        "main.go": {"version": "2.4.2", "hash": None},
+        "main.go": {"version": "2.4.3", "hash": None},
         "install.sh": {"version": "2.5.0", "hash": None},
         "update.py": {"version": "5.0.0", "hash": None},
         "dashboard.py": {"version": "1.0.0", "hash": None},
         "requirements.txt": {"version": "2.5.0", "hash": None},
         "rqm.md": {"version": "2.5.0", "hash": None},
-        "secV": {"version": "2.4.2", "hash": None, "type": "binary"},
+        "secV": {"version": "2.4.3", "hash": None, "type": "binary"},
         "android_gui.py": {"version": "1.0.0", "hash": None},
         "iot_pwn.py": {"version": "1.0.0", "hash": None}
     }

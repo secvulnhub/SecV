@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# secV v2.4.2 "tauri" installer
+# secV v2.4.3 "tauri" installer
 # Reads the single global rqm.md at the repo root and installs all dependencies.
 # Supports: Arch/Manjaro/CachyOS (pacman), Debian/Ubuntu/Kali (apt),
 #           Fedora/RHEL/Rocky (dnf), openSUSE (zypper), Alpine (apk), Void (xbps-install)
