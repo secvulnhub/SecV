@@ -19,14 +19,14 @@
     "bully": "WPS brute-force fallback",
     "bettercap": "ARP-MITM with SSL stripping",
     "arpspoof": "ARP poisoning fallback (dsniff package)",
-    "scapy": "ARP host discovery \u2014 pip3 install scapy (requires root)",
-    "aiohttp": "Async CVE lookup via cve.circl.lu \u2014 pip3 install aiohttp"
+    "scapy": "ARP host discovery — pip3 install scapy (requires root)",
+    "aiohttp": "Async CVE lookup via cve.circl.lu — pip3 install aiohttp"
   },
   "help": {
     "description": "Merges the full wifite automation pipeline and aircrack-ng suite into one secV module. Supports passive WiFi scanning, monitor mode management, packet injection, handshake capture, WEP attacks, PMKID capture, WPS Pixie-Dust/PIN, evil-twin with captive portal, ARP-MITM, cracking (aircrack-ng / hashcat / airolib), traffic decryption, raw packet forge/injection, and original LAN host-discovery with port scanning and CVE enrichment. All WiFi operations require a monitor-capable wireless interface and root/sudo.",
     "modes": {
       "auto": {
-        "description": "wifite-style full-auto pipeline: monitor_on \u2192 wifi_scan \u2192 rank by signal \u2192 per-AP: WEP/PMKID/capture+deauth/WPS \u2192 auto_crack",
+        "description": "wifite-style full-auto pipeline: monitor_on → wifi_scan → rank by signal → per-AP: WEP/PMKID/capture+deauth/WPS → auto_crack",
         "params": [
           "iface",
           "wordlist",
@@ -189,7 +189,7 @@
         ]
       },
       "auto_crack": {
-        "description": "Multi-method crack pipeline: airolib PMK DB \u2192 aircrack-ng \u2192 hashcat (auto-converts .cap to .hc22000)",
+        "description": "Multi-method crack pipeline: airolib PMK DB → aircrack-ng → hashcat (auto-converts .cap to .hc22000)",
         "params": [
           "capture_file",
           "wordlist",
@@ -229,7 +229,7 @@
         ]
       },
       "discover": {
-        "description": "LAN host discovery only \u2014 no port scan",
+        "description": "LAN host discovery only — no port scan",
         "params": [
           "target",
           "timeout"
@@ -272,7 +272,7 @@
           "shell"
         ],
         "examples": [
-          "shell          \u2014 reverse shell handler with optional evil-twin payload delivery"
+          "shell          — reverse shell handler with optional evil-twin payload delivery"
         ]
       },
       "iface": {
@@ -291,7 +291,7 @@
         "required": false
       },
       "channel": {
-        "description": "WiFi channel number (1\u201314 for 2.4 GHz, 36\u2013165 for 5 GHz)",
+        "description": "WiFi channel number (1–14 for 2.4 GHz, 36–165 for 5 GHz)",
         "type": "string",
         "required": "for capture, deauth, wep_attack, wps_attack"
       },
@@ -534,7 +534,7 @@
         "required": "for scan, discover"
       },
       "ports": {
-        "description": "Ports to scan \u2014 comma-separated or range (e.g. '22,80,443' or '1-1024'). 'default' uses a 23-port common set.",
+        "description": "Ports to scan — comma-separated or range (e.g. '22,80,443' or '1-1024'). 'default' uses a 23-port common set.",
         "type": "string",
         "required": false,
         "default": "default"
@@ -770,12 +770,12 @@
       }
     ],
     "features": [
-      "wifite-style op_auto: monitor \u2192 scan \u2192 rank \u2192 WEP/PMKID/handshake/WPS \u2192 crack pipeline",
+      "wifite-style op_auto: monitor → scan → rank → WEP/PMKID/handshake/WPS → crack pipeline",
       "Full aircrack-ng suite: airmon-ng, airodump-ng, aireplay-ng, aircrack-ng, airdecap-ng, airolib-ng, packetforge-ng",
       "Clientless PMKID capture via hcxdumptool with auto-conversion to .hc22000",
       "GPU cracking via hashcat -m 22000 with optional rules file",
       "Precomputed PMK tables via airolib-ng (init, import essid/passwd, batch, stats)",
-      "Auto-crack pipeline: airolib \u2192 aircrack-ng \u2192 hashcat in order",
+      "Auto-crack pipeline: airolib → aircrack-ng → hashcat in order",
       "WEP attacks: fake-auth + arp_replay / chopchop / fragment / caffe_latte",
       "Raw packet forge and injection via packetforge-ng + aireplay-ng --interactive",
       "Evil-twin rogue AP (hostapd + dnsmasq DHCP) with embedded captive portal",
@@ -797,12 +797,12 @@
       "required_for_mitm": "bettercap or dsniff (pacman -S bettercap / apt install dsniff)"
     },
     "output_dirs": {
-      "captures": "~/.secv/wifi/captures/   \u2014 handshake .cap files",
-      "pmkid": "~/.secv/wifi/pmkid/       \u2014 .pcapng and .hc22000 files",
-      "wep": "~/.secv/wifi/wep/         \u2014 WEP .ivs/.cap files",
-      "mitm": "~/.secv/wifi/mitm/        \u2014 MITM .pcap captures",
-      "decrypted": "~/.secv/wifi/decrypted/   \u2014 airdecap-ng output",
-      "evil_twin": "~/.secv/wifi/evil_twin/   \u2014 captive portal credential files"
+      "captures": "~/.secv/wifi/captures/   — handshake .cap files",
+      "pmkid": "~/.secv/wifi/pmkid/       — .pcapng and .hc22000 files",
+      "wep": "~/.secv/wifi/wep/         — WEP .ivs/.cap files",
+      "mitm": "~/.secv/wifi/mitm/        — MITM .pcap captures",
+      "decrypted": "~/.secv/wifi/decrypted/   — airdecap-ng output",
+      "evil_twin": "~/.secv/wifi/evil_twin/   — captive portal credential files"
     },
     "notes": [
       "AUTHORIZATION REQUIRED: Only attack networks you own or have explicit written permission to test",
@@ -811,8 +811,15 @@
       "auto mode calls monitor_on automatically",
       "evil_twin requires a second interface (not the one in monitor mode) or a USB WiFi adapter",
       "Captive portal credential file path is printed in the response credential_file field",
-      "PMKID attack is clientless \u2014 no clients need to be connected to the target AP",
-      "hashcat cracking requires a GPU; use aircrack-ng on CPU-only systems"
+      "PMKID attack is clientless — no clients need to be connected to the target AP",
+      "hashcat cracking requires a GPU; use aircrack-ng on CPU-only systems",
+      "[v2.4.3] setg <param> <value> - sets a global parameter that persists across all module switches and back/use commands",
+      "[v2.4.3] unsetg <param> - clears a global parameter",
+      "[v2.4.3] show global - shows all currently set global parameters",
+      "[v2.4.3] Bare run (no target) reuses the last target automatically",
+      "[v2.4.3] options - shortcut for show options | modules - shortcut for show modules",
+      "[v2.4.3] Tab after set shows all parameter names for the loaded module",
+      "[v2.4.3] Fish-style shell: predicted next command shown above prompt, Ctrl+F to accept suggestion"
     ]
   },
   "timeout": 7200,

@@ -208,6 +208,100 @@ class _PythonAnalyser:
             return ("attr", node.attr) in holders
         return False
 
+    def _extract_operations(self, tree: ast.AST) -> List[str]:
+        """
+        Detect all operation string literals compared against a variable named
+        'operation', 'op', 'mode', 'action', 'cmd', 'command'.
+        Handles: if op == 'scan', if op in ['a','b'], elif op == 'deep'.
+        """
+        ops: List[str] = []
+        op_var_names = {"operation", "op", "mode", "action", "cmd", "command"}
+        seen: set = set()
+
+        def _collect_strings(node) -> List[str]:
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                return [node.value]
+            if isinstance(node, (ast.List, ast.Tuple)):
+                out = []
+                for elt in node.elts:
+                    out.extend(_collect_strings(elt))
+                return out
+            return []
+
+        for node in ast.walk(tree):
+            # if <var> == 'op' or 'op' == <var>
+            if isinstance(node, ast.Compare):
+                left = node.left
+                for op, comp in zip(node.ops, node.comparators):
+                    if isinstance(op, (ast.Eq, ast.In, ast.NotIn)):
+                        # left is varname, comp is string/list
+                        if isinstance(left, ast.Name) and left.id in op_var_names:
+                            for s in _collect_strings(comp):
+                                if s and s not in seen:
+                                    seen.add(s)
+                                    ops.append(s)
+                        # comp is varname, left is string/list
+                        if isinstance(comp, ast.Name) and comp.id in op_var_names:
+                            for s in _collect_strings(left):
+                                if s and s not in seen:
+                                    seen.add(s)
+                                    ops.append(s)
+
+            # match/case (Python 3.10+) - ast.Match with ast.MatchValue
+            if hasattr(ast, "Match") and isinstance(node, ast.Match):
+                if isinstance(node.subject, ast.Name) and node.subject.id in op_var_names:
+                    for case in node.cases:
+                        pat = case.pattern
+                        if hasattr(pat, "value") and isinstance(pat.value, ast.Constant):
+                            s = pat.value.value
+                            if isinstance(s, str) and s not in seen:
+                                seen.add(s)
+                                ops.append(s)
+
+        # Filter out generic values that aren't real operation names
+        _skip = {"", "default", "none", "null", "true", "false", "all", "both"}
+        return [o for o in ops if o.lower() not in _skip]
+
+    def _extract_optional_imports(self, tree: ast.AST) -> List[str]:
+        """Detect imports inside try/except blocks - these are optional dependencies."""
+        optional: List[str] = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Try):
+                for child in ast.walk(node):
+                    if isinstance(child, ast.Import):
+                        for alias in child.names:
+                            top = alias.name.split(".")[0]
+                            if top not in _STDLIB:
+                                optional.append(top)
+                    elif isinstance(child, ast.ImportFrom) and child.module:
+                        top = child.module.split(".")[0]
+                        if top not in _STDLIB:
+                            optional.append(top)
+        return list(set(optional))
+
+    def _extract_features(self, source: str) -> List[str]:
+        """Extract bullet-point features from docstring (lines starting with - or *)."""
+        features: List[str] = []
+        doc = self.module_doc or self.class_doc
+        if not doc:
+            # Fall back to scanning comment lines in first 100 lines
+            for line in source.splitlines()[:100]:
+                stripped = line.strip()
+                if stripped.startswith("#") and any(
+                    stripped.lstrip("#").strip().startswith(ch) for ch in ("-", "*", "•")
+                ):
+                    feat = stripped.lstrip("#").strip().lstrip("-*•").strip()
+                    if feat and len(feat) > 5:
+                        features.append(feat)
+            return features[:20]
+        for line in doc.splitlines():
+            stripped = line.strip()
+            if stripped.startswith(("-", "*", "•")):
+                feat = stripped.lstrip("-*•").strip()
+                if feat and len(feat) > 5:
+                    features.append(feat)
+        return features[:20]
+
     def _extract_params_get(self, tree: ast.AST):
         holders = self._find_params_holders(tree)
 
@@ -422,8 +516,169 @@ def _collect_source_files(tool_path: Path) -> List[Path]:
     return files
 
 
+# ─── Smart description generator ─────────────────────────────────────────────
+
+_PARAM_DESCRIPTIONS = {
+    "operation":  "Operation to perform - see options list for available operations",
+    "op":         "Operation to perform",
+    "mode":       "Scan/run mode (e.g. quick, normal, deep, aggressive)",
+    "target":     "Target IP address, hostname, CIDR range, or URL",
+    "host":       "Target hostname or IP address",
+    "port":       "Target port number (1-65535)",
+    "ports":      "Port range to scan (e.g. 1-1000, 22,80,443, all, top-1000)",
+    "output":     "Output file path for results",
+    "output_dir": "Directory to write output files",
+    "timeout":    "Timeout in seconds before giving up",
+    "threads":    "Number of concurrent threads to use",
+    "verbose":    "Enable verbose output (true/false)",
+    "debug":      "Enable debug output (true/false)",
+    "lhost":      "Local/listener IP address for reverse connections",
+    "lport":      "Local/listener port for reverse connections",
+    "rhost":      "Remote host IP address",
+    "rport":      "Remote host port",
+    "username":   "Username for authentication",
+    "password":   "Password for authentication",
+    "interface":  "Network interface to use (e.g. eth0, wlan0mon)",
+    "wordlist":   "Path to wordlist file for brute-force or dictionary attacks",
+    "url":        "Target URL",
+    "domain":     "Target domain name",
+    "package":    "Android package name (e.g. com.example.app)",
+    "payload":    "Payload type or string to deliver",
+    "depth":      "Recursion or scan depth",
+    "rate":       "Packets per second or request rate limit",
+    "delay":      "Delay between attempts in seconds",
+    "proxy":      "Proxy URL (e.g. http://127.0.0.1:8080)",
+    "format":     "Output format (e.g. json, csv, table, xml)",
+    "profile":    "Scan profile or configuration name",
+    "script":     "Script file path to execute or load",
+    "command":    "Command to run on the target",
+    "device":     "Device identifier (e.g. ADB serial, interface name)",
+    "apk":        "Path to the APK file to analyze or patch",
+    "key":        "Encryption key or API key",
+    "cert":       "Certificate file path",
+    "channel":    "Radio channel number (1-14 for 2.4GHz, 36-165 for 5GHz)",
+    "bssid":      "Target access point MAC address (BSSID)",
+    "ssid":       "Target network name (SSID)",
+}
+
+
+def _smart_description(pname: str, ptype: str, default: Any) -> str:
+    """Generate a human-readable description for a parameter based on its name."""
+    if pname.lower() in _PARAM_DESCRIPTIONS:
+        return _PARAM_DESCRIPTIONS[pname.lower()]
+    # Guess from suffix patterns
+    if pname.endswith("_file") or pname.endswith("_path"):
+        return f"Path to {pname.replace('_file','').replace('_path','')} file"
+    if pname.endswith("_dir"):
+        return f"Directory path for {pname.replace('_dir','')}"
+    if pname.endswith("_list"):
+        return f"Comma-separated list of {pname.replace('_list','').replace('_','-')} values"
+    if pname.startswith("enable_") or pname.startswith("use_") or pname.startswith("with_"):
+        return f"Enable {pname.split('_',1)[1].replace('_',' ')} feature (true/false)"
+    if ptype == "boolean":
+        return f"Enable {pname.replace('_',' ')} (true/false)"
+    if ptype == "integer":
+        return f"Numeric value for {pname.replace('_',' ')}"
+    # Title-case the name as last resort
+    return pname.replace("_", " ").capitalize()
+
+
+def _detect_executable_extended(tool_dir: Path) -> str:
+    """Detect executable command supporting Python, Bash, Ruby, Node, Go binaries."""
+    # Score files by secV-pattern matches
+    candidates = []
+    for pat in ("*.py", "*.sh", "*.rb", "*.js", "*.ts"):
+        candidates.extend(sorted(tool_dir.glob(pat)))
+
+    best = None
+    best_score = -1
+    best_lang = ""
+
+    for f in candidates:
+        try:
+            src = f.read_text(errors="replace")
+        except Exception:
+            continue
+        score = (src.count("params.get(") + src.count("context.get(") +
+                 src.count("sys.stdin") + src.count("jq -r '.params") +
+                 src.count("STDIN.read") + src.count("process.stdin"))
+        if score > best_score:
+            best_score = score
+            best = f
+            best_lang = f.suffix
+
+    if best is None:
+        # Check for compiled binaries
+        for f in tool_dir.iterdir():
+            if f.is_file() and not f.suffix and f.stat().st_mode & 0o111:
+                return f"./{f.name}"
+        return ""
+
+    interpreters = {".py": "python3", ".sh": "bash", ".rb": "ruby",
+                    ".js": "node", ".ts": "node"}
+    interp = interpreters.get(best_lang, "bash")
+    return f"{interp} {best.name}"
+
+
+def _generate_examples(name: str, operations: List[str], params: Dict[str, dict]) -> List[dict]:
+    """Auto-generate usage examples from detected operations and parameters."""
+    examples: List[dict] = []
+    key_params = [p for p in params if p not in ("operation", "op", "mode")][:3]
+
+    if not operations:
+        # Generic example
+        cmds = [f"use {name}"]
+        for p in key_params:
+            info = params[p]
+            ex_val = info.get("examples", [None])[0] or info.get("default") or f"<{p}>"
+            cmds.append(f"set {p} {ex_val}")
+        cmds.append("run <target>")
+        examples.append({"description": f"Basic {name} usage", "commands": cmds})
+        return examples
+
+    for op in operations[:4]:  # generate up to 4 examples
+        cmds = [f"use {name}", f"set operation {op}"]
+        for p in key_params:
+            info = params[p]
+            ex_val = info.get("examples", [None])[0] or info.get("default") or f"<{p}>"
+            if ex_val is not None:
+                cmds.append(f"set {p} {ex_val}")
+        cmds.append("run <target>")
+        examples.append({"description": f"{op.replace('_',' ').capitalize()} operation", "commands": cmds})
+
+    # Add a global-params example if there are connection params
+    conn_params = [p for p in params if p in ("lhost", "lport", "rhost")]
+    if conn_params:
+        setg_cmds = [f"setg {p} <value>" for p in conn_params[:2]]
+        setg_cmds += [f"use {name}", f"run <target>"]
+        examples.append({
+            "description": "[v2.4.3] Use setg for persistent connection params",
+            "commands": setg_cmds
+        })
+
+    return examples
+
+
+def _build_inputs(params: Dict[str, dict]) -> dict:
+    """Build the inputs schema from the parameters dict."""
+    inputs: dict = {}
+    for pname, info in params.items():
+        entry: Dict[str, Any] = {
+            "type":     info.get("type", "string"),
+            "required": info.get("required", False),
+        }
+        if info.get("default") is not None:
+            entry["default"] = info["default"]
+        if info.get("description"):
+            entry["description"] = info["description"]
+        if info.get("options"):
+            entry["options"] = info["options"]
+        inputs[pname] = entry
+    return inputs
+
+
 def scan_tool(tool_path: Path) -> dict:
-    """Scan a tool path and return a partial module dict ready for JSON."""
+    """Scan a tool path and return a complete module dict ready for JSON."""
     if tool_path.is_file():
         tool_dir = tool_path.parent
     else:
@@ -431,8 +686,11 @@ def scan_tool(tool_path: Path) -> dict:
 
     files = _collect_source_files(tool_path)
 
-    all_params:  Dict[str, dict] = {}
-    all_imports: List[str] = []
+    all_params:    Dict[str, dict] = {}
+    all_imports:   List[str] = []
+    all_optional:  List[str] = []
+    all_ops:       List[str] = []
+    all_features:  List[str] = []
     module_doc = class_doc = version = author = ""
 
     for f in files:
@@ -453,15 +711,26 @@ def scan_tool(tool_path: Path) -> dict:
                 version = a.version
             if not author and a.author:
                 author = a.author
+            # New: extract operations, optional deps, features
+            ops_found = a._extract_operations(ast.parse(src))
+            for op in ops_found:
+                if op not in all_ops:
+                    all_ops.append(op)
+            all_optional.extend(a._extract_optional_imports(ast.parse(src)))
+            if not all_features:
+                all_features = a._extract_features(src)
         elif f.suffix == ".sh":
             all_params.update(_analyse_bash(src))
 
     # ── Metadata ──────────────────────────────────────────────────────────────
     name = tool_dir.name
     category = _category_from_path(tool_dir)
-    executable = _detect_executable(tool_dir) if tool_path.is_dir() else \
+    executable = _detect_executable_extended(tool_dir) if tool_path.is_dir() else \
                  (f"python3 {tool_path.name}" if tool_path.suffix == ".py"
-                  else f"bash {tool_path.name}")
+                  else f"bash {tool_path.name}" if tool_path.suffix == ".sh"
+                  else f"ruby {tool_path.name}" if tool_path.suffix == ".rb"
+                  else f"node {tool_path.name}" if tool_path.suffix in (".js", ".ts")
+                  else f"./{tool_path.name}")
 
     # Description: first non-empty line of module_doc or class_doc
     description = ""
@@ -477,14 +746,37 @@ def scan_tool(tool_path: Path) -> dict:
     # Help description: full docstring, else same as description
     help_desc = (module_doc or class_doc or description).strip()
 
-    # Dependencies: third-party imports
-    deps = sorted(set(all_imports))
+    # Dependencies: required third-party imports (not optional)
+    optional_set = set(all_optional)
+    required_deps = sorted(set(i for i in all_imports if i not in optional_set))
+    optional_deps: Dict[str, str] = {
+        dep: f"Optional feature - pip3 install {dep}" for dep in sorted(optional_set)
+    }
 
-    # ── Build ParameterHelp entries ───────────────────────────────────────────
+    # ── Inject operation parameter if operations were detected ─────────────────
+    if all_ops and "operation" not in all_params:
+        all_params["operation"] = {
+            "description": "Operation to perform - see options list for available operations",
+            "type": "string",
+            "required": True,
+            "default": all_ops[0],
+            "examples": all_ops[:3],
+            "options": all_ops,
+        }
+    elif all_ops and "operation" in all_params:
+        # Update options list if we found operations
+        if not all_params["operation"].get("options"):
+            all_params["operation"]["options"] = all_ops
+        if not all_params["operation"].get("examples"):
+            all_params["operation"]["examples"] = all_ops[:3]
+
+    # ── Build ParameterHelp entries with smart descriptions ───────────────────
     parameters: Dict[str, dict] = {}
     for pname, pinfo in sorted(all_params.items()):
+        desc = pinfo.get("description") or _smart_description(
+            pname, pinfo.get("type", "string"), pinfo.get("default"))
         entry: Dict[str, Any] = {
-            "description": pinfo.get("description", ""),
+            "description": desc,
             "type": pinfo.get("type", "string"),
             "required": pinfo.get("required", False),
         }
@@ -497,6 +789,17 @@ def scan_tool(tool_path: Path) -> dict:
             entry["examples"] = pinfo["examples"]
         parameters[pname] = entry
 
+    # ── Auto-generate examples ─────────────────────────────────────────────────
+    examples = _generate_examples(name, all_ops, parameters)
+
+    # ── Standard v2.4.3 notes ─────────────────────────────────────────────────
+    notes = [
+        "[v2.4.3] setg <param> <value> sets a global parameter that persists across module switches",
+        "[v2.4.3] Bare run (no target) reuses the last target automatically",
+        "[v2.4.3] options shortcut for show options | modules shortcut for show modules",
+        "[v2.4.3] Tab after set shows all parameter names for the loaded module",
+    ]
+
     module = {
         "name":        name,
         "version":     version or "1.0.0",
@@ -504,18 +807,27 @@ def scan_tool(tool_path: Path) -> dict:
         "description": description,
         "author":      author or "unknown",
         "executable":  executable,
-        "dependencies": deps,
-        "optional_dependencies": {},
+        "dependencies": required_deps,
+        "optional_dependencies": optional_deps,
         "help": {
             "description": help_desc,
             "parameters":  parameters,
-            "examples":    [],
-            "features":    [],
-            "installation_tiers": {},
-            "notes":       [],
+            "examples":    examples,
+            "features":    all_features,
+            "installation_tiers": {
+                "basic":    "Core functionality with stdlib only",
+                "standard": "Recommended - includes optional scanning deps",
+                "full":     "All features enabled",
+            },
+            "notes": notes,
         },
-        "inputs":  {},
-        "outputs": {},
+        "inputs":  _build_inputs(parameters),
+        "outputs": {
+            "success":  {"type": "boolean",  "description": "True if the operation completed without fatal error"},
+            "findings": {"type": "array",    "description": "List of findings with title, severity, detail fields"},
+            "data":     {"type": "object",   "description": "Structured result data specific to this operation"},
+            "errors":   {"type": "array",    "description": "List of non-fatal error strings"},
+        },
         "timeout": 300,
     }
     return module
@@ -550,7 +862,7 @@ _C_BOLD    = "\033[1m"
 _C_DIM     = "\033[2m"
 _C_RESET   = "\033[0m"
 
-_VALID_CATEGORIES = {"web", "network", "mobile", "ctf", "misc"}
+_VALID_CATEGORIES = {"web", "network", "mobile", "AD", "ctf", "phys", "misc"}
 _VALID_PARAM_TYPES = {"string", "boolean", "number", "integer", "float", "array"}
 
 
@@ -643,7 +955,7 @@ def _wizard(out_dir: Optional[Path] = None) -> None:
         # ── Step 3/9 – category ──────────────────────────────────────────────
         category = _ask(
             "[3/9] Category",
-            default=defaults.get("category", "misc"),
+            default=defaults.get("category", "network"),
             choices=sorted(_VALID_CATEGORIES),
         )
         defaults["category"] = category
@@ -778,6 +1090,10 @@ def _wizard(out_dir: Optional[Path] = None) -> None:
                 "options": operations,
             }
 
+        # ── Auto-generate examples and inputs ─────────────────────────────────
+        auto_examples = _generate_examples(name, operations, parameters)
+        auto_inputs   = _build_inputs(parameters)
+
         # ── Build module dict ─────────────────────────────────────────────────
         module: Dict[str, Any] = {
             "name":        name,
@@ -791,13 +1107,26 @@ def _wizard(out_dir: Optional[Path] = None) -> None:
             "help": {
                 "description": description,
                 "parameters":  parameters,
-                "examples":    [],
+                "examples":    auto_examples,
                 "features":    [],
-                "installation_tiers": {},
-                "notes":       [],
+                "installation_tiers": {
+                    "basic":    "Core functionality with stdlib only",
+                    "standard": "Recommended - includes common deps",
+                    "full":     "All features enabled",
+                },
+                "notes": [
+                    "[v2.4.3] setg <param> <value> sets a global parameter that persists across module switches",
+                    "[v2.4.3] Bare run (no target) reuses the last target automatically",
+                    "[v2.4.3] Tab after set shows all parameter names for this module",
+                ],
             },
-            "inputs":  {},
-            "outputs": {},
+            "inputs":  auto_inputs,
+            "outputs": {
+                "success":  {"type": "boolean",  "description": "True if operation completed without fatal error"},
+                "findings": {"type": "array",    "description": "List of findings with title, severity, detail fields"},
+                "data":     {"type": "object",   "description": "Structured result data for this operation"},
+                "errors":   {"type": "array",    "description": "List of non-fatal error strings"},
+            },
             "timeout": timeout,
         }
 

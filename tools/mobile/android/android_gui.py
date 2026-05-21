@@ -4134,7 +4134,7 @@ function initCodeBg() {
     'LHOST=`ip route get 1 | awk \'{print $7}\'`',
     'nc -lvnp 4444  # catch incoming shell',
     // secV arch
-    '// secV v2.4.2 · tauri · concurrent sessions',
+    '// secV v2.4.3 · tauri · concurrent sessions',
     'secV.run(op, target, params) -> session_id',
     '// golang concurrent session manager',
   ];

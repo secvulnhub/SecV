@@ -2,7 +2,7 @@
   "name": "adsec",
   "version": "1.0.2",
   "category": "AD",
-  "description": "Active Directory security assessment: enumeration, Kerberoasting, AS-REP roasting, password spraying, BloodHound collection, vuln checks, and loot extraction \u2014 all in one module",
+  "description": "Active Directory security assessment: enumeration, Kerberoasting, AS-REP roasting, password spraying, BloodHound collection, vuln checks, and loot extraction — all in one module",
   "author": "0xb0rn3 | github.com/0xb0rn3",
   "executable": "python3 adsec.py",
   "dependencies": [
@@ -64,7 +64,7 @@
           "auto        - Run all safe operations with given context",
           "exec        - Execute a shell command on the target (creds required)",
           "privesc_check - Audit Windows privesc vectors (unquoted paths, writable binaries, UAC, stored creds)",
-          "office_macros \u2014 generate VBA macro templates: download_exec, persistence, reverse_shell, etc."
+          "office_macros — generate VBA macro templates: download_exec, persistence, reverse_shell, etc."
         ]
       },
       "domain": {
@@ -113,7 +113,7 @@
         "required": false
       },
       "safe_spray": {
-        "description": "Lockout-aware spraying \u2014 read passpol first, leave 1-2 attempts buffer",
+        "description": "Lockout-aware spraying — read passpol first, leave 1-2 attempts buffer",
         "type": "boolean",
         "default": true
       },
@@ -327,24 +327,24 @@
       "groups": "Enumerate domain groups, members, nested membership, Domain Admins, Enterprise Admins",
       "shares": "Map all SMB shares, test READ/WRITE per share, list root contents of accessible shares",
       "passpol": "Pull domain password policy: lockout threshold, observation window, complexity, min length",
-      "kerberoast": "Discover SPNs via LDAP and request TGS for each \u2014 output hashcat-format hashes",
+      "kerberoast": "Discover SPNs via LDAP and request TGS for each — output hashcat-format hashes",
       "asreproast": "Probe users for DONT_REQUIRE_PREAUTH flag and dump AS-REP hashes (offline crackable)",
-      "spray": "Lockout-aware credential spraying \u2014 checks passpol first, sprays single password across all users",
+      "spray": "Lockout-aware credential spraying — checks passpol first, sprays single password across all users",
       "vulncheck": "Zerologon CVE-2020-1472, PetitPotam, NoPac CVE-2021-42278/42287, MachineAccountQuota, ADCS detection",
-      "bloodhound": "Run bloodhound-python collection or pure-Python LDAP collection \u2014 outputs BH-compatible JSON zip",
+      "bloodhound": "Run bloodhound-python collection or pure-Python LDAP collection — outputs BH-compatible JSON zip",
       "loot": "Search readable shares for cred files: web.config, unattend.xml, GPP groups.xml (cpassword), .kdbx, .ssh keys",
-      "secrets": "Dump SAM/LSA/NTDS via secretsdump \u2014 domain admin or local admin required",
+      "secrets": "Dump SAM/LSA/NTDS via secretsdump — domain admin or local admin required",
       "exec": "Run arbitrary command on target via WMI (impacket-wmiexec or pure-impacket native fallback)",
       "privesc_check": "Drop+run PowerShell privesc auditor: unquoted services, writable binaries, AlwaysInstallElevated, UAC, token privs, stored creds, writable PATH, autoruns",
-      "hunt": "LDAP threat hunting: new computer accounts (NotPetya lateral move), unusual SPNs (Kerberoasting prep/malware SAs), AdminSDHolder modifications, stale privileged accounts, rogue DCs (DCShadow), weak account policy \u2014 derived from OperationDianxun/NotPetya/EternalRocks analysis",
-      "auto": "Pipeline: discover \u2192 vulncheck \u2192 users \u2192 groups \u2192 shares \u2192 passpol \u2192 asreproast (+ kerberoast/bloodhound/privesc_check/hunt if creds) \u2192 loot"
+      "hunt": "LDAP threat hunting: new computer accounts (NotPetya lateral move), unusual SPNs (Kerberoasting prep/malware SAs), AdminSDHolder modifications, stale privileged accounts, rogue DCs (DCShadow), weak account policy — derived from OperationDianxun/NotPetya/EternalRocks analysis",
+      "auto": "Pipeline: discover → vulncheck → users → groups → shares → passpol → asreproast (+ kerberoast/bloodhound/privesc_check/hunt if creds) → loot"
     },
     "safety_features": [
-      "\ud83d\udd12 Lockout-aware spraying \u2014 pulls passpol first, leaves 2-attempt buffer below threshold",
-      "\ud83d\udd12 exclude_users supports avoiding krbtgt/admin/Guest from spray attempts",
-      "\ud83d\udd12 Connection pooling and rate-limiting prevent IDS triggers",
-      "\ud83d\udd12 Pure-Python fallbacks mean no need to install dozens of tools",
-      "\ud83d\udd12 All credential operations log to output_dir for audit trail"
+      "🔒 Lockout-aware spraying — pulls passpol first, leaves 2-attempt buffer below threshold",
+      "🔒 exclude_users supports avoiding krbtgt/admin/Guest from spray attempts",
+      "🔒 Connection pooling and rate-limiting prevent IDS triggers",
+      "🔒 Pure-Python fallbacks mean no need to install dozens of tools",
+      "🔒 All credential operations log to output_dir for audit trail"
     ],
     "output_structure": {
       "domain_info": {
@@ -374,16 +374,23 @@
       "secrets": "{sam[], lsa[], ntds[], output_files[]}"
     },
     "notes": [
-      "\u26a0\ufe0f  AUTHORIZATION REQUIRED: Only run against systems you own or have explicit written permission to test",
-      "\u26a0\ufe0f  Spraying and Kerberoasting can trigger SIEM alerts \u2014 coordinate with blue team",
-      "\u26a0\ufe0f  AS-REP roasting only works on users with DONT_REQUIRE_PREAUTH set (rare but valuable)",
-      "\u26a0\ufe0f  secretsdump requires DA or local admin \u2014 destructive to victim's tradecraft if misused",
-      "\ud83d\udca1 Start with 'discover' to understand the domain before running anything authenticated",
-      "\ud83d\udca1 Use 'vulncheck' early \u2014 Zerologon = instant DA on unpatched DCs",
-      "\ud83d\udca1 BloodHound collection with low-priv creds reveals all attack paths to DA",
-      "\ud83d\udca1 'auto' mode runs the full safe pipeline \u2014 fastest path from zero to assessment report",
-      "\ud83d\udca1 Save hashes from kerberoast/asreproast and crack offline with hashcat -m 13100 / -m 18200",
-      "\ud83d\udd10 Hashes are written to output_dir with timestamps \u2014 never logged to stdout"
+      "⚠️  AUTHORIZATION REQUIRED: Only run against systems you own or have explicit written permission to test",
+      "⚠️  Spraying and Kerberoasting can trigger SIEM alerts — coordinate with blue team",
+      "⚠️  AS-REP roasting only works on users with DONT_REQUIRE_PREAUTH set (rare but valuable)",
+      "⚠️  secretsdump requires DA or local admin — destructive to victim's tradecraft if misused",
+      "💡 Start with 'discover' to understand the domain before running anything authenticated",
+      "💡 Use 'vulncheck' early — Zerologon = instant DA on unpatched DCs",
+      "💡 BloodHound collection with low-priv creds reveals all attack paths to DA",
+      "💡 'auto' mode runs the full safe pipeline — fastest path from zero to assessment report",
+      "💡 Save hashes from kerberoast/asreproast and crack offline with hashcat -m 13100 / -m 18200",
+      "🔐 Hashes are written to output_dir with timestamps — never logged to stdout",
+      "[v2.4.3] setg <param> <value> - sets a global parameter that persists across all module switches and back/use commands",
+      "[v2.4.3] unsetg <param> - clears a global parameter",
+      "[v2.4.3] show global - shows all currently set global parameters",
+      "[v2.4.3] Bare run (no target) reuses the last target automatically",
+      "[v2.4.3] options - shortcut for show options | modules - shortcut for show modules",
+      "[v2.4.3] Tab after set shows all parameter names for the loaded module",
+      "[v2.4.3] Fish-style shell: predicted next command shown above prompt, Ctrl+F to accept suggestion"
     ],
     "legal_disclaimer": "This tool is for authorized security testing only. Unauthorized AD enumeration, credential attacks, or domain controller exploitation may violate computer fraud laws including CFAA in the US. Always obtain explicit written authorization."
   },

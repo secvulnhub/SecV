@@ -2,9 +2,9 @@
 
 Complete reference of all SecV security modules.
 
-**Version:** 2.4.2  
-**Total Modules:** 12  
-**Categories:** network (5), AD (2), mobile (2), web (1), ctf (1), phys (1)  
+**Version:** 2.4.3  
+**Total Modules:** 13  
+**Categories:** network (5), AD (2), mobile (2), web (1), ctf (1), phys (2)  
 **android_pentest operations:** 39
 
 ---
@@ -39,15 +39,15 @@ Runs nmap, masscan, rustscan, arp-scan, and Shodan simultaneously, merges result
 | `timeout` | integer | `5` | Per-host timeout (seconds) |
 | `os_detection` | boolean | `false` | Enable OS fingerprinting (requires root) |
 | `vuln_scripts` | boolean | `false` | Run nmap vuln scripts |
-| `shodan_key` | string | — | Shodan API key for enrichment |
-| `interface` | string | — | Network interface to bind |
-| `exclude` | string | — | Comma-separated hosts/CIDRs to skip |
-| `passive_only` | boolean | `false` | No active probing — Shodan/DNS only |
+| `shodan_key` | string | - | Shodan API key for enrichment |
+| `interface` | string | - | Network interface to bind |
+| `exclude` | string | - | Comma-separated hosts/CIDRs to skip |
+| `passive_only` | boolean | `false` | No active probing - Shodan/DNS only |
 | `max_hosts` | integer | `1024` | Max IPs sampled from `country:`/`asn:` targets |
 | `evasion` | boolean | `false` | Enable IDS/FW bypass (frags, decoys, source-port spoof) |
 | `proxychains` | boolean | `false` | Wrap nmap through proxychains4 |
 | `web_enum` | boolean | `false` | Run gobuster/ffuf on discovered web ports |
-| `output_dir` | string | — | Save HTML report, nmap XML, MSF RC to this directory |
+| `output_dir` | string | - | Save HTML report, nmap XML, MSF RC to this directory |
 
 **Target formats:**
 
@@ -62,11 +62,11 @@ Runs nmap, masscan, rustscan, arp-scan, and Shodan simultaneously, merges result
 | ASN | `run asn:AS15169` | All prefixes for an ASN (RIPE stat) |
 
 **Output fields:**
-- `hosts[]` — per-host: IP, hostname, OS, MAC, services, ASN, country, risk score
-- `ssl_domains[]` — CN + SANs from TLS certs on each host (CDN noise filtered)
-- `vulnerabilities[]` — host-level findings (SNMP defaults, MQTT no-auth, RTSP no-auth, ICS exposure)
-- `summary{}` — totals, OS distribution, risk breakdown, high-risk hosts
-- `outputs{}` — paths to HTML report, nmap XML, MSF RC file (when `output_dir` set)
+- `hosts[]` - per-host: IP, hostname, OS, MAC, services, ASN, country, risk score
+- `ssl_domains[]` - CN + SANs from TLS certs on each host (CDN noise filtered)
+- `vulnerabilities[]` - host-level findings (SNMP defaults, MQTT no-auth, RTSP no-auth, ICS exposure)
+- `summary{}` - totals, OS distribution, risk breakdown, high-risk hosts
+- `outputs{}` - paths to HTML report, nmap XML, MSF RC file (when `output_dir` set)
 
 **Optional feature availability:**
 - Minimum (stdlib): TCP connect, DNS, WHOIS, ASN lookup (ipinfo.io)
@@ -101,12 +101,12 @@ Per-interface background daemons with multiple rotation strategies, active conne
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `iface` | string | — | Interface name or comma-separated list |
+| `iface` | string | - | Interface name or comma-separated list |
 | `all_up` | boolean | `false` | Target all UP non-loopback interfaces |
 | `action` | string | `start` | `start`, `stop`, `status`, `vendor`, `restore`, `history` |
 | `mode` | string | `smart` | `smart`, `session`, `periodic`, `aggressive` |
 | `interval` | float | `30.0` | Rotation interval (seconds, periodic mode) |
-| `vendor` | string | — | Vendor OUI pool: `apple`, `samsung`, `intel`, `cisco`, `dell` |
+| `vendor` | string | - | Vendor OUI pool: `apple`, `samsung`, `intel`, `cisco`, `dell` |
 | `stealth` | boolean | `false` | Only rotate on disconnect events |
 | `persistent` | boolean | `false` | Write a systemd user service to auto-start on login |
 | `preserve_connections` | boolean | `true` | Skip change when active TCP connections exist |
@@ -144,7 +144,7 @@ secV (mac_spoof) ❯ run localhost
 ### `wifi_monitor` v2.1.0
 **Full-Stack WiFi Attack Suite & Network Monitor**
 
-Combines aircrack-ng toolchain, hostapd evil-twin, WPS attacks, PMKID capture, handshake cracking, passive monitoring, and an OnlyShell reverse shell handler into a single module. 23 modes covering every phase of wireless assessment — discovery, capture, attack, post-exploitation.
+Combines aircrack-ng toolchain, hostapd evil-twin, WPS attacks, PMKID capture, handshake cracking, passive monitoring, and an OnlyShell reverse shell handler into a single module. 23 modes covering every phase of wireless assessment - discovery, capture, attack, post-exploitation.
 
 **Modes:**
 
@@ -154,7 +154,7 @@ Combines aircrack-ng toolchain, hostapd evil-twin, WPS attacks, PMKID capture, h
 | `monitor_on` | Set interface to monitor mode (`airmon-ng start`) |
 | `monitor_off` | Return interface to managed mode |
 | `inject_test` | Test packet injection capability (`aireplay-ng --test`) |
-| `wifi_scan` | Passive scan — list all APs + clients in range |
+| `wifi_scan` | Passive scan - list all APs + clients in range |
 | `capture` | Capture traffic to PCAP on target BSSID/channel |
 | `handshake_check` | Verify a PCAP contains a valid 4-way WPA handshake |
 | `deauth` | Deauth clients from AP (targeted or broadcast) |
@@ -179,11 +179,11 @@ Combines aircrack-ng toolchain, hostapd evil-twin, WPS attacks, PMKID capture, h
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `mode` | string | `scan` | One of the 23 modes above |
-| `iface` | string | — | Wireless interface (e.g. `wlan0`) |
-| `bssid` | string | — | Target AP MAC address |
-| `essid` | string | — | Target AP name |
-| `channel` | string | — | WiFi channel (1–13) |
-| `capture_file` | string | — | PCAP path for capture/handshake/crack |
+| `iface` | string | - | Wireless interface (e.g. `wlan0`) |
+| `bssid` | string | - | Target AP MAC address |
+| `essid` | string | - | Target AP name |
+| `channel` | string | - | WiFi channel (1–13) |
+| `capture_file` | string | - | PCAP path for capture/handshake/crack |
 | `wordlist` | string | `/usr/share/wordlists/rockyou.txt` | Wordlist for cracking |
 | `timeout` | integer | `30` | Operation timeout (seconds) |
 | `lhost` | string | auto | Attacker IP for shell handler |
@@ -256,20 +256,20 @@ Single-tool, full-chain Active Directory pentest covering everything from unauth
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `operation` | string | `discover` | One of the 13 operations above |
-| `domain` | string | — | AD domain FQDN (e.g. `corp.local`) |
-| `username` | string | — | Domain account for authenticated ops |
-| `password` | string | — | Domain password |
-| `hash` | string | — | NTLM hash (`LM:NT` or just `NT`) for pass-the-hash |
+| `domain` | string | - | AD domain FQDN (e.g. `corp.local`) |
+| `username` | string | - | Domain account for authenticated ops |
+| `password` | string | - | Domain password |
+| `hash` | string | - | NTLM hash (`LM:NT` or just `NT`) for pass-the-hash |
 | `kerberos` | boolean | `false` | Use Kerberos auth instead of NTLM |
-| `dc_ip` | string | — | DC IP if different from target |
-| `userlist` | string | — | Path to user list (asreproast, spray) |
-| `passlist` | string | — | Path to password list (spray) |
-| `single_password` | string | — | Single password to spray across users |
+| `dc_ip` | string | - | DC IP if different from target |
+| `userlist` | string | - | Path to user list (asreproast, spray) |
+| `passlist` | string | - | Path to password list (spray) |
+| `single_password` | string | - | Single password to spray across users |
 | `safe_spray` | boolean | `true` | Lockout-aware (pulls passpol first) |
 | `bloodhound_collection` | string | `Default` | `Default`, `All`, `DCOnly`, `ACL`, `Trusts` |
 | `output_dir` | string | `./adsec-loot` | Where hashes, BH zips, and loot are saved |
 | `rid_max` | integer | `4000` | Max RID for SAMR brute |
-| `exclude_users` | string | — | Comma-separated usernames to skip in spray |
+| `exclude_users` | string | - | Comma-separated usernames to skip in spray |
 | `threads` | integer | `20` | Concurrent workers |
 | `timeout` | integer | `30` | Per-op timeout (seconds) |
 
@@ -313,9 +313,9 @@ Windows-side AD post-exploitation toolkit covering 40 operations including UAC b
 | Operation | Description |
 |-----------|-------------|
 | `shell` | OnlyShell reverse shell handler; auto-deliver `powershell_b64` payload via wmiexec/WMI if creds available |
-| `fileless_pe` | Generate `PEloader.py` — fetches and executes a remote DLL or EXE entirely in memory without writing to disk (`pythonmemorymodule`) |
+| `fileless_pe` | Generate `PEloader.py` - fetches and executes a remote DLL or EXE entirely in memory without writing to disk (`pythonmemorymodule`) |
 | `inject_exe` | Bundle a malicious EXE + legitimate EXE into a single PyInstaller binary; runs malware silently then launches the legit app as cover |
-| `office_macros` | Generate Office VBA macro templates: `download_exec`, `hidden_cmd_exec`, `persistence`, `pwsh_cmd`, `reverse_shell` — customised with your URLs/paths |
+| `office_macros` | Generate Office VBA macro templates: `download_exec`, `hidden_cmd_exec`, `persistence`, `pwsh_cmd`, `reverse_shell` - customised with your URLs/paths |
 
 **Shell / macro parameters:**
 
@@ -326,18 +326,18 @@ Windows-side AD post-exploitation toolkit covering 40 operations including UAC b
 | `serve` | `true` | `true` = interactive OnlyShell TUI, `false` = headless JSON |
 | `payload_type` | `powershell_b64` | Shell payload type |
 | `macro_type` | `all` | `download_exec` \| `hidden_cmd_exec` \| `persistence` \| `pwsh_cmd` \| `reverse_shell` \| `all` |
-| `payload_url` | — | Payload server URL (download_exec / hidden_cmd_exec macros) |
-| `rev_url` | — | Reverse PS1 URL (reverse_shell macro) |
+| `payload_url` | - | Payload server URL (download_exec / hidden_cmd_exec macros) |
+| `rev_url` | - | Reverse PS1 URL (reverse_shell macro) |
 
 **Fileless PE / Inject EXE parameters:**
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `url` | — | Remote URL of the EXE or DLL to load in memory (`fileless_pe`) |
+| `url` | - | Remote URL of the EXE or DLL to load in memory (`fileless_pe`) |
 | `file_type` | `exe` | `exe` or `dll` |
-| `method` | — | DLL export method name (required when `file_type=dll`) |
-| `mal_exe` | — | Path to malicious EXE to bundle (`inject_exe`) |
-| `legit_exe` | — | Path to legitimate EXE to use as wrapper (`inject_exe`) |
+| `method` | - | DLL export method name (required when `file_type=dll`) |
+| `mal_exe` | - | Path to malicious EXE to bundle (`inject_exe`) |
+| `legit_exe` | - | Path to legitimate EXE to use as wrapper (`inject_exe`) |
 
 **Quick Start:**
 ```
@@ -377,7 +377,7 @@ secV (winadsec) ❯ run 192.168.1.50
 
 ## Mobile
 
-### `android_pentest` v2.4.2
+### `android_pentest` v2.4.3
 **Full-Lifecycle Android Pentesting Suite**
 
 Device recon to active exploitation, persistence, and live media surveillance. Supports rooted and non-rooted devices, ADB over USB and WiFi, multi-device sweeps, on-device native agent deployment with TCP+HTTP C2, and a full web GUI (`mode=gui`) covering all 39 operations with embedded C2 dashboard and Live Media tab (screen mirror, camera, mic, speaker).
@@ -386,9 +386,9 @@ Device recon to active exploitation, persistence, and live media surveillance. S
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `operation` | string | — | Operation to run (see table below) |
-| `device` | string | — | ADB device serial (auto-detect if single device) |
-| `package` | string | — | Target app package name |
+| `operation` | string | - | Operation to run (see table below) |
+| `device` | string | - | ADB device serial (auto-detect if single device) |
+| `package` | string | - | Target app package name |
 | `frida` | boolean | `false` | Enable Frida runtime instrumentation |
 | `proxy` | boolean | `false` | Enable HTTP proxy interception |
 | `proxy_host` | string | `127.0.0.1` | Proxy host |
@@ -398,9 +398,9 @@ Device recon to active exploitation, persistence, and live media surveillance. S
 | `search_secrets` | boolean | `true` | Scan for hardcoded secrets and credentials |
 | `mirror` | boolean | `false` | Mirror device screen during testing |
 | `record` | boolean | `false` | Record screen during operation |
-| `bore_server` | string | `bore.pub` | Bore relay server hostname — used by `qr_exploit wan` and `wan_expose` bore fallback |
-| `apk_path` | string | — | Explicit APK path to serve in `qr_exploit wan` mode (overrides work_dir glob) |
-| `mode` | string | — | Set to `gui` to launch the full Android Pentest web GUI (`android_gui.py`) at localhost:8897 |
+| `bore_server` | string | `bore.pub` | Bore relay server hostname - used by `qr_exploit wan` and `wan_expose` bore fallback |
+| `apk_path` | string | - | Explicit APK path to serve in `qr_exploit wan` mode (overrides work_dir glob) |
+| `mode` | string | - | Set to `gui` to launch the full Android Pentest web GUI (`android_gui.py`) at localhost:8897 |
 | `gui_port` | int | `8897` | HTTP port for the GUI server (used with `mode=gui`) |
 
 **Operations:**
@@ -449,7 +449,7 @@ Device recon to active exploitation, persistence, and live media surveillance. S
 - Live terminal: real-time SSE output stream with ANSI colours and PTY session ID dedup
 - ADB console tab: raw ADB command input, output inline
 - Findings tab: auto-parsed vulnerability cards from JSON output
-- Live Media tab: screen mirror (ADB MJPEG or MSF snapshot), camera stream (ADB/MSF), mic recording, speaker control — auto-detects screen dimensions from device
+- Live Media tab: screen mirror (ADB MJPEG or MSF snapshot), camera stream (ADB/MSF), mic recording, speaker control - auto-detects screen dimensions from device
 - C2 Dashboard tab: embeds `c2_gui.py` as an inline iframe, auto-started on demand
 
 **On-Device Agent** (`tools/mobile/android/agent/`):
@@ -511,7 +511,7 @@ secV (android_pentest) ❯ run connected
 # → tries cloudflared, falls back to bore automatically
 ```
 
-**bore install** (v0.5.1 — required for `qr_exploit wan` and bore fallback):
+**bore install** (v0.5.1 - required for `qr_exploit wan` and bore fallback):
 ```bash
 curl -sL https://github.com/ekzhang/bore/releases/download/v0.5.1/bore-v0.5.1-x86_64-unknown-linux-musl.tar.gz | tar xz -C ~/.local/bin
 ```
@@ -522,18 +522,18 @@ Raw `deploy_shell` APKs (`com.metasploit.stage`) are flagged immediately. Two by
 
 | Option | Operation | Detection | Requires |
 |--------|-----------|-----------|----------|
-| Template injection | `backdoor_apk` | Medium — real package name, real icon | A legitimate APK |
-| DexClassLoader chain | `rebuild` | Low — no static Meterpreter in APK | bore tunnel for DEX delivery |
+| Template injection | `backdoor_apk` | Medium - real package name, real icon | A legitimate APK |
+| DexClassLoader chain | `rebuild` | Low - no static Meterpreter in APK | bore tunnel for DEX delivery |
 
 ```
-# Option 1 — inject into a legitimate APK
+# Option 1 - inject into a legitimate APK
 set operation backdoor_apk
 set package com.example.app   # or: set apk_path /tmp/app.apk
 set lhost <bore.pub IP>
 set lport <bore MSF port>
 run connected
 
-# Option 2 — DexClassLoader stub (payload delivered at runtime via bore)
+# Option 2 - DexClassLoader stub (payload delivered at runtime via bore)
 set operation rebuild
 set apk_path /tmp/base.apk
 set bore_dex_port 21062
@@ -541,7 +541,7 @@ set bore_msf_port 37993
 run connected
 ```
 
-**Dependencies:** `adb` (system binary — installed by `install.sh`)
+**Dependencies:** `adb` (system binary - installed by `install.sh`)
 
 ---
 
@@ -554,7 +554,7 @@ Tests default credentials across SSH, Telnet, FTP, and HTTP admin panels. Perfor
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `target` | string | — | Target IP address of the IoT device or router |
+| `target` | string | - | Target IP address of the IoT device or router |
 | `ssh` | bool | `true` | Test SSH default credentials via paramiko |
 | `telnet` | bool | `true` | Test Telnet default credentials (raw socket, no telnetlib) |
 | `ftp` | bool | `true` | Test FTP default credentials via ftplib |
@@ -587,8 +587,8 @@ secV (iot_pwn) ❯ run 192.168.1.1
 Set `mode=shell` to start the OnlyShell reverse shell handler. If `ssh_user` and `ssh_pass` are provided the payload is auto-delivered via paramiko SSH.
 
 **Optional dependencies:**
-- `paramiko` — SSH credential testing + shell auto-delivery: `pip3 install paramiko`
-- `requests` — HTTP admin panel discovery + credential testing: `pip3 install requests`
+- `paramiko` - SSH credential testing + shell auto-delivery: `pip3 install paramiko`
+- `requests` - HTTP admin panel discovery + credential testing: `pip3 install requests`
 
 ---
 
@@ -602,7 +602,7 @@ Python port of [OnlyShell](https://github.com/malwarekid/OnlyShell) with an exte
 | Mode | Description |
 |------|-------------|
 | `serve` | Interactive OnlyShell TUI: multi-session handler, shell type detection, bg/fg, broadcast |
-| `listen` | Headless listener for `duration` seconds — returns JSON session report (GUI integration) |
+| `listen` | Headless listener for `duration` seconds - returns JSON session report (GUI integration) |
 | `generate` | Output 30+ reverse shell one-liners for a given LHOST/LPORT |
 | `nim_backdoor` | Compile a Nim reverse shell binary with auto-reconnect loop (requires `nim` compiler) |
 | `check` | List installed helper tools (nc, socat, msfvenom, nim, etc.) |
@@ -617,8 +617,8 @@ Python port of [OnlyShell](https://github.com/malwarekid/OnlyShell) with an exte
 | `lport` | integer | `4444` | Listener port for payload generation |
 | `shell` | string | `all` | Payload type for `generate`: `bash_tcp`, `python3`, `powershell_b64`, `all`, etc. |
 | `duration` | integer | `60` | Headless listen window in seconds (`listen` mode) |
-| `tls_cert` | string | — | Path to TLS cert PEM (enables encrypted listeners) |
-| `tls_key` | string | — | Path to TLS key PEM |
+| `tls_cert` | string | - | Path to TLS cert PEM (enables encrypted listeners) |
+| `tls_key` | string | - | Path to TLS key PEM |
 | `target_os` | string | `linux` | Target OS for Nim backdoor: `linux` or `windows` |
 | `output` | string | auto | Output filename for Nim backdoor binary |
 
@@ -655,7 +655,7 @@ secV (revshell) ❯ set lport 4444
 secV (revshell) ❯ set target_os linux
 secV (revshell) ❯ run target
 
-# CLI shortcut — start listener immediately
+# CLI shortcut - start listener immediately
 python3 tools/network/revshell/revshell.py 4444
 ```
 
@@ -675,9 +675,9 @@ Syncs `github.com/0xb0rn3/CTFs`, lists all rooms newest first, and runs standalo
 | Parameter  | Type   | Default | Description |
 |------------|--------|---------|-------------|
 | `operation`| string | `list`  | `list` \| `pull` \| `latest` \| `run` \| `info` \| `search` \| `new` |
-| `ctf`      | string | —       | Room name (case-insensitive, partial match) |
+| `ctf`      | string | -       | Room name (case-insensitive, partial match) |
 | `platform` | string | `THM`   | `THM` \| `HTB` \| `ALL` |
-| `query`    | string | —       | Search term for `search` operation |
+| `query`    | string | -       | Search term for `search` operation |
 
 **Operations:**
 
@@ -723,10 +723,10 @@ IPA static analysis, binary protection checks (PIE, stack canary, ARC, encryptio
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `operation` | string | `recon` | `recon`, `app_scan`, `vuln_scan`, `exploit`, `shell`, `full` |
-| `udid` | string | — | Device UDID (auto-detect if single device) |
-| `bundle_id` | string | — | Target app bundle ID |
-| `ipa_path` | string | — | Path to local IPA for static analysis |
-| `ssh_host` | string | — | Jailbroken device IP for SSH access |
+| `udid` | string | - | Device UDID (auto-detect if single device) |
+| `bundle_id` | string | - | Target app bundle ID |
+| `ipa_path` | string | - | Path to local IPA for static analysis |
+| `ssh_host` | string | - | Jailbroken device IP for SSH access |
 | `ssh_port` | integer | `22` | SSH port |
 | `ssh_user` | string | `root` | SSH user |
 | `ssh_pass` | string | `alpine` | SSH password |
@@ -734,7 +734,7 @@ IPA static analysis, binary protection checks (PIE, stack canary, ARC, encryptio
 | `deep_analysis` | boolean | `false` | Extended binary analysis |
 | `ssl_bypass` | boolean | `false` | Frida SSL pinning bypass |
 | `frida` | boolean | `false` | Enable Frida instrumentation |
-| `nvd_api_key` | string | — | NVD API key (higher rate limit) |
+| `nvd_api_key` | string | - | NVD API key (higher rate limit) |
 
 **Prerequisites:**
 - Non-jailbroken: `ideviceinfo` + local IPA file
@@ -757,7 +757,7 @@ secV (ios_pentest) ❯ run device
 
 ## Web
 
-### `websec` v2.4.1
+### `websec` v2.4.3
 **Web Offensive Tool**
 
 Full-stack web attack surface tool. DNS/WHOIS/SSL OSINT, security headers, CORS, cookies, directory brute-force, error-based + time-blind SQLi (WAF evasion variants), reflected XSS, CSRF, 403 bypass, open redirect, Jira/AEM/Confluence CVEs, WordPress attack surface (user enum, xmlrpc, plugins, version), WAF fingerprinting, web spidering, Google dorks. Built-in stealth layer: 20-string UA rotation, full browser headers, delay/jitter, proxy/Tor routing. Authenticated scanning via cookies/custom headers.
@@ -769,21 +769,21 @@ Full-stack web attack surface tool. DNS/WHOIS/SSL OSINT, security headers, CORS,
 | Parameter     | Type    | Default       | Description                                                    |
 |---------------|---------|---------------|----------------------------------------------------------------|
 | `operation`   | string  | `recon`       | Operation to run (see table below)                             |
-| `test_url`    | string  | —             | URL with params for SQLi/XSS (`https://example.com/s?q=test`) |
+| `test_url`    | string  | -             | URL with params for SQLi/XSS (`https://example.com/s?q=test`) |
 | `bypass_path` | string  | `/admin`      | Path to test 403 bypass on                                     |
-| `cookies`     | string  | —             | Session cookies: `key=value; key2=value2`                      |
-| `headers_str` | string  | —             | Custom request headers: `Header: value; Header2: value`        |
+| `cookies`     | string  | -             | Session cookies: `key=value; key2=value2`                      |
+| `headers_str` | string  | -             | Custom request headers: `Header: value; Header2: value`        |
 | `user_agent`  | string  | Chrome 124    | Override User-Agent (ignored when `rotate_ua true`)            |
 | `threads`     | integer | `10`          | Concurrent threads for directory discovery (1–50)              |
 | `timeout`     | number  | `10.0`        | HTTP request timeout in seconds                                |
 | `max_pages`   | integer | `50`          | Max pages to crawl in spider operation                         |
-| `wordlist_file`| string | —             | Path to custom wordlist for directory discovery                |
+| `wordlist_file`| string | -             | Path to custom wordlist for directory discovery                |
 | `verbose`     | boolean | `false`       | Verbose output                                                 |
 | `stealth`     | boolean | `false`       | UA rotation + full browser headers on every request            |
 | `rotate_ua`   | boolean | `false`       | Per-request UA rotation from 20-string pool                    |
 | `delay`       | number  | `0`           | Fixed delay in seconds between requests                        |
 | `jitter`      | number  | `0`           | Random 0–N second offset added to each delay                   |
-| `proxy`       | string  | —             | Proxy URL: `http://host:port` or `socks5://host:port`          |
+| `proxy`       | string  | -             | Proxy URL: `http://host:port` or `socks5://host:port`          |
 | `waf_evasion` | boolean | `false`       | Obfuscated SQLi/XSS variants to bypass WAF signatures          |
 
 **Operations:**
@@ -811,9 +811,9 @@ Full-stack web attack surface tool. DNS/WHOIS/SSL OSINT, security headers, CORS,
 | `stealth`        | Show stealth config, print live headers, test proxy reachability        |
 | `php_payload`    | Generate PHP reverse shell, webshell, cmd page, or obfuscated payload  |
 | `msf_payload`    | msfvenom web payloads (php/war/jsp/aspx) with a matching handler.rc    |
-| `fuzz`           | Directory/path fuzzing — auto-picks ffuf, gobuster, or dirbuster       |
+| `fuzz`           | Directory/path fuzzing - auto-picks ffuf, gobuster, or dirbuster       |
 | `burp_export`    | Raw HTTP request file, Burp scope JSON, intruder payload list           |
-| `shell`          | Generate all reverse shell payload types; start OnlyShell handler (no auto-delivery — pair with `php_payload` or file upload) |
+| `shell`          | Generate all reverse shell payload types; start OnlyShell handler (no auto-delivery - pair with `php_payload` or file upload) |
 | `full`           | All checks in one pass                                                  |
 
 **Quick Start:**
@@ -843,7 +843,7 @@ secV (websec) ❯ set extensions php,html,txt
 secV (websec) ❯ run https://example.com
 ```
 
-**Authorization required** — only test systems you own or have explicit written permission to test.
+**Authorization required** - only test systems you own or have explicit written permission to test.
 
 ---
 
@@ -868,11 +868,11 @@ Encodes a PowerShell script as base64 and wraps it in DuckyScript that opens Win
 |-----------|------|---------|-------------|
 | `file_path` | string | **required** | Path to the `.ps1` script to encode |
 | `output` | string | auto | Custom output file path |
-| `title` | string | — | Payload metadata: title (REM comment) |
-| `description` | string | — | Payload metadata: description (REM comment) |
-| `author` | string | — | Payload metadata: author (REM comment) |
-| `version` | string | — | Payload metadata: version (REM comment) |
-| `delay_after_ps` | integer | `500` | DELAY (ms) after PowerShell opens — increase on slow targets |
+| `title` | string | - | Payload metadata: title (REM comment) |
+| `description` | string | - | Payload metadata: description (REM comment) |
+| `author` | string | - | Payload metadata: author (REM comment) |
+| `version` | string | - | Payload metadata: version (REM comment) |
+| `delay_after_ps` | integer | `500` | DELAY (ms) after PowerShell opens - increase on slow targets |
 | `ducky_lang` | boolean | `false` | Add `DUCKY_LANG US` line (some firmware versions require this) |
 
 **Quick Start:**
@@ -896,7 +896,7 @@ secV (badusb) ❯ run target
 ```
 
 **Notes:**
-- Only `.ps1` files supported — the certutil decode chain is PowerShell-specific
+- Only `.ps1` files supported - the certutil decode chain is PowerShell-specific
 - Adjust `delay_after_ps` for your hardware (try 1000–2000 ms on cold machines)
 - Works with USB Rubber Ducky, Hak5 devices, and any DuckyScript-compatible tool
 - Output saved to `~/.secv/badusb/` by default
@@ -962,7 +962,7 @@ params = ctx.get("params", {})
 
 After adding: `secV ❯ reload`
 
-### `gen_module.py` — Module JSON Generator
+### `gen_module.py` - Module JSON Generator
 
 Auto-generates `module.json` from source code. Scans Python `params.get()` and `argparse`, and Bash `jq .params.X` patterns.
 
@@ -1001,15 +1001,15 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide.
 |--------|-------|----------|------|-------|-------|
 | `netrecon` | TCP/DNS | + SYN/Nmap | + Shodan/CVE | ✓ | ✓ |
 | `mac_spoof` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `wifi_monitor` | scan/discover | + capture/deauth | + crack/evil_twin | ✓ | — |
+| `wifi_monitor` | scan/discover | + capture/deauth | + crack/evil_twin | ✓ | - |
 | `iot_pwn` | Telnet/FTP/SNMP | + paramiko SSH | + requests HTTP | ✓ | ✓ |
 | `revshell` | serve/generate | + nc/socat payloads | + msfvenom/nim | ✓ | ✓ |
 | `adsec` | discover/enum | + spray/kerberoast | + bloodhound/secretsdump | ✓ | ✓ |
-| `winadsec` | — | — | Full (Windows target, Sliver C2, PyInstaller) | ✓ | ✓ |
+| `winadsec` | - | - | Full (Windows target, Sliver C2, PyInstaller) | ✓ | ✓ |
 | `android_pentest` | recon/adb | + Frida | + all ops + live media | ✓ | ✓ |
 | `ios_pentest` | static IPA | + idevice | + Frida/JB | ✓ | ✓ |
 | `websec` | recon/DNS | + requests/active | + bs4/spider | ✓ | ✓ |
-| `ctfpwn` | list/info | — | + run with tools | ✓ | ✓ |
+| `ctfpwn` | list/info | - | + run with tools | ✓ | ✓ |
 | `badusb` | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 ---

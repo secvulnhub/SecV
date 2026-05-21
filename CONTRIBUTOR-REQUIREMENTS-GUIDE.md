@@ -274,7 +274,7 @@ The global `requirements.txt` follows this format:
 
 ```python
 # SecV Global Dependencies
-# Version: 2.4.2
+# Version: 2.4.3
 # 
 # Installation: pip3 install -r requirements.txt --break-system-packages
 # 

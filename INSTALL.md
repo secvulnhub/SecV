@@ -97,7 +97,7 @@ sudo install -m755 update.py /var/lib/secv/update.py
 ```
 
 ### Custom path override
-Use `SECV_HOME` to point the binary at any tools directory — useful for multiple installs or CI:
+Use `SECV_HOME` to point the binary at any tools directory - useful for multiple installs or CI:
 ```bash
 SECV_HOME=/opt/secv-dev secV
 ```
@@ -134,7 +134,7 @@ secV/
 ├── uninstall.sh                  # Uninstaller
 ├── update.py                     # Updater
 ├── gen_module.py                 # Module JSON generator
-├── rqm.md                        # Global requirements manifest — all modules, all distros
+├── rqm.md                        # Global requirements manifest - all modules, all distros
 ├── requirements.txt              # pip-only convenience (mirrors rqm.md #python section)
 ├── go.mod / go.sum               # Go module manifest
 └── tools/
@@ -145,14 +145,14 @@ secV/
     │   ├── iot_pwn/              # IoT/router default-cred + CVE attacks
     │   └── revshell/             # Multi-session reverse shell handler + payload generator
     ├── AD/
-    │   ├── linux/                # adsec — Linux-side AD pentest + office macros
-    │   └── windows/              # winadsec — Windows AD post-exploitation + fileless PE + inject_exe
+    │   ├── linux/                # adsec - Linux-side AD pentest + office macros
+    │   └── windows/              # winadsec - Windows AD post-exploitation + fileless PE + inject_exe
     ├── mobile/
     │   ├── android/              # Android pentesting suite
     │   └── ios/                  # iOS pentesting suite
     ├── web/
     │   └── websec/               # Full-stack web attack surface tool
-    ├── ctf/                      # ctfpwn — CTF autopwn
+    ├── ctf/                      # ctfpwn - CTF autopwn
     └── phys/
         └── badusb/               # BadUSB / Rubber Ducky DuckyScript encoder
 ```
@@ -258,7 +258,7 @@ cd .. && rm -rf secV/
 
 **Modules not found after system install**
 ```bash
-# The binary can't find tools/ — re-copy them
+# The binary can't find tools/ - re-copy them
 sudo mkdir -p /var/lib/secv
 sudo cp -r tools/ /var/lib/secv/
 sudo install -m755 update.py /var/lib/secv/update.py
@@ -289,7 +289,7 @@ chmod +x secV install.sh
 
 **Missing adb / apktool**
 ```bash
-./install.sh               # re-run installer — it skips already-installed components
+./install.sh               # re-run installer - it skips already-installed components
 ```
 
 **Python dependency missing**
